@@ -24,8 +24,13 @@ Once installed, any device on your network can route its traffic through the Pi 
 
 ## Requirements
 
-- Raspberry Pi (any model with 64-bit OS support recommended)
-- Raspberry Pi OS Bookworm or Bullseye, or Debian 11/12
+- Raspberry Pi (any model with 64-bit OS support recommended), or any x86_64 Linux host
+- One of the supported distro families:
+  - Debian / Raspberry Pi OS / Ubuntu / Mint / Pop
+  - Fedora / RHEL / CentOS / Rocky / AlmaLinux
+  - Arch / Manjaro / EndeavourOS
+  - openSUSE
+  - Alpine
 - Internet access (for pulling Docker images if not using offline archives)
 - Root / sudo access
 
@@ -35,8 +40,8 @@ Once installed, any device on your network can route its traffic through the Pi 
 
 | File | Purpose |
 |------|---------|
-| `pimiproxy-bootstrap.sh` | One-command setup — installs all prerequisites then launches pimiproxy-core.py |
-| `pimiproxy-core.py` | Main install / uninstall / configure script |
+| `pimiproxy.sh` | One-command bootstrap — detects distro, installs all prerequisites, then launches `pimiproxy-core.py` |
+| `pimiproxy-core.py` | Main installer: `install`, `uninstall`, `configure`, `refresh` subcommands |
 | `mihomo.tar.gz` | *(optional)* Pre-pulled Mihomo image for offline install |
 | `metacubexd.tar.gz` | *(optional)* Pre-pulled Metacubexd image for offline install |
 | `zashboard.tar.gz` | *(optional)* Pre-pulled Zashboard image for offline install |
@@ -50,7 +55,7 @@ The `.tar.gz` archives are not included in the repository. See [INSTRUCTIONS.md]
 **Option A — Bootstrap (recommended, handles all prerequisites):**
 
 ```bash
-sudo bash pimiproxy-bootstrap.sh
+sudo bash pimiproxy.sh
 ```
 
 This detects your distro, installs Python, Docker, avahi-daemon, and raspi-config if needed, then launches the installer automatically.
@@ -122,9 +127,23 @@ This stops containers, removes images, deletes all installed files, clears routi
 
 ---
 
+## Subscription management
+
+If you provided a Clash/Mihomo-compatible subscription URL at install time, pimiproxy fetches it during install and extracts the proxy list, proxy groups, and routing rules directly from the provider's config. The result is written into `config.yaml` — no separate provider fetch happens at Mihomo startup.
+
+The subscription is refreshed automatically each night via a cron job. To refresh manually at any time:
+
+```bash
+sudo python3 /opt/pimiproxy/pimiproxy-core.py refresh
+```
+
+This re-fetches the URL, rebuilds `config.yaml`, and restarts Mihomo.
+
+---
+
 ## Configuring proxy groups and rules
 
-After install, run the interactive configurator to manage your subscription, proxy groups, and routing rules without editing YAML by hand:
+Run the interactive configurator to manage your subscription URL, proxy groups, and routing rules:
 
 ```bash
 sudo python3 pimiproxy-core.py configure
@@ -132,9 +151,10 @@ sudo python3 pimiproxy-core.py configure
 
 From there you can:
 - Add or change your Clash API subscription URL
+- Refresh the subscription immediately
 - Add proxy groups (select, url-test, fallback, load-balance)
 - Add, remove, and reorder rules
-- Apply common rule presets (LAN bypass, China GEOIP, catch-all)
+- Apply common rule presets (LAN bypass, catch-all)
 - Preview the generated config before saving
 - Restart Mihomo automatically after saving
 
@@ -142,7 +162,17 @@ From there you can:
 
 ## After install: next steps
 
-The default config passes all traffic through directly (`MATCH,DIRECT`). To actually proxy traffic through an upstream provider, run `sudo python3 pimiproxy-core.py configure` to add proxy groups and rules interactively, or edit `/opt/pimiproxy/config/config.yaml` directly. Then restart Mihomo:
+If you provided a subscription URL at install time, your proxy groups and rules are already configured — open the dashboard and select a server in the proxy group.
+
+If you skipped the subscription prompt, the default config passes all traffic through directly (`MATCH,DIRECT`). Add a subscription later:
+
+```bash
+sudo python3 /opt/pimiproxy/pimiproxy-core.py configure
+```
+
+Choose option 1 to set the URL, then option 5 to fetch it immediately.
+
+To restart Mihomo manually after editing `/opt/pimiproxy/config/config.yaml`:
 
 ```bash
 cd /opt/pimiproxy && docker compose restart mihomo

@@ -49,10 +49,10 @@ docker save ghcr.io/metacubex/metacubexd:latest   | gzip > metacubexd.tar.gz
 docker save ghcr.io/zephyruso/zashboard:latest    | gzip > zashboard.tar.gz
 ```
 
-Then copy the `.tar.gz` files to the Pi into the same directory as `pimiproxy.py`:
+Then copy the `.tar.gz` files to the Pi into the same directory as `pimiproxy-core.py`:
 
 ```bash
-scp mihomo.tar.gz metacubexd.tar.gz zashboard.tar.gz user@pimiproxy.local:~/pi-proxy/
+scp mihomo.tar.gz metacubexd.tar.gz zashboard.tar.gz user@pimiproxy.local:~/pimiproxy/
 ```
 
 If the archives are present in the same directory as the script when you run it, they will be loaded from disk instead of pulled from the internet.
@@ -68,15 +68,15 @@ SSH into your Pi (or open a terminal on it directly) and navigate to the directo
 The bootstrap script detects your distro, installs Python 3, Docker (via the official `get.docker.com` installer), avahi-daemon, and raspi-config automatically, then launches the Python installer. This is the easiest path and works on Debian, Ubuntu, Fedora, Arch, openSUSE, Alpine, and their derivatives.
 
 ```bash
-sudo bash pimiproxy-bootstrap.sh
+sudo bash pimiproxy.sh
 ```
 
 Pass a subcommand to control what happens after prerequisites are confirmed:
 
 ```bash
-sudo bash pimiproxy-bootstrap.sh install     # default
-sudo bash pimiproxy-bootstrap.sh uninstall
-sudo bash pimiproxy-bootstrap.sh configure
+sudo bash pimiproxy.sh install     # default
+sudo bash pimiproxy.sh uninstall
+sudo bash pimiproxy.sh configure
 ```
 
 ### Option B — Python script directly
@@ -84,7 +84,7 @@ sudo bash pimiproxy-bootstrap.sh configure
 If Python 3, Docker + Compose, and avahi-daemon are already installed:
 
 ```bash
-sudo python3 pimiproxy.py install
+sudo python3 pimiproxy-core.py install
 ```
 
 The script will walk you through a series of prompts. Press **Enter** at each one to accept the default value shown in brackets.
@@ -92,7 +92,7 @@ The script will walk you through a series of prompts. Press **Enter** at each on
 To uninstall later:
 
 ```bash
-sudo python3 pimiproxy.py uninstall
+sudo python3 pimiproxy-core.py uninstall
 ```
 
 ### Supported platforms
@@ -252,12 +252,20 @@ The dashboard shows live connections, traffic speed, active rules, and lets you 
 Out of the box, pimiproxy passes all traffic through directly if no subscription URL was provided at install. Use the interactive configurator to set up your provider and routing:
 
 ```bash
-sudo python3 pimiproxy.py configure
+sudo python3 pimiproxy-core.py configure
 ```
 
-### What you can do in configure mode
+### Configure mode menu
 
-**Subscription URL** — add or change your Clash/Mihomo API URL from your provider. This is the URL that delivers the list of proxy servers.
+| Option | Description |
+|--------|-------------|
+| 1) Manage subscription URL | Add or change your Clash/Mihomo API URL |
+| 2) Manage proxy groups | Add or remove proxy groups |
+| 3) Manage rules | Add, remove, or reorder routing rules |
+| 4) Show current config | Print the live config.yaml to screen |
+| 5) Refresh subscription now | Re-fetch server list and restart Mihomo |
+| 6) Save and apply | Write changes and optionally restart Mihomo |
+| 7) Exit without saving | Discard all changes |
 
 **Proxy groups** — add groups that control how traffic is routed:
 
@@ -309,7 +317,7 @@ To check current state:
 sudo clash-system status
 ```
 
-To toggle off and back on (useful after config changes):
+To turn off and immediately back on (useful after config changes):
 
 ```bash
 sudo clash-system restart
@@ -354,6 +362,14 @@ docker compose pull
 docker compose up -d
 ```
 
+### Refresh subscription (manual)
+
+The installer creates a daily cron job (`/etc/cron.daily/pimiproxy-refresh`) that automatically re-fetches your provider's server list and restarts Mihomo. To trigger a refresh manually:
+
+```bash
+sudo python3 pimiproxy-core.py refresh
+```
+
 ### Edit config
 
 ```bash
@@ -366,7 +382,7 @@ cd /opt/pimiproxy && docker compose restart mihomo
 ## 10. Uninstalling
 
 ```bash
-sudo python3 pimiproxy.py uninstall
+sudo python3 pimiproxy-core.py uninstall
 ```
 
 The uninstaller will:
@@ -376,8 +392,9 @@ The uninstaller will:
 3. Clear any active routing rules (`clash-system off`)
 4. Delete `/opt/pimiproxy` and all contents
 5. Remove `/usr/local/bin/clash-system`
-6. Optionally reset the hostname back to `raspberrypi`
-7. Optionally remove avahi-daemon
+6. Remove the daily subscription refresh cron job (`/etc/cron.daily/pimiproxy-refresh`)
+7. Optionally reset the hostname back to `raspberrypi`
+8. Optionally remove avahi-daemon
 
 ---
 
@@ -411,5 +428,15 @@ The uninstaller will:
 ### Install fails with a Docker error
 
 - Confirm Docker is running: `systemctl status docker`
-- If using offline archives, confirm the `.tar.gz` files are in the same directory as `pimiproxy.py`
+- If using offline archives, confirm the `.tar.gz` files are in the same directory as `pimiproxy-core.py`
 - Try pulling manually to see the error: `docker pull --platform linux/arm64 ghcr.io/metacubex/mihomo:latest`
+
+### Subscription URL returns no proxies
+
+Some provider APIs only respond correctly when the client sends a Clash-compatible `User-Agent` header. Use `getapiconfig.py` to debug the raw response:
+
+```bash
+python3 getapiconfig.py
+```
+
+Paste your provider URL when prompted. The script sends a request with `User-Agent: Clash-Verge/1.0` and saves the full response to `raw_debug_output.yaml`. Check that file to confirm valid Clash/Mihomo YAML is being returned before re-running the installer.

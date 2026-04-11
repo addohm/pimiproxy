@@ -1,3 +1,22 @@
+## [4.1.0] — 2026-04-11
+
+### Fixed
+- **`run()` missing `cwd` support** — `compose_run()` passed `cwd=` to `run()` but `run()` silently dropped it, causing a `TypeError` crash at the "Starting services" step on every install.
+- **Mihomo crash loop on startup** — `fallback-filter: geoip: false` added to generated DNS config, preventing Mihomo from attempting to download the MaxMind MMDB database on first run. Previously Mihomo would fatal-exit if it couldn't reach GitHub to download the file.
+- **Provider `GEOIP,*` rules crash** — Rules injected from the provider's ruleset are now filtered to remove `GEOIP,*` entries before writing to `config.yaml`. These rules require the MMDB database at parse time; the provider's existing `IP-CIDR` entries cover the same traffic without it.
+
+### Added
+- **`refresh` subcommand** — `sudo python3 pimiproxy-core.py refresh` re-fetches the subscription URL, rebuilds `config.yaml` with fresh proxy/group/rule data, and restarts Mihomo. Safe to run at any time.
+- **"Refresh subscription now" in configure menu** — option 5 in the interactive configurator triggers the same fetch-rebuild-restart cycle without leaving the menu.
+- **Daily cron refresh** — `/etc/cron.daily/pimiproxy-refresh` installed at install time; re-fetches the subscription and rebuilds config each night automatically. Removed by the uninstaller.
+- **Script copied to install directory** — `pimiproxy-core.py` is copied to `/opt/pimiproxy/` at install time so the cron job has a stable path to call it from.
+
+### Changed
+- **Subscription handling rewritten** — `proxy-providers` with `type: http` removed. Instead, the installer now fetches the subscription URL at install time and injects the `proxies:`, `proxy-groups:`, and `rules:` blocks verbatim into `config.yaml`. This works regardless of whether the provider returns a full Clash config or a proxies-only list, and eliminates the startup delay waiting for Mihomo to fetch its own providers.
+- **Provider groups and rules used directly** — when the subscription response includes `proxy-groups:` and `rules:` sections, they are used as-is rather than replaced with pimiproxy-generated defaults. pimiproxy only contributes the infrastructure layer: ports, API controller, TUN, DNS.
+
+---
+
 ## [4.0.0] — 2026-04-11
 
 ### Added (bootstrap)

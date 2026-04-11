@@ -117,6 +117,106 @@ def run_ok(cmd):
     return run(cmd, check=False, silent=True).returncode == 0
 
 
+# =============================================================================
+# SUBSCRIPTION HELPERS
+# =============================================================================
+def extract_yaml_blocks(content: str) -> dict:
+    """
+    Extract top-level YAML blocks by name from a Clash/Mihomo config.
+    Returns a dict mapping block name -> raw text string for the blocks:
+    'proxies', 'proxy-groups', 'rules'.
+    Works whether the URL returns a full config or a proxies-only list.
+    """
+    target_keys = {"proxies", "proxy-groups", "rules"}
+    lines = content.splitlines(keepends=True)
+    blocks = {}
+    current_key = None
+    current_start = None
+
+    for i, line in enumerate(lines):
+        # Detect a top-level key: non-indented, not a list item, not a comment
+        if (line and not line[0].isspace() and not line.startswith('#')
+                and not line.startswith('-') and ':' in line):
+            key = line.split(':')[0].strip()
+            # Save the block we were accumulating
+            if current_key in target_keys:
+                blocks[current_key] = "".join(lines[current_start:i]).rstrip()
+            current_key = key if key in target_keys else None
+            current_start = i if current_key else None
+
+    # Save the final block
+    if current_key in target_keys:
+        blocks[current_key] = "".join(lines[current_start:]).rstrip()
+
+    return blocks
+
+
+def fetch_subscription(url: str) -> dict:
+    """
+    Fetch a Clash/Mihomo subscription URL and extract the proxies,
+    proxy-groups, and rules blocks. Returns a dict with those keys
+    (values are raw YAML text), or an empty dict on failure.
+    """
+    import urllib.request
+    info("Fetching subscription...")
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "clash.meta"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            content = resp.read().decode("utf-8", errors="replace")
+    except Exception as e:
+        warn(f"Could not fetch subscription: {e}")
+        return {}
+
+    blocks = extract_yaml_blocks(content)
+
+    if "proxies" not in blocks:
+        warn("No proxies: block found in subscription response.")
+        warn("Confirm the URL returns a Clash/Mihomo-compatible config.")
+        return {}
+
+    count = blocks["proxies"].count("- name:")
+    info(f"Found {count} proxies.")
+
+    if "proxy-groups" in blocks:
+        info("Found proxy-groups from provider — will use instead of defaults.")
+
+    if "rules" in blocks:
+        # Strip GEOIP rules — they require the MaxMind MMDB database which
+        # Mihomo downloads from GitHub on first run. On networks that can't
+        # reach GitHub (or during initial setup) this causes a fatal crash.
+        # The provider's ruleset already contains explicit IP-CIDR entries
+        # for China and other regions, so GEOIP rules are redundant here.
+        rules_lines = blocks["rules"].splitlines(keepends=True)
+        filtered = [l for l in rules_lines if "GEOIP," not in l.upper()]
+        removed = len(rules_lines) - len(filtered)
+        if removed:
+            info(f"Removed {removed} GEOIP rules (require MMDB — covered by IP-CIDR rules).")
+        blocks["rules"] = "".join(filtered).rstrip()
+        rule_count = blocks["rules"].count("    - ")
+        info(f"Found {rule_count} rules from provider — will use instead of defaults.")
+
+    return blocks
+
+
+def save_subscription(install_path, url: str) -> bool:
+    """
+    Fetch the subscription and store the extracted proxies/groups/rules blocks
+    into .pimiproxy-config.json so build_config can inject them verbatim.
+    Returns True on success.
+    """
+    blocks = fetch_subscription(url)
+    if not blocks:
+        return False
+
+    ext_cfg_path = install_path / ".pimiproxy-config.json"
+    cfg = json.loads(ext_cfg_path.read_text()) if ext_cfg_path.exists() else {}
+    cfg["subscription_proxies_yaml"] = blocks.get("proxies", "")
+    cfg["subscription_groups_yaml"] = blocks.get("proxy-groups", "")
+    cfg["subscription_rules_yaml"] = blocks.get("rules", "")
+    ext_cfg_path.write_text(json.dumps(cfg, indent=2))
+    return True
+
+
 def apt_install(*packages):
     env = os.environ.copy()
     env["DEBIAN_FRONTEND"] = "noninteractive"
@@ -261,97 +361,106 @@ def build_config(cfg: dict) -> str:
     L("  fallback:")
     L("    - 8.8.8.8")
     L("    - 1.1.1.1")
+    L("  fallback-filter:")
+    L("    geoip: false")
     L("  fake-ip-filter:")
     for entry in [
-            "*.lan", "*.local", "+.facebook.com", "+.fbcdn.net",
+            "*.lan", "*.lan", "+.facebook.com", "+.fbcdn.net",
             "+.messenger.com", "+.doubleclick.net",
             "connectivitycheck.gstatic.com"
     ]:
         L(f'    - "{entry}"')
     L()
 
-    # ── proxy providers ───────────────────────────────────────────────────────
-    providers = cfg.get("proxy_providers", {})
-    if subscription_url:
-        providers["subscription"] = {
-            "url": subscription_url,
-            "interval": 86400,
-            "path": "./providers/subscription.yaml",
-        }
+    # ── proxies / proxy-groups / rules ────────────────────────────────────────
+    # Strategy:
+    #   - If the subscription provided these blocks (fetched by save_subscription),
+    #     inject them verbatim — the provider's config is authoritative.
+    #   - If only proxies were fetched (no groups/rules from provider), fall back
+    #     to pimiproxy-generated simple groups and rules.
+    #   - If no subscription at all, use MATCH,DIRECT pass-through.
+    #   - User-added proxy_groups / rules (from configure mode) are used only
+    #     when no subscription blocks are present.
 
-    if providers:
-        L("proxy-providers:")
-        for name, p in providers.items():
-            L(f"  {name}:")
-            L("    type: http")
-            L(f'    url: "{p["url"]}"')
-            L(f'    interval: {p["interval"]}')
-            L(f'    path: {p["path"]}')
-            L("    health-check:")
-            L("      enable: true")
-            L("      url: https://www.gstatic.com/generate_204")
-            L("      interval: 300")
+    sub_proxies = cfg.get("subscription_proxies_yaml", "")
+    sub_groups = cfg.get("subscription_groups_yaml", "")
+    sub_rules = cfg.get("subscription_rules_yaml", "")
+
+    if sub_proxies:
+        # Inline proxies from provider — inject verbatim
+        L()
+        for line in sub_proxies.splitlines():
+            L(line)
+        L()
+    elif subscription_url:
+        # URL set but subscription not yet fetched; placeholder so config is valid
+        L()
+        L("proxies: []")
         L()
 
-    # ── proxy groups ──────────────────────────────────────────────────────────
-    proxy_groups = cfg.get("proxy_groups", [])
-    if subscription_url and not proxy_groups:
-        proxy_groups = [
-            {
-                "name": "Proxy",
-                "type": "select",
-                "use": ["subscription"]
-            },
-            {
-                "name": "Auto-Fastest",
-                "type": "url-test",
-                "use": ["subscription"],
-                "url": "https://www.gstatic.com/generate_204",
-                "interval": 300,
-                "tolerance": 50
-            },
-        ]
-
-    if proxy_groups:
-        L("proxy-groups:")
-        for g in proxy_groups:
-            L(f'  - name: "{g["name"]}"')
-            L(f'    type: {g["type"]}')
-            if "use" in g:
-                L("    use:")
-                for u in g["use"]:
-                    L(f"      - {u}")
-            if "proxies" in g:
-                L("    proxies:")
-                for p in g["proxies"]:
-                    L(f"      - {p}")
-            if "url" in g:
-                L(f'    url: {g["url"]}')
-            if "interval" in g:
-                L(f'    interval: {g["interval"]}')
-            if "tolerance" in g:
-                L(f'    tolerance: {g["tolerance"]}')
+    if sub_groups:
+        # Proxy groups from provider — inject verbatim
         L()
-
-    # ── rules ─────────────────────────────────────────────────────────────────
-    rules = cfg.get("rules", [])
-    if not rules:
-        if proxy_groups:
-            rules = [
-                "DOMAIN-SUFFIX,lan,DIRECT",
-                "DOMAIN-SUFFIX,local,DIRECT",
-                "IP-CIDR,192.168.0.0/16,DIRECT",
-                "IP-CIDR,10.0.0.0/8,DIRECT",
-                "IP-CIDR,172.16.0.0/12,DIRECT",
-                "MATCH,Proxy",
+        for line in sub_groups.splitlines():
+            L(line)
+        L()
+    else:
+        # Fall back: user-configured groups or simple generated defaults
+        proxy_groups = cfg.get("proxy_groups", [])
+        if subscription_url and not proxy_groups:
+            proxy_groups = [
+                {
+                    "name": "Proxy",
+                    "type": "select",
+                    "proxies": ["DIRECT"]
+                },
             ]
-        else:
-            rules = ["MATCH,DIRECT"]
+        if proxy_groups:
+            L("proxy-groups:")
+            for g in proxy_groups:
+                L(f'  - name: "{g["name"]}"')
+                L(f'    type: {g["type"]}')
+                if "use" in g:
+                    L("    use:")
+                    for u in g["use"]:
+                        L(f"      - {u}")
+                if "proxies" in g:
+                    L("    proxies:")
+                    for p in g["proxies"]:
+                        L(f"      - {p}")
+                if "url" in g:
+                    L(f'    url: {g["url"]}')
+                if "interval" in g:
+                    L(f'    interval: {g["interval"]}')
+                if "tolerance" in g:
+                    L(f'    tolerance: {g["tolerance"]}')
+            L()
 
-    L("rules:")
-    for r in rules:
-        L(f"  - {r}")
-    L()
+    if sub_rules:
+        # Rules from provider — inject verbatim
+        L()
+        for line in sub_rules.splitlines():
+            L(line)
+        L()
+    else:
+        # Fall back: user-configured rules or minimal defaults
+        rules = cfg.get("rules", [])
+        if not rules:
+            if subscription_url or cfg.get("proxy_groups"):
+                rules = [
+                    "DOMAIN-SUFFIX,lan,DIRECT",
+                    "DOMAIN-SUFFIX,local,DIRECT",
+                    "IP-CIDR,192.168.0.0/16,DIRECT",
+                    "IP-CIDR,10.0.0.0/8,DIRECT",
+                    "IP-CIDR,172.16.0.0/12,DIRECT",
+                    "MATCH,Proxy",
+                ]
+            else:
+                rules = ["MATCH,DIRECT"]
+        L("rules:")
+        for r in rules:
+            L(f"  - {r}")
+        L()
 
     return "\n".join(lines)
 
@@ -486,10 +595,11 @@ def do_configure():
         print("  2) Manage proxy groups")
         print("  3) Manage rules")
         print("  4) Show current config")
-        print("  5) Save and apply")
-        print("  6) Exit without saving")
+        print("  5) Refresh subscription now")
+        print("  6) Save and apply")
+        print("  7) Exit without saving")
         print()
-        choice = input("  Selection [1-6]: ").strip()
+        choice = input("  Selection [1-7]: ").strip()
 
         # ── subscription URL ─────────────────────────────────────────────────
         if choice == "1":
@@ -714,7 +824,7 @@ def do_configure():
                             "IP-CIDR,10.0.0.0/8,DIRECT",
                             "IP-CIDR,172.16.0.0/12,DIRECT",
                         ]),
-                        ("Local hostname bypass (.lan and .local go DIRECT)", [
+                        ("Local hostname bypass (.lan and .lan go DIRECT)", [
                             "DOMAIN-SUFFIX,lan,DIRECT",
                             "DOMAIN-SUFFIX,local,DIRECT",
                         ]),
@@ -750,8 +860,27 @@ def do_configure():
             print()
             print(build_config(cfg))
 
-        # ── save and apply ───────────────────────────────────────────────────
+        # ── refresh subscription ─────────────────────────────────────────────
         elif choice == "5":
+            url = cfg.get("subscription_url", "")
+            if not url:
+                warn("No subscription URL configured (option 1).")
+            else:
+                if save_subscription(install_dir, url):
+                    # Reload cfg with fresh subscription blocks and rebuild config
+                    cfg = json.loads(ext_cfg_path.read_text())
+                    cfg_path.write_text(build_config(cfg))
+                    info("config.yaml rebuilt.")
+                    compose = (meta["compose_bin"], meta["compose_sub"])
+                    compose_run(compose,
+                                "restart",
+                                "mihomo",
+                                cwd=install_dir,
+                                silent=False)
+                    info("Mihomo restarted.")
+
+        # ── save and apply ───────────────────────────────────────────────────
+        elif choice == "6":
             if not changed:
                 info("No changes to save.")
                 break
@@ -771,7 +900,7 @@ def do_configure():
                 info("Mihomo restarted.")
             break
 
-        elif choice == "6":
+        elif choice == "7":
             info("Exiting without saving.")
             break
 
@@ -916,18 +1045,52 @@ def do_install():
         "proxy_providers": {},
         "proxy_groups": [],
         "rules": [],
+        "subscription_proxies_yaml": "",
+        "subscription_groups_yaml": "",
+        "subscription_rules_yaml": "",
         "engine_image": engine,
         "dashboard_image": dashboard,
         "dash_name": dash_name,
         "dashboard_port": dashboard_port,
     }
 
+    # ── subscription pre-fetch ────────────────────────────────────────────────
+    # Fetch before writing config so proxies/groups/rules are included on first start
+    if subscription_url:
+        step("Subscription")
+        blocks = fetch_subscription(subscription_url)
+        if blocks:
+            cfg["subscription_proxies_yaml"] = blocks.get("proxies", "")
+            cfg["subscription_groups_yaml"] = blocks.get("proxy-groups", "")
+            cfg["subscription_rules_yaml"] = blocks.get("rules", "")
+        else:
+            warn(
+                "Subscription fetch failed — Mihomo will start with no proxies."
+            )
+            warn("Run after install:  sudo python3 pimiproxy-core.py refresh")
+
     cfg_text = build_config(cfg)
     (install_path / "config" / "config.yaml").write_text(cfg_text)
-    # Save extended config for configure mode
     (install_path / ".pimiproxy-config.json").write_text(
         json.dumps(cfg, indent=2))
     info("config.yaml written.")
+
+    # ── copy script + install daily refresh cron ──────────────────────────────
+    step("Refresh script")
+
+    script_dest = install_path / "pimiproxy-core.py"
+    shutil.copy2(__file__, script_dest)
+    info(f"Script copied to {script_dest}.")
+
+    cron_path = Path("/etc/cron.daily/pimiproxy-refresh")
+    cron_lines = [
+        "#!/usr/bin/env bash",
+        "# pimiproxy daily subscription refresh — generated by installer",
+        f'exec python3 "{script_dest}" refresh',
+    ]
+    cron_path.write_text("\n".join(cron_lines) + "\n")
+    cron_path.chmod(0o755)
+    info("Daily refresh cron installed.")
 
     # ── docker-compose.yml ────────────────────────────────────────────────────
     step("Docker Compose")
@@ -971,10 +1134,10 @@ def do_install():
     print("  Installation complete!")
     print(f"{'─'*42}{C.NC}")
     print()
-    print(f"  Dashboard    ->  http://{hostname_new}.local:{dashboard_port}")
+    print(f"  Dashboard    ->  http://{hostname_new}.lan:{dashboard_port}")
     print(
         f"               ->  http://{lan_ip}:{dashboard_port}  (IP fallback)")
-    print(f"  Mihomo API   ->  http://{hostname_new}.local:{api_port}")
+    print(f"  Mihomo API   ->  http://{hostname_new}.lan:{api_port}")
     print(f"  Proxy        ->  {lan_ip}:{mixed_port}  (HTTP/SOCKS5)")
     print()
     print("  Pi routing control:")
@@ -985,11 +1148,46 @@ def do_install():
     print("  Add or change proxy groups and rules:")
     print("    sudo python3 pimiproxy.py configure")
     print()
-    warn(".local mDNS may take ~30s to propagate after first boot.")
+    warn(".lan mDNS may take ~30s to propagate after first boot.")
     warn(
         "Your router's .lan suffix is router-controlled and separate from mDNS."
     )
     print()
+
+
+# =============================================================================
+# REFRESH
+# =============================================================================
+def do_refresh():
+    meta = read_meta()
+    install_dir = Path(meta["install_dir"])
+    ext_cfg_path = install_dir / ".pimiproxy-config.json"
+
+    if not ext_cfg_path.exists():
+        die("No pimiproxy config found. Is pimiproxy installed?")
+
+    cfg = json.loads(ext_cfg_path.read_text())
+    url = cfg.get("subscription_url", "")
+
+    if not url:
+        info("No subscription URL configured — nothing to refresh.")
+        return
+
+    step("Refreshing subscription")
+    # save_subscription updates .pimiproxy-config.json with new blocks
+    if not save_subscription(install_dir, url):
+        die("Subscription refresh failed.")
+
+    # Reload cfg after save_subscription updated it, rebuild config.yaml
+    cfg = json.loads(ext_cfg_path.read_text())
+    cfg_path = install_dir / "config" / "config.yaml"
+    cfg_path.write_text(build_config(cfg))
+    info("config.yaml rebuilt.")
+
+    # Restart Mihomo to pick up the new inline proxies
+    compose = (meta["compose_bin"], meta["compose_sub"])
+    compose_run(compose, "restart", "mihomo", cwd=install_dir, silent=False)
+    info("Mihomo restarted.")
 
 
 # =============================================================================
@@ -1066,6 +1264,11 @@ def do_uninstall():
         cs.unlink()
         info("Removed /usr/local/bin/clash-system")
 
+    cron_path = Path("/etc/cron.daily/pimiproxy-refresh")
+    if cron_path.exists():
+        cron_path.unlink()
+        info("Removed daily refresh cron.")
+
     # ── hostname ──────────────────────────────────────────────────────────────
     step("Hostname")
 
@@ -1101,6 +1304,7 @@ COMMANDS = {
     "install": do_install,
     "uninstall": do_uninstall,
     "configure": do_configure,
+    "refresh": do_refresh,
 }
 
 
