@@ -52,7 +52,7 @@ docker save ghcr.io/zephyruso/zashboard:latest    | gzip > zashboard.tar.gz
 Then copy the `.tar.gz` files to the Pi into the same directory as `pimiproxy-core.py`:
 
 ```bash
-scp mihomo.tar.gz metacubexd.tar.gz zashboard.tar.gz user@pimiproxy.local:~/pimiproxy/
+scp mihomo.tar.gz metacubexd.tar.gz zashboard.tar.gz user@pimiproxy.lan:~/pimiproxy/
 ```
 
 If the archives are present in the same directory as the script when you run it, they will be loaded from disk instead of pulled from the internet.
@@ -117,7 +117,7 @@ Where all pimiproxy files live — the Docker Compose file, Mihomo config, and i
 ### Hostname
 **Default: `pimiproxy`**
 
-Sets the Pi's system hostname. After install the Pi will be reachable on the LAN as `pimiproxy.local` via mDNS. Your router may also advertise it as `pimiproxy.lan` depending on your router's DNS settings — that is router-controlled and separate from what this installer does.
+Sets the Pi's system hostname. After install the Pi will be reachable as `pimiproxy.lan` on routers that assign `.lan` hostnames via DHCP/DNS, and as `pimiproxy.local` via mDNS on devices that support it.
 
 ### Dashboard port
 **Default: `8080`**
@@ -229,10 +229,16 @@ export all_proxy="socks5://10.0.0.240:7890"
 Open a browser and navigate to:
 
 ```
+http://pimiproxy.lan:8080
+```
+
+If `.lan` doesn't resolve, try mDNS (most non-Android devices):
+
+```
 http://pimiproxy.local:8080
 ```
 
-If `.local` doesn't resolve (can take ~30 seconds on first boot, and some Android devices don't support mDNS), use the IP directly:
+Or by IP directly:
 
 ```
 http://10.0.0.240:8080
@@ -240,7 +246,7 @@ http://10.0.0.240:8080
 
 On first load the dashboard will ask for the API backend address and secret:
 
-- **API URL:** `http://pimiproxy.local:9090` (or `http://10.0.0.240:9090`)
+- **API URL:** `http://pimiproxy.lan:9090` (or `http://10.0.0.240:9090`)
 - **Secret:** `pimiproxy` (or whatever you set during install)
 
 The dashboard shows live connections, traffic speed, active rules, and lets you switch proxy modes and groups without restarting Mihomo.
@@ -406,11 +412,12 @@ The uninstaller will:
 - Try the IP address instead of the hostname: `http://10.0.0.240:8080`
 - Check firewall rules aren't blocking the port
 
-### `pimiproxy.local` doesn't resolve
+### Hostname doesn't resolve
 
-- mDNS can take up to 30 seconds to propagate after first boot
-- Some Android versions don't support `.local` mDNS — use the IP address
+- **`.lan`** resolves via your router's DNS once the Pi renews its DHCP lease — this usually happens within seconds of boot. Check your router's device list to confirm the hostname was registered.
+- **`.local`** resolves via mDNS (avahi). It can take up to 30 seconds to propagate after first boot. Some Android versions don't support `.local` — use `.lan` or the IP address instead.
 - Confirm avahi-daemon is running: `systemctl status avahi-daemon`
+- If neither resolves, use the IP address directly.
 
 ### Proxy not working on a device
 

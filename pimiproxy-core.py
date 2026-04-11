@@ -1146,12 +1146,11 @@ def do_install():
     print("    sudo clash-system status")
     print()
     print("  Add or change proxy groups and rules:")
-    print("    sudo python3 pimiproxy.py configure")
+    print(f"    sudo python3 /opt/pimiproxy/pimiproxy-core.py configure")
     print()
-    warn(".lan mDNS may take ~30s to propagate after first boot.")
-    warn(
-        "Your router's .lan suffix is router-controlled and separate from mDNS."
-    )
+    warn(f"{hostname_new}.lan resolves via your router's DNS once the Pi "
+         "renews its DHCP lease (usually within seconds).")
+    warn(f"{hostname_new}.local also works on devices that support mDNS.")
     print()
 
 

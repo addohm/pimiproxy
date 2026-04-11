@@ -12,7 +12,7 @@ Once installed, any device on your network can route its traffic through the Pi 
 - Exposes a mixed HTTP/SOCKS5 proxy port for other devices to use
 - Provides a web dashboard (Metacubexd or Zashboard) for live traffic monitoring and config control
 - Optionally routes the Pi's own traffic through the proxy via `clash-system`
-- Sets up mDNS so the Pi is reachable as `pimiproxy.local` on the LAN
+- Sets up mDNS so the Pi is reachable as `pimiproxy.local` on the LAN, and as `pimiproxy.lan` on routers that use `.lan` as the local domain
 
 ## What it does not do
 
@@ -104,10 +104,16 @@ The same port accepts both HTTP and SOCKS5 connections.
 After install, open a browser and go to:
 
 ```
+http://pimiproxy.lan:8080
+```
+
+If your router doesn't use `.lan`, try mDNS (most devices):
+
+```
 http://pimiproxy.local:8080
 ```
 
-Or by IP:
+Or by IP directly:
 
 ```
 http://10.0.0.240:8080

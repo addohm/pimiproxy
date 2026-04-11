@@ -38,9 +38,24 @@ Older Pi models (Pi 3, Zero) lack hardware AES-NI. Mihomo's TLS encryption is ha
 
 Check for AES hardware support:
 ```bash
-grep aes /proc/cpuinfo
+grep -i aes /proc/cpuinfo
 ```
-No output means no hardware acceleration. Pi 4 and Pi 5 have AES-NI.
+Look for `aes` in the `Features` line. No match means no hardware acceleration.
+
+**Pi 4 (BCM2711):** The Cortex-A72 cores in the BCM2711 do **not** include the optional ARMv8 cryptographic extensions. `aes` will never appear in the Features line regardless of firmware or kernel version — this is a hardware limitation of the chip, not a software issue. Even with a current kernel (6.12+) and up-to-date EEPROM, AES throughput will be ~50 MB/s (software).
+
+**Pi 5 (BCM2712):** Has hardware AES. `aes pmull sha1 sha2` should appear in the Features line.
+
+To confirm whether software or hardware AES is in use:
+
+```bash
+openssl speed -evp aes-128-cbc
+```
+
+- ~50 MB/s → software AES (Pi 4 or older)
+- ~500+ MB/s → hardware AES (Pi 5 or hardware with crypto extensions)
+
+On a Pi 4, consider using **ChaCha20-Poly1305** instead of AES if your provider supports it — ChaCha20 uses NEON SIMD instructions (which the Pi 4 does have) and performs significantly faster than software AES.
 
 **3. Weak WiFi Signal / Low Link Rate**
 The Pi's onboard WiFi antenna is small and often achieves a lower link rate than a laptop even at the same physical location.
