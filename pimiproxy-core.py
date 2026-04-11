@@ -96,7 +96,7 @@ def choose(prompt, options, default=1):
 # =============================================================================
 # SHELL HELPERS
 # =============================================================================
-def run(cmd, check=True, capture=False, silent=False):
+def run(cmd, check=True, capture=False, silent=False, cwd=None):
     """Run a shell command. cmd is a list or string."""
     kwargs = dict(check=check)
     if capture:
@@ -107,6 +107,8 @@ def run(cmd, check=True, capture=False, silent=False):
         kwargs["stderr"] = subprocess.DEVNULL
     if isinstance(cmd, str):
         kwargs["shell"] = True
+    if cwd is not None:
+        kwargs["cwd"] = cwd
     return subprocess.run(cmd, **kwargs)
 
 

@@ -6,6 +6,14 @@
 # Usage:  curl -fsSL https://your-host/pimiproxy-bootstrap.sh | sudo bash
 #   or:   sudo bash pimiproxy-bootstrap.sh [install|uninstall|configure]
 # =============================================================================
+# PREPARATION (Run on machine with proxy/internet):
+#   docker pull --platform linux/arm64 ghcr.io/metacubex/metacubexd:latest
+#   docker pull --platform linux/arm64 ghcr.io/zephyruso/zashboard:latest
+#   docker pull --platform linux/arm64 metacubex/mihomo:latest
+#   docker save ghcr.io/metacubex/metacubexd | gzip > metacubexd.tar.gz
+#   docker save ghcr.io/zephyruso/zashboard | gzip > zashboard.tar.gz
+#   docker save metacubex/mihomo | gzip > mihomo.tar.gz
+#   rsync -avz *.tar.gz install.sh pi@10.0.0.X:~/pi-proxy/
 
 set -euo pipefail
 
