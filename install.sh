@@ -1,134 +1,147 @@
 #!/bin/bash
+# --- Preparation Commands ---
+# docker pull --platform linux/arm64 ghcr.io/zephyruso/zashboard:latest
+# docker pull --platform linux/arm64 ghcr.io/metacubex/metacubexd:latest
+# docker pull --platform linux/arm64 ghcr.io/metacubex/mihomo:latest
+# docker save ghcr.io/zephyruso/zashboard:latest | gzip > zashboard.tar.gz
+# docker save ghcr.io/metacubex/metacubexd:latest | gzip > metacubexd.tar.gz
+# docker save metacubex/mihomo:latest | gzip > mihomo.tar.gz
 
-# --- Default Variables ---
 INSTALL_DIR="/opt/pimiproxy"
 PROXY_HOSTNAME="pimiproxy"
-PROXY_PORT="7890"
 DASHBOARD_PORT="8080"
-API_PORT="9292"
 
-# Explicit GHCR Paths (Never leave these to default to docker.io)
-GHCR_ENGINE="ghcr.io/metacubex/mihomo:latest"
-GHCR_METACUBEXD="ghcr.io/metacubex/metacubexd:latest"
-GHCR_ZASHBOARD="ghcr.io/zephyr-dev/zashboard:latest"
-
-# Mirror Fallbacks (Using hub.rat.dev which was successful in your logs)
-MIRROR_ENGINE="hub.rat.dev/metacubex/mihomo:latest"
-MIRROR_ZASHBOARD="hub.rat.dev/zephyr-dev/zashboard:latest"
+FALLBACK_ENGINE="ghcr.io/metacubex/mihomo:latest"
+FALLBACK_METACUBEXD="ghcr.io/metacubex/metacubexd:latest"
+FALLBACK_ZASHBOARD="ghcr.io/zephyruso/zashboard:latest"
 
 GREEN='\033[0;32m'
+RED='\033[0;31m'
 NC='\033[0m'
 
-log() { echo -e "${GREEN}[INFO]${NC} $1"; }
-warn() { echo -e "\033[1;33m[WARN]\033[0m $1"; }
-error() { echo -e "\033[0;31m[ERROR]\033[0m $1"; exit 1; }
+# FIXED: Redirect logs to stderr (>&2) so they aren't captured by variables
+log() { echo -e "${GREEN}[INFO]${NC} $1" >&2; }
+error() { 
+    echo -e "${RED}[ERROR]${NC} $1" >&2
+    if [ -f "$INSTALL_DIR/docker-compose.yml" ]; then
+        echo "Debug: Showing hidden characters in YAML (Look for ^I or M-):" >&2
+        cat -A "$INSTALL_DIR/docker-compose.yml" | head -n 15 >&2
+    fi
+    exit 1 
+}
 
 if [[ $EUID -ne 0 ]]; then error "Please run as root (sudo)."; fi
 
-echo -e "${GREEN}--- pimiproxy Installer v1.23 ---${NC}"
+echo -e "${GREEN}--- pimiproxy Installer v1.34 ---${NC}"
 
-# --- 1. MODE SELECTION ---
-echo -e "Choose installation mode:"
-echo -e "1) Express (Accept default ports/paths)"
-echo -e "2) Manual  (Customize ports/paths)"
-read -p "Selection [1]: " MODE_CHOICE
-INSTALL_MODE="express"
-[[ "$MODE_CHOICE" == "2" ]] && INSTALL_MODE="manual"
+# --- Setup Mode ---
+echo "Choose installation mode:"
+echo "1) Express (Default settings)"
+echo "2) Manual (Custom ports/paths)"
+read -p "Selection [1-2]: " MODE
 
-# --- 2. CONFIGURATION ---
-if [ "$INSTALL_MODE" == "manual" ]; then
-    read -p "Install directory [$INSTALL_DIR]: " USER_DIR
-    INSTALL_DIR=${USER_DIR:-$INSTALL_DIR}
-    read -p "System hostname [$PROXY_HOSTNAME]: " USER_HOST
-    PROXY_HOSTNAME=${USER_HOST:-$PROXY_HOST}
-    read -p "Proxy Port [$PROXY_PORT]: " USER_PORT
-    PROXY_PORT=${USER_PORT:-$PROXY_PORT}
-    read -p "Dashboard Port [$DASHBOARD_PORT]: " USER_DASH
-    DASHBOARD_PORT=${USER_DASH:-$DASHBOARD_PORT}
+if [[ "$MODE" == "2" ]]; then
+    read -p "Install Directory [$INSTALL_DIR]: " input_dir
+    INSTALL_DIR=${input_dir:-$INSTALL_DIR}
+    read -p "Hostname [$PROXY_HOSTNAME]: " input_host
+    PROXY_HOSTNAME=${input_host:-$PROXY_HOSTNAME}
+    read -p "Dashboard Port [$DASHBOARD_PORT]: " input_d_port
+    DASHBOARD_PORT=${input_d_port:-$DASHBOARD_PORT}
 fi
 
-# --- 3. MANDATORY DASHBOARD SELECTION ---
-echo -e "\n--- Dashboard Selection ---"
-echo "1) MetaCube(XD) [standard]"
-echo "2) Zashboard    [power users]"
-read -p "Selection [1]: " DASH_CHOICE
-if [[ "$DASH_CHOICE" == "2" ]]; then
-    log "Zashboard selected."
-    DASHBOARD_IMAGE=$GHCR_ZASHBOARD
-    DASH_FALLBACK=$MIRROR_ZASHBOARD
-else
-    log "MetaCube(XD) selected."
-    DASHBOARD_IMAGE=$GHCR_METACUBEXD
-    DASH_FALLBACK=""
-fi
-
-# --- 4. DOCKER & NETWORK PREP ---
-if ! command -v docker &> /dev/null; then
-    log "Installing Docker..."
-    curl -fsSL https://get.docker.com | bash -s docker --mirror Aliyun
-    systemctl enable --now docker
-fi
-
-# Clear any session that might cause 'denied' errors on GHCR
-docker logout ghcr.io >/dev/null 2>&1
-
-log "Setting identity to '$PROXY_HOSTNAME.local'..."
+# --- System & mDNS ---
+log "Configuring hostname and mDNS..."
 hostnamectl set-hostname "$PROXY_HOSTNAME"
-sed -i "s/127.0.1.1.*/127.0.1.1 $PROXY_HOSTNAME/" /etc/hosts
-apt-get update && apt-get install -y avahi-daemon
-
-# --- 5. PULL ENGINE ---
-log "Pulling Engine from GHCR..."
-if ! docker pull "$GHCR_ENGINE"; then
-    warn "Direct GHCR pull failed. Trying mirror fallback..."
-    docker pull "$MIRROR_ENGINE" && docker tag "$MIRROR_ENGINE" "$GHCR_ENGINE"
+raspi-config nonint do_hostname "$PROXY_HOSTNAME"
+if [ -f /etc/cloud/cloud.cfg ]; then
+    sed -i 's/preserve_hostname: false/preserve_hostname: true/' /etc/cloud/cloud.cfg
 fi
+sed -i "s/127.0.1.1.*/127.0.1.1\t$PROXY_HOSTNAME/g" /etc/hosts
 
-# --- 6. PULL DASHBOARD ---
-log "Pulling Dashboard from GHCR..."
-if ! docker pull "$DASHBOARD_IMAGE"; then
-    if [ -n "$DASH_FALLBACK" ]; then
-        warn "Dashboard GHCR pull failed. Trying mirror fallback..."
-        docker pull "$DASH_FALLBACK" && docker tag "$DASH_FALLBACK" "$DASHBOARD_IMAGE"
-    else
-        error "Failed to pull $DASHBOARD_IMAGE. GHCR is denying the request and no fallback is set."
+# --- Dependencies ---
+log "Ensuring Docker and mDNS are ready..."
+apt-get update -qq && apt-get install -y avahi-daemon docker.io docker-compose-v3 > /dev/null 2>&1 || \
+apt-get install -y avahi-daemon docker.io docker-compose-plugin > /dev/null
+
+systemctl enable --now avahi-daemon docker
+
+# --- Image Loading (Fixed capturing logic) ---
+load_and_identify() {
+    local archive=$1
+    local fallback=$2
+    local tag=""
+
+    if [[ -f "$archive" ]]; then
+        log "Loading $archive..." # This now goes to stderr safely
+        # Capture ONLY the tag and strip all whitespace/hidden chars
+        tag=$(gunzip -c "$archive" | docker load | grep "Loaded image:" | tail -n 1 | awk '{print $NF}' | tr -d '\r\n[:cntrl:]')
     fi
-fi
 
-# --- 7. GENERATE STACK ---
-log "Generating Docker stack..."
-mkdir -p "$INSTALL_DIR/config"
+    if [[ -z "$tag" ]]; then
+        log "$archive not found. Pulling $fallback..."
+        docker pull --platform linux/arm64 "$fallback" > /dev/null 2>&1
+        tag="$fallback"
+    fi
+
+    # Output ONLY the clean tag to stdout for variable assignment
+    echo -n "$tag"
+}
+
+# Acquire Engine
+FINAL_ENGINE=$(load_and_identify "mihomo.tar.gz" "$FALLBACK_ENGINE") || error "Failed to acquire Mihomo."
+log "Engine Tag: $FINAL_ENGINE"
+
+# Dashboard Selection
+echo -e "\nSelect Dashboard:"
+echo "1) Standard (metacubexd)"
+echo "2) Power User (zashboard)"
+read -p "Selection [1-2]: " DASH_CHOICE
+
+if [[ "$DASH_CHOICE" == "2" ]]; then
+    FINAL_DASHBOARD=$(load_and_identify "zashboard.tar.gz" "$FALLBACK_ZASHBOARD") || error "Failed to acquire Zashboard."
+    DASH_NAME="zashboard"
+else
+    FINAL_DASHBOARD=$(load_and_identify "metacubexd.tar.gz" "$FALLBACK_METACUBEXD") || error "Failed to acquire Metacubexd."
+    DASH_NAME="metacubexd"
+fi
+log "Dashboard Tag: $FINAL_DASHBOARD"
+
+# --- Deployment ---
+log "Generating docker-compose.yml..."
+mkdir -p "$INSTALL_DIR"
+
+# Using EOF without indentation to ensure clean spaces
 cat <<EOF > "$INSTALL_DIR/docker-compose.yml"
 services:
   mihomo:
-    image: $GHCR_ENGINE
-    container_name: pimiproxy-engine
+    image: $FINAL_ENGINE
+    container_name: mihomo
     restart: always
-    volumes: ["./config:/etc/mihomo"]
-    ports: ["$PROXY_PORT:$PROXY_PORT", "$API_PORT:$API_PORT"]
+    network_mode: host
+    volumes:
+      - ./config:/root/.config/mihomo
+
   dashboard:
-    image: $DASHBOARD_IMAGE
-    container_name: pimiproxy-ui
+    image: $FINAL_DASHBOARD
+    container_name: $DASH_NAME
     restart: always
-    ports: ["$DASHBOARD_PORT:80"]
-    environment:
-      - DEFAULT_HOST=$PROXY_HOSTNAME.local
-      - DEFAULT_PORT=$API_PORT
+    ports:
+      - "$DASHBOARD_PORT:80"
 EOF
 
-if [ ! -f "$INSTALL_DIR/config/config.yaml" ]; then
-    cat <<EOF > "$INSTALL_DIR/config/config.yaml"
-mixed-port: $PROXY_PORT
-allow-lan: true
-mode: rule
-external-controller: 0.0.0.0:$API_PORT
-secret: ""
-EOF
+# Final safety scrub of the YAML file
+sed -i 's/\t/  /g' "$INSTALL_DIR/docker-compose.yml"
+
+log "Starting stack..."
+cd "$INSTALL_DIR" || error "Path error."
+
+if docker compose version >/dev/null 2>&1; then
+    docker compose up -d || error "Compose V2 failed."
+else
+    docker-compose up -d || error "Compose V1 failed."
 fi
 
-# --- 8. LAUNCH ---
-cd "$INSTALL_DIR"
-docker compose up -d || error "Failed to start containers."
-
-echo -e "\n${GREEN}INSTALLATION SUCCESSFUL${NC}"
-echo -e "Dashboard: http://$PROXY_HOSTNAME.local:$DASHBOARD_PORT"
+echo -e "\n${GREEN}================================================"
+echo "          INSTALLATION SUCCESSFUL"
+echo "================================================"
+log "Access: http://$PROXY_HOSTNAME.local:$DASHBOARD_PORT"
