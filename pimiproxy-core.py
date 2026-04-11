@@ -1,0 +1,1118 @@
+#!/usr/bin/env python3
+"""
+pimiproxy — install / uninstall / configure
+Raspberry Pi OS (Bookworm/Bullseye) · Debian 11/12
+Run as root: sudo python3 pimiproxy.py [install|uninstall|configure]
+"""
+
+import os
+import sys
+import shutil
+import subprocess
+import textwrap
+import json
+from pathlib import Path
+
+# =============================================================================
+# REQUIRE ROOT
+# =============================================================================
+if os.geteuid() != 0:
+    sys.exit(
+        "Run as root:  sudo python3 pimiproxy.py [install|uninstall|configure]"
+    )
+
+
+# =============================================================================
+# COLOUR HELPERS
+# =============================================================================
+class C:
+    RED = "\033[0;31m"
+    GREEN = "\033[0;32m"
+    CYAN = "\033[0;36m"
+    YELLOW = "\033[1;33m"
+    BOLD = "\033[1m"
+    NC = "\033[0m"
+
+
+def info(msg):
+    print(f"{C.GREEN}  ✔{C.NC}  {msg}")
+
+
+def step(msg):
+    print(f"\n{C.CYAN}{C.BOLD}▸ {msg}{C.NC}")
+
+
+def warn(msg):
+    print(f"{C.YELLOW}  ⚠{C.NC}  {msg}")
+
+
+def banner(msg, colour=C.CYAN):
+    print(f"\n{colour}{C.BOLD}{'─'*42}")
+    print(f"  {msg}")
+    print(f"{'─'*42}{C.NC}\n")
+
+
+def die(msg):
+    print(f"{C.RED}  ✖  {msg}{C.NC}", file=sys.stderr)
+    sys.exit(1)
+
+
+def confirm(msg, default=False):
+    hint = "[Y/n]" if default else "[y/N]"
+    raw = input(f"{C.YELLOW}  ?{C.NC}  {msg} {hint}: ").strip().lower()
+    if raw == "":
+        return default
+    return raw == "y"
+
+
+def ask(prompt, default=""):
+    hint = f" [{default}]" if default else ""
+    raw = input(f"  {prompt}{hint}: ").strip()
+    return raw if raw else default
+
+
+def ask_secret(prompt, default=""):
+    import getpass
+    hint = f" [{default}]" if default else ""
+    raw = getpass.getpass(f"  {prompt}{hint}: ").strip()
+    return raw if raw else default
+
+
+def choose(prompt, options, default=1):
+    """Present a numbered menu, return the chosen index (1-based)."""
+    print(f"  {prompt}")
+    for i, opt in enumerate(options, 1):
+        marker = " (default)" if i == default else ""
+        print(f"    {i}) {opt}{marker}")
+    while True:
+        raw = input(f"  Selection [1-{len(options)}]: ").strip()
+        if raw == "":
+            return default
+        if raw.isdigit() and 1 <= int(raw) <= len(options):
+            return int(raw)
+        warn(f"Please enter a number between 1 and {len(options)}.")
+
+
+# =============================================================================
+# SHELL HELPERS
+# =============================================================================
+def run(cmd, check=True, capture=False, silent=False):
+    """Run a shell command. cmd is a list or string."""
+    kwargs = dict(check=check)
+    if capture:
+        kwargs["capture_output"] = True
+        kwargs["text"] = True
+    elif silent:
+        kwargs["stdout"] = subprocess.DEVNULL
+        kwargs["stderr"] = subprocess.DEVNULL
+    if isinstance(cmd, str):
+        kwargs["shell"] = True
+    return subprocess.run(cmd, **kwargs)
+
+
+def run_ok(cmd):
+    """Return True if command exits 0, False otherwise."""
+    return run(cmd, check=False, silent=True).returncode == 0
+
+
+def apt_install(*packages):
+    env = os.environ.copy()
+    env["DEBIAN_FRONTEND"] = "noninteractive"
+    run([
+        "apt-get", "install", "-y", "-qq", "--no-install-recommends", *packages
+    ],
+        silent=True)
+
+
+# =============================================================================
+# DOCKER COMPOSE ABSTRACTION
+# =============================================================================
+def find_compose():
+    """Return (bin, sub) for the available compose implementation."""
+    if run_ok(["docker", "compose", "version"]):
+        return ("docker", "compose")
+    if shutil.which("docker-compose"):
+        return ("docker-compose", "")
+    return None
+
+
+def compose_cmd(compose, *args):
+    """Build the full compose command list."""
+    bin_, sub = compose
+    base = [bin_] + ([sub] if sub else [])
+    return base + list(args)
+
+
+def compose_run(compose, *args, cwd=None, silent=False):
+    cmd = compose_cmd(compose, *args)
+    return run(cmd, cwd=cwd, silent=silent)
+
+
+# =============================================================================
+# IMAGE LOADING
+# =============================================================================
+def load_image(archive: str, fallback: str, arch: str) -> str:
+    """
+    Load a Docker image from a local .tar.gz archive if present,
+    otherwise pull from the registry. Returns the image tag.
+    """
+    p = Path(archive)
+    if p.exists():
+        info(f"Loading {archive} from disk...")
+        result = run(f"gunzip -c {archive} | docker load", capture=True)
+        output = result.stdout + result.stderr
+        for line in output.splitlines():
+            if "Loaded image:" in line:
+                tag = line.split("Loaded image:")[-1].strip()
+                info(f"Loaded: {tag}")
+                return tag
+        warn(f"Could not parse image tag from {archive} — will pull instead.")
+
+    info(f"Pulling {fallback} ({arch})...")
+    result = run(["docker", "pull", "--platform", arch, fallback],
+                 check=False,
+                 silent=True)
+    if result.returncode != 0:
+        die(f"Failed to pull {fallback}. Check network and registry access.")
+    return fallback
+
+
+# =============================================================================
+# METADATA  (stored as JSON — no quoting issues, no sourcing issues)
+# =============================================================================
+META_PATH = Path("/opt/pimiproxy/.pimiproxy-meta.json")
+
+
+def write_meta(data: dict):
+    META_PATH.parent.mkdir(parents=True, exist_ok=True)
+    META_PATH.write_text(json.dumps(data, indent=2))
+
+
+def read_meta() -> dict:
+    if META_PATH.exists():
+        info("Loaded install metadata.")
+        return json.loads(META_PATH.read_text())
+    warn("No metadata found — using defaults.")
+    return {
+        "install_dir": "/opt/pimiproxy",
+        "hostname": "pimiproxy",
+        "dashboard_port": "8080",
+        "api_port": "9090",
+        "mixed_port": "7890",
+        "compose_bin": "docker",
+        "compose_sub": "compose",
+    }
+
+
+# =============================================================================
+# CONFIG GENERATION
+# Builds config as a plain Python dict, writes it as clean YAML manually.
+# We write YAML by hand (no PyYAML dependency) to keep the script self-contained
+# and avoid install friction — but the structure is validated as a dict first.
+# =============================================================================
+def build_config(cfg: dict) -> str:
+    """
+    Build the Mihomo config.yaml content as a string from a structured dict.
+    Returns the complete file content.
+    """
+    api_port = cfg["api_port"]
+    api_secret = cfg["api_secret"]
+    mixed_port = cfg["mixed_port"]
+    subscription_url = cfg.get("subscription_url", "")
+    install_dir = cfg["install_dir"]
+
+    lines = []
+
+    def L(s=""):
+        lines.append(s)
+
+    L("# Mihomo config — managed by pimiproxy")
+    L(f"# Edit here or run:  sudo python3 pimiproxy.py configure")
+    L()
+    L(f"external-controller: 0.0.0.0:{api_port}")
+    L(f'secret: "{api_secret}"')
+    L()
+    L(f"mixed-port: {mixed_port}")
+    L("routing-mark: 666")
+    L("allow-lan: true")
+    L("mode: rule")
+    L("log-level: info")
+    L("ipv6: false")
+    L()
+    L("tun:")
+    L("  enable: true")
+    L("  stack: gvisor")
+    L("  device: mihomo")
+    L("  auto-route: false")
+    L("  auto-detect-interface: false")
+    L("  interface-name: eth0")
+    L("  dns-hijack:")
+    L("    - any:53")
+    L()
+    L("dns:")
+    L("  enable: true")
+    L("  listen: 0.0.0.0:53")
+    L("  enhanced-mode: fake-ip")
+    L("  nameserver:")
+    L("    - 223.5.5.5")
+    L("    - 119.29.29.29")
+    L("  fallback:")
+    L("    - 8.8.8.8")
+    L("    - 1.1.1.1")
+    L("  fake-ip-filter:")
+    for entry in [
+            "*.lan", "*.local", "+.facebook.com", "+.fbcdn.net",
+            "+.messenger.com", "+.doubleclick.net",
+            "connectivitycheck.gstatic.com"
+    ]:
+        L(f'    - "{entry}"')
+    L()
+
+    # ── proxy providers ───────────────────────────────────────────────────────
+    providers = cfg.get("proxy_providers", {})
+    if subscription_url:
+        providers["subscription"] = {
+            "url": subscription_url,
+            "interval": 86400,
+            "path": "./providers/subscription.yaml",
+        }
+
+    if providers:
+        L("proxy-providers:")
+        for name, p in providers.items():
+            L(f"  {name}:")
+            L("    type: http")
+            L(f'    url: "{p["url"]}"')
+            L(f'    interval: {p["interval"]}')
+            L(f'    path: {p["path"]}')
+            L("    health-check:")
+            L("      enable: true")
+            L("      url: https://www.gstatic.com/generate_204")
+            L("      interval: 300")
+        L()
+
+    # ── proxy groups ──────────────────────────────────────────────────────────
+    proxy_groups = cfg.get("proxy_groups", [])
+    if subscription_url and not proxy_groups:
+        proxy_groups = [
+            {
+                "name": "Proxy",
+                "type": "select",
+                "use": ["subscription"]
+            },
+            {
+                "name": "Auto-Fastest",
+                "type": "url-test",
+                "use": ["subscription"],
+                "url": "https://www.gstatic.com/generate_204",
+                "interval": 300,
+                "tolerance": 50
+            },
+        ]
+
+    if proxy_groups:
+        L("proxy-groups:")
+        for g in proxy_groups:
+            L(f'  - name: "{g["name"]}"')
+            L(f'    type: {g["type"]}')
+            if "use" in g:
+                L("    use:")
+                for u in g["use"]:
+                    L(f"      - {u}")
+            if "proxies" in g:
+                L("    proxies:")
+                for p in g["proxies"]:
+                    L(f"      - {p}")
+            if "url" in g:
+                L(f'    url: {g["url"]}')
+            if "interval" in g:
+                L(f'    interval: {g["interval"]}')
+            if "tolerance" in g:
+                L(f'    tolerance: {g["tolerance"]}')
+        L()
+
+    # ── rules ─────────────────────────────────────────────────────────────────
+    rules = cfg.get("rules", [])
+    if not rules:
+        if proxy_groups:
+            rules = [
+                "DOMAIN-SUFFIX,lan,DIRECT",
+                "DOMAIN-SUFFIX,local,DIRECT",
+                "IP-CIDR,192.168.0.0/16,DIRECT",
+                "IP-CIDR,10.0.0.0/8,DIRECT",
+                "IP-CIDR,172.16.0.0/12,DIRECT",
+                "MATCH,Proxy",
+            ]
+        else:
+            rules = ["MATCH,DIRECT"]
+
+    L("rules:")
+    for r in rules:
+        L(f"  - {r}")
+    L()
+
+    return "\n".join(lines)
+
+
+def build_compose(cfg: dict) -> str:
+    engine = cfg["engine_image"]
+    dashboard = cfg["dashboard_image"]
+    dash_name = cfg["dash_name"]
+    dash_port = cfg["dashboard_port"]
+
+    lines = []
+
+    def L(s=""):
+        lines.append(s)
+
+    L("services:")
+    L()
+    L("  mihomo:")
+    L(f"    image: {engine}")
+    L("    container_name: mihomo")
+    L("    restart: unless-stopped")
+    L("    network_mode: host")
+    L("    privileged: true")
+    L("    volumes:")
+    L("      - ./config:/root/.config/mihomo")
+    L()
+    L("  dashboard:")
+    L(f"    image: {dashboard}")
+    L(f"    container_name: {dash_name}")
+    L("    restart: unless-stopped")
+    L("    ports:")
+    L(f'      - "{dash_port}:80"')
+    L()
+
+    return "\n".join(lines)
+
+
+def build_clash_system() -> str:
+    lines = []
+
+    def L(s=""):
+        lines.append(s)
+
+    L("#!/usr/bin/env bash")
+    L("# clash-system -- toggle transparent proxy routing through the mihomo TUN"
+      )
+    L()
+    L("RED='\\033[0;31m'; GREEN='\\033[0;32m'; NC='\\033[0m'")
+    L()
+    L("[[ $EUID -eq 0 ]] || exec sudo \"$0\" \"$@\"")
+    L()
+    L("iface_up() { [[ -d /sys/class/net/mihomo ]]; }")
+    L()
+    L("case \"${1:-}\" in")
+    L("  on)")
+    L("    iface_up || { echo -e \"${RED}X${NC} mihomo TUN not found -- is the container running?\"; exit 1; }"
+      )
+    L("    ip rule add to 10.0.0.0/8 table main priority 90  2>/dev/null || true"
+      )
+    L("    ip rule add fwmark 666     table main priority 100 2>/dev/null || true"
+      )
+    L("    ip rule add not fwmark 666 table 101  priority 101 2>/dev/null || true"
+      )
+    L("    ip route replace default dev mihomo table 101")
+    L("    echo -e \"System proxy: ${GREEN}ON${NC}\"")
+    L("    ;;")
+    L("  off)")
+    L("    ip rule  del priority 90  2>/dev/null || true")
+    L("    ip rule  del priority 100 2>/dev/null || true")
+    L("    ip rule  del priority 101 2>/dev/null || true")
+    L("    ip route flush table 101  2>/dev/null || true")
+    L("    echo -e \"System proxy: ${RED}OFF${NC}\"")
+    L("    ;;")
+    L("  status)")
+    L("    if ip rule show | grep -q 'priority 101'; then")
+    L("      echo -e \"System proxy: ${GREEN}ON${NC}\"")
+    L("    else")
+    L("      echo -e \"System proxy: ${RED}OFF${NC}\"")
+    L("    fi")
+    L("    iface_up && echo '  TUN interface: up' || echo '  TUN interface: down (container not running?)'"
+      )
+    L("    ;;")
+    L("  restart)")
+    L("    \"$0\" off; sleep 1; \"$0\" on")
+    L("    ;;")
+    L("  *)")
+    L("    echo 'Usage: clash-system [on|off|status|restart]'")
+    L("    exit 1")
+    L("    ;;")
+    L("esac")
+
+    return "\n".join(lines)
+
+
+# =============================================================================
+# CONFIGURE MODE
+# Interactive editor for proxy groups and rules — reads existing config,
+# lets the user add/remove entries, writes the result back.
+# =============================================================================
+def do_configure():
+    banner("pimiproxy configure", C.CYAN)
+
+    meta = read_meta()
+    install_dir = Path(meta["install_dir"])
+    cfg_path = install_dir / "config" / "config.yaml"
+
+    if not cfg_path.exists():
+        die(f"Config not found at {cfg_path}. Has pimiproxy been installed?")
+
+    # Load the stored extended config (we keep a JSON copy with full structure)
+    ext_cfg_path = install_dir / ".pimiproxy-config.json"
+    if ext_cfg_path.exists():
+        cfg = json.loads(ext_cfg_path.read_text())
+    else:
+        # Bootstrap from meta
+        cfg = {
+            "api_port": meta.get("api_port", "9090"),
+            "api_secret": meta.get("api_secret", "pimiproxy"),
+            "mixed_port": meta.get("mixed_port", "7890"),
+            "install_dir": meta["install_dir"],
+            "subscription_url": "",
+            "proxy_providers": {},
+            "proxy_groups": [],
+            "rules": [],
+        }
+
+    changed = False
+
+    while True:
+        print(f"\n{C.BOLD}── Configure pimiproxy ─────────────────────{C.NC}")
+        print("  1) Manage subscription URL")
+        print("  2) Manage proxy groups")
+        print("  3) Manage rules")
+        print("  4) Show current config")
+        print("  5) Save and apply")
+        print("  6) Exit without saving")
+        print()
+        choice = input("  Selection [1-6]: ").strip()
+
+        # ── subscription URL ─────────────────────────────────────────────────
+        if choice == "1":
+            current = cfg.get("subscription_url", "")
+            print(f"\n  Current subscription URL: {current or '(none)'}")
+            print()
+            print("  Your provider must give you a Clash/Mihomo API URL.")
+            print("  It typically looks like:")
+            print("    https://provider.example.com/api?token=abc123")
+            print("  Leave blank to clear.")
+            print()
+            url = input("  Clash API URL: ").strip()
+            cfg["subscription_url"] = url
+            if url:
+                info(f"Subscription URL set.")
+            else:
+                info("Subscription URL cleared.")
+            changed = True
+
+        # ── proxy groups ─────────────────────────────────────────────────────
+        elif choice == "2":
+            while True:
+                groups = cfg.get("proxy_groups", [])
+                print(
+                    f"\n  {C.BOLD}Proxy groups ({len(groups)} configured):{C.NC}"
+                )
+                for i, g in enumerate(groups, 1):
+                    print(f"    {i}) {g['name']}  [{g['type']}]")
+                print()
+                print("  a) Add group")
+                print("  r) Remove group")
+                print("  b) Back")
+                print()
+                sub = input("  Selection: ").strip().lower()
+
+                if sub == "b":
+                    break
+
+                elif sub == "a":
+                    print(f"\n  {C.BOLD}Add proxy group{C.NC}")
+                    name = ask("Group name")
+                    if not name:
+                        warn("Name cannot be empty.")
+                        continue
+
+                    gtype = choose("Group type", [
+                        "select      — pick a server manually in the dashboard",
+                        "url-test    — automatically use the fastest server",
+                        "fallback    — use first available server",
+                        "load-balance — spread traffic across servers",
+                    ])
+                    type_map = {
+                        1: "select",
+                        2: "url-test",
+                        3: "fallback",
+                        4: "load-balance"
+                    }
+                    gtype_str = type_map[gtype]
+
+                    # Source — provider or inline proxies
+                    source = choose(
+                        "What should this group pull servers from?", [
+                            "A proxy-provider (subscription)",
+                            "Specific named proxies",
+                        ])
+
+                    group: dict = {"name": name, "type": gtype_str}
+
+                    if source == 1:
+                        providers = list(cfg.get("proxy_providers", {}).keys())
+                        if cfg.get("subscription_url"):
+                            providers = ["subscription"] + [
+                                p for p in providers if p != "subscription"
+                            ]
+                        if not providers:
+                            warn(
+                                "No providers configured. Add a subscription URL first."
+                            )
+                            continue
+                        print("  Available providers:")
+                        for i, p in enumerate(providers, 1):
+                            print(f"    {i}) {p}")
+                        sel = input(
+                            "  Select providers (comma-separated numbers): "
+                        ).strip()
+                        chosen = []
+                        for s in sel.split(","):
+                            s = s.strip()
+                            if s.isdigit() and 1 <= int(s) <= len(providers):
+                                chosen.append(providers[int(s) - 1])
+                        if not chosen:
+                            warn("No providers selected.")
+                            continue
+                        group["use"] = chosen
+                    else:
+                        raw = input(
+                            "  Proxy names (comma-separated): ").strip()
+                        proxies = [
+                            p.strip() for p in raw.split(",") if p.strip()
+                        ]
+                        if not proxies:
+                            warn("No proxies entered.")
+                            continue
+                        group["proxies"] = proxies
+
+                    if gtype_str in ("url-test", "fallback", "load-balance"):
+                        group["url"] = "https://www.gstatic.com/generate_204"
+                        group["interval"] = 300
+                        if gtype_str == "url-test":
+                            group["tolerance"] = 50
+
+                    cfg.setdefault("proxy_groups", []).append(group)
+                    info(f"Added group '{name}' ({gtype_str}).")
+                    changed = True
+
+                elif sub == "r":
+                    groups = cfg.get("proxy_groups", [])
+                    if not groups:
+                        warn("No groups to remove.")
+                        continue
+                    raw = input("  Remove group number(s) (comma-separated): "
+                                ).strip()
+                    indices = []
+                    for s in raw.split(","):
+                        s = s.strip()
+                        if s.isdigit() and 1 <= int(s) <= len(groups):
+                            indices.append(int(s) - 1)
+                    if not indices:
+                        warn("No valid selection.")
+                        continue
+                    for i in sorted(set(indices), reverse=True):
+                        removed = groups.pop(i)
+                        info(f"Removed group '{removed['name']}'.")
+                    cfg["proxy_groups"] = groups
+                    changed = True
+
+        # ── rules ────────────────────────────────────────────────────────────
+        elif choice == "3":
+            while True:
+                rules = cfg.get("rules", [])
+                print(f"\n  {C.BOLD}Rules ({len(rules)} configured):{C.NC}")
+                print(
+                    "  Rules are evaluated top to bottom. The last rule should"
+                )
+                print("  always be a MATCH catch-all.")
+                print()
+                for i, r in enumerate(rules, 1):
+                    print(f"    {i:>3}) {r}")
+                print()
+                print("  a) Add rule")
+                print("  r) Remove rule")
+                print("  m) Move rule (reorder)")
+                print("  p) Add common presets")
+                print("  b) Back")
+                print()
+                sub = input("  Selection: ").strip().lower()
+
+                if sub == "b":
+                    break
+
+                elif sub == "a":
+                    print(f"\n  {C.BOLD}Add rule{C.NC}")
+                    print("  Examples:")
+                    print("    DOMAIN-SUFFIX,google.com,Proxy")
+                    print("    IP-CIDR,192.168.0.0/16,DIRECT")
+                    print("    DOMAIN-KEYWORD,youtube,Proxy")
+                    print("    GEOIP,CN,DIRECT")
+                    print("    MATCH,Proxy")
+                    print()
+                    rule = input("  Rule: ").strip()
+                    if not rule:
+                        warn("Rule cannot be empty.")
+                        continue
+                    pos_str = input(
+                        f"  Insert at position (1-{len(rules)+1}, blank = end): "
+                    ).strip()
+                    if pos_str.isdigit():
+                        pos = max(1, min(int(pos_str), len(rules) + 1)) - 1
+                        rules.insert(pos, rule)
+                    else:
+                        rules.append(rule)
+                    cfg["rules"] = rules
+                    info(f"Added rule: {rule}")
+                    changed = True
+
+                elif sub == "r":
+                    if not rules:
+                        warn("No rules to remove.")
+                        continue
+                    raw = input(
+                        "  Remove rule number(s) (comma-separated): ").strip()
+                    indices = []
+                    for s in raw.split(","):
+                        s = s.strip()
+                        if s.isdigit() and 1 <= int(s) <= len(rules):
+                            indices.append(int(s) - 1)
+                    for i in sorted(set(indices), reverse=True):
+                        removed = rules.pop(i)
+                        info(f"Removed: {removed}")
+                    cfg["rules"] = rules
+                    changed = True
+
+                elif sub == "m":
+                    if len(rules) < 2:
+                        warn("Need at least 2 rules to reorder.")
+                        continue
+                    try:
+                        frm = int(input("  Move rule number: ").strip()) - 1
+                        to = int(input("  To position: ").strip()) - 1
+                        rule = rules.pop(frm)
+                        rules.insert(to, rule)
+                        cfg["rules"] = rules
+                        info(f"Moved '{rule}' to position {to + 1}.")
+                        changed = True
+                    except (ValueError, IndexError):
+                        warn("Invalid input.")
+
+                elif sub == "p":
+                    presets = [
+                        ("LAN bypass (all private IP ranges go DIRECT)", [
+                            "IP-CIDR,192.168.0.0/16,DIRECT",
+                            "IP-CIDR,10.0.0.0/8,DIRECT",
+                            "IP-CIDR,172.16.0.0/12,DIRECT",
+                        ]),
+                        ("Local hostname bypass (.lan and .local go DIRECT)", [
+                            "DOMAIN-SUFFIX,lan,DIRECT",
+                            "DOMAIN-SUFFIX,local,DIRECT",
+                        ]),
+                        ("China mainland DIRECT (GEOIP)", [
+                            "GEOIP,CN,DIRECT",
+                        ]),
+                        ("Catch-all → Proxy (add as final rule)", [
+                            "MATCH,Proxy",
+                        ]),
+                        ("Catch-all → DIRECT (add as final rule)", [
+                            "MATCH,DIRECT",
+                        ]),
+                    ]
+                    print(f"\n  {C.BOLD}Presets:{C.NC}")
+                    for i, (label, _) in enumerate(presets, 1):
+                        print(f"    {i}) {label}")
+                    print()
+                    sel = input(
+                        "  Select preset(s) (comma-separated): ").strip()
+                    for s in sel.split(","):
+                        s = s.strip()
+                        if s.isdigit() and 1 <= int(s) <= len(presets):
+                            _, preset_rules = presets[int(s) - 1]
+                            for r in preset_rules:
+                                if r not in rules:
+                                    rules.append(r)
+                                    info(f"Added: {r}")
+                    cfg["rules"] = rules
+                    changed = True
+
+        # ── show config ──────────────────────────────────────────────────────
+        elif choice == "4":
+            print()
+            print(build_config(cfg))
+
+        # ── save and apply ───────────────────────────────────────────────────
+        elif choice == "5":
+            if not changed:
+                info("No changes to save.")
+                break
+
+            cfg_text = build_config(cfg)
+            cfg_path.write_text(cfg_text)
+            ext_cfg_path.write_text(json.dumps(cfg, indent=2))
+            info("Config files written.")
+
+            compose = (meta["compose_bin"], meta["compose_sub"])
+            if confirm("Restart Mihomo now to apply changes?", default=True):
+                compose_run(compose,
+                            "restart",
+                            "mihomo",
+                            cwd=Path(meta["install_dir"]),
+                            silent=False)
+                info("Mihomo restarted.")
+            break
+
+        elif choice == "6":
+            info("Exiting without saving.")
+            break
+
+        else:
+            warn("Invalid selection.")
+
+
+# =============================================================================
+# INSTALL
+# =============================================================================
+def do_install():
+    banner("pimiproxy installer", C.CYAN)
+
+    # ── defaults ──────────────────────────────────────────────────────────────
+    install_dir = "/opt/pimiproxy"
+    hostname_new = "pimiproxy"
+    dashboard_port = "8080"
+    api_port = "9090"
+    mixed_port = "7890"
+    api_secret = "pimiproxy"
+    arch = "linux/arm64"
+
+    mihomo_image = "ghcr.io/metacubex/mihomo:latest"
+    metacubexd_image = "ghcr.io/metacubex/metacubexd:latest"
+    zashboard_image = "ghcr.io/zephyruso/zashboard:latest"
+
+    # ── prompts ───────────────────────────────────────────────────────────────
+    step("Configuration")
+
+    install_dir = ask("Install directory", install_dir)
+    hostname_new = ask("Hostname", hostname_new)
+    dashboard_port = ask("Dashboard port", dashboard_port)
+    api_port = ask("Mihomo API port", api_port)
+    mixed_port = ask("Mixed proxy port", mixed_port)
+    api_secret = ask_secret("API secret", api_secret)
+
+    print()
+    print("  ── Clash API Subscription URL " + "─" * 12)
+    print("  If your proxy provider gave you a Clash/Mihomo API URL, enter")
+    print("  it here. It typically looks like:")
+    print("    https://provider.example.com/api?token=abc123")
+    print()
+    print("  This must be a Clash API URL — not a regular VPN config file,")
+    print("  not an app download link. If unsure, leave blank. You can add")
+    print("  it later by running:  sudo python3 pimiproxy.py configure")
+    print("  " + "─" * 42)
+    print()
+    subscription_url = input("  Clash API URL [leave blank to skip]: ").strip()
+
+    print()
+    dash_choice = choose("Dashboard", [
+        "Metacubexd  (standard, default)",
+        "Zashboard   (power user, more stats)",
+    ])
+
+    # ── hostname ──────────────────────────────────────────────────────────────
+    step("Hostname")
+
+    old_hostname = run(["hostname"], capture=True).stdout.strip()
+    run(["hostnamectl", "set-hostname", hostname_new])
+
+    hosts = Path("/etc/hosts")
+    content = hosts.read_text()
+    if "127.0.1.1" in content:
+        new_content = "\n".join(f"127.0.1.1\t{hostname_new}" if line.
+                                startswith("127.0.1.1") else line
+                                for line in content.splitlines())
+        hosts.write_text(new_content)
+    else:
+        with hosts.open("a") as f:
+            f.write(f"\n127.0.1.1\t{hostname_new}\n")
+
+    cloud_cfg = Path("/etc/cloud/cloud.cfg")
+    if cloud_cfg.exists():
+        txt = cloud_cfg.read_text()
+        cloud_cfg.write_text(
+            txt.replace("preserve_hostname: false", "preserve_hostname: true"))
+        info("cloud-init: preserve_hostname set.")
+
+    info(f"Hostname: {old_hostname} -> {hostname_new}")
+
+    # ── packages ──────────────────────────────────────────────────────────────
+    step("Packages")
+
+    run(["apt-get", "update", "-qq"])
+
+    apt_install("avahi-daemon", "libnss-mdns")
+    run(["systemctl", "enable", "--now", "avahi-daemon"], silent=True)
+    info("avahi-daemon ready.")
+
+    if not shutil.which("docker"):
+        info("Installing docker.io...")
+        apt_install("docker.io")
+    else:
+        v = run(["docker", "--version"], capture=True).stdout.strip()
+        info(f"Docker already present: {v}")
+    run(["systemctl", "enable", "--now", "docker"], silent=True)
+
+    compose = find_compose()
+    if compose is None:
+        info("Installing docker-compose-plugin...")
+        try:
+            apt_install("docker-compose-plugin")
+        except Exception:
+            apt_install("docker-compose")
+        compose = find_compose()
+        if compose is None:
+            die("Could not find or install any Docker Compose variant.")
+
+    info(f"Using compose: {compose[0]} {compose[1]}".strip())
+
+    # ── images ────────────────────────────────────────────────────────────────
+    step("Container images")
+
+    engine = load_image("mihomo.tar.gz", mihomo_image, arch)
+    info(f"Engine image:    {engine}")
+
+    if dash_choice == 2:
+        dashboard = load_image("zashboard.tar.gz", zashboard_image, arch)
+        dash_name = "zashboard"
+    else:
+        dashboard = load_image("metacubexd.tar.gz", metacubexd_image, arch)
+        dash_name = "metacubexd"
+    info(f"Dashboard image: {dashboard} ({dash_name})")
+
+    # ── directories ───────────────────────────────────────────────────────────
+    step("Directories")
+
+    install_path = Path(install_dir)
+    (install_path / "config" / "providers").mkdir(parents=True, exist_ok=True)
+    info(f"Created {install_dir}")
+
+    # ── config ────────────────────────────────────────────────────────────────
+    step("Mihomo config")
+
+    cfg = {
+        "api_port": api_port,
+        "api_secret": api_secret,
+        "mixed_port": mixed_port,
+        "install_dir": install_dir,
+        "subscription_url": subscription_url,
+        "proxy_providers": {},
+        "proxy_groups": [],
+        "rules": [],
+        "engine_image": engine,
+        "dashboard_image": dashboard,
+        "dash_name": dash_name,
+        "dashboard_port": dashboard_port,
+    }
+
+    cfg_text = build_config(cfg)
+    (install_path / "config" / "config.yaml").write_text(cfg_text)
+    # Save extended config for configure mode
+    (install_path / ".pimiproxy-config.json").write_text(
+        json.dumps(cfg, indent=2))
+    info("config.yaml written.")
+
+    # ── docker-compose.yml ────────────────────────────────────────────────────
+    step("Docker Compose")
+
+    compose_text = build_compose(cfg)
+    (install_path / "docker-compose.yml").write_text(compose_text)
+    info("docker-compose.yml written.")
+
+    # ── clash-system ──────────────────────────────────────────────────────────
+    step("clash-system utility")
+
+    cs_path = Path("/usr/local/bin/clash-system")
+    cs_path.write_text(build_clash_system())
+    cs_path.chmod(0o755)
+    info("/usr/local/bin/clash-system installed.")
+
+    # ── metadata ──────────────────────────────────────────────────────────────
+    meta = {
+        "install_dir": install_dir,
+        "hostname": hostname_new,
+        "dashboard_port": dashboard_port,
+        "api_port": api_port,
+        "mixed_port": mixed_port,
+        "api_secret": api_secret,
+        "compose_bin": compose[0],
+        "compose_sub": compose[1],
+    }
+    write_meta(meta)
+
+    # ── launch ────────────────────────────────────────────────────────────────
+    step("Starting services")
+
+    compose_run(compose, "up", "-d", cwd=install_path)
+    info("Containers started.")
+
+    # ── summary ───────────────────────────────────────────────────────────────
+    result = run(["hostname", "-I"], capture=True)
+    lan_ip = result.stdout.strip().split()[0]
+
+    print(f"\n{C.BOLD}{C.GREEN}{'─'*42}")
+    print("  Installation complete!")
+    print(f"{'─'*42}{C.NC}")
+    print()
+    print(f"  Dashboard    ->  http://{hostname_new}.local:{dashboard_port}")
+    print(
+        f"               ->  http://{lan_ip}:{dashboard_port}  (IP fallback)")
+    print(f"  Mihomo API   ->  http://{hostname_new}.local:{api_port}")
+    print(f"  Proxy        ->  {lan_ip}:{mixed_port}  (HTTP/SOCKS5)")
+    print()
+    print("  Pi routing control:")
+    print("    sudo clash-system on      # route Pi traffic via proxy")
+    print("    sudo clash-system off     # revert to direct")
+    print("    sudo clash-system status")
+    print()
+    print("  Add or change proxy groups and rules:")
+    print("    sudo python3 pimiproxy.py configure")
+    print()
+    warn(".local mDNS may take ~30s to propagate after first boot.")
+    warn(
+        "Your router's .lan suffix is router-controlled and separate from mDNS."
+    )
+    print()
+
+
+# =============================================================================
+# UNINSTALL
+# =============================================================================
+def do_uninstall():
+    banner("pimiproxy uninstaller", C.RED)
+
+    meta = read_meta()
+    install_dir = Path(meta["install_dir"])
+    compose = (meta["compose_bin"], meta["compose_sub"])
+
+    if not confirm(
+            "Stop and remove all pimiproxy containers, images, and files?"):
+        print("Aborted.")
+        return
+
+    # ── stop containers ───────────────────────────────────────────────────────
+    step("Stopping containers")
+
+    compose_file = install_dir / "docker-compose.yml"
+    if compose_file.exists():
+        active = find_compose()
+        if active:
+            run(compose_cmd(active, "down", "--remove-orphans"),
+                cwd=install_dir,
+                check=False)
+            info("Containers stopped.")
+        else:
+            warn("No compose binary found — stopping containers by name.")
+            for name in ["mihomo", "metacubexd", "zashboard"]:
+                run(["docker", "stop", name], check=False, silent=True)
+                run(["docker", "rm", name], check=False, silent=True)
+    else:
+        warn("No docker-compose.yml found — stopping containers by name.")
+        for name in ["mihomo", "metacubexd", "zashboard"]:
+            run(["docker", "stop", name], check=False, silent=True)
+            run(["docker", "rm", name], check=False, silent=True)
+
+    # ── remove images ─────────────────────────────────────────────────────────
+    step("Removing Docker images")
+
+    for img in [
+            "ghcr.io/metacubex/mihomo:latest",
+            "ghcr.io/metacubex/metacubexd:latest",
+            "ghcr.io/zephyruso/zashboard:latest",
+    ]:
+        result = run(["docker", "image", "inspect", img],
+                     check=False,
+                     silent=True)
+        if result.returncode == 0:
+            r = run(["docker", "rmi", img], check=False, capture=True)
+            if r.returncode == 0:
+                info(f"Removed: {img}")
+            else:
+                warn(f"Could not remove {img} — in use elsewhere?")
+
+    # ── routing rules ─────────────────────────────────────────────────────────
+    step("Clearing routing rules")
+
+    cs = Path("/usr/local/bin/clash-system")
+    if cs.exists():
+        run([str(cs), "off"], check=False, silent=True)
+    info("Routing rules cleared.")
+
+    # ── files ─────────────────────────────────────────────────────────────────
+    step("Removing files")
+
+    if install_dir.exists():
+        shutil.rmtree(install_dir)
+        info(f"Removed {install_dir}")
+
+    if cs.exists():
+        cs.unlink()
+        info("Removed /usr/local/bin/clash-system")
+
+    # ── hostname ──────────────────────────────────────────────────────────────
+    step("Hostname")
+
+    current = run(["hostname"], capture=True).stdout.strip()
+    if current == meta.get("hostname"):
+        if confirm(f"Reset hostname '{current}' back to 'raspberrypi'?"):
+            run(["hostnamectl", "set-hostname", "raspberrypi"])
+            hosts = Path("/etc/hosts")
+            txt = hosts.read_text()
+            hosts.write_text("\n".join(
+                f"127.0.1.1\traspberrypi" if l.startswith("127.0.1.1") else l
+                for l in txt.splitlines()))
+            info("Hostname reset to 'raspberrypi'.")
+
+    # ── optional package removal ───────────────────────────────────────────────
+    step("Optional package removal")
+
+    if confirm(
+            "Remove avahi-daemon? Only if nothing else on this Pi needs mDNS."
+    ):
+        run(["apt-get", "remove", "-y", "avahi-daemon", "libnss-mdns"],
+            silent=True,
+            check=False)
+        info("avahi-daemon removed.")
+
+    print(f"\n{C.BOLD}{C.GREEN}Uninstall complete.{C.NC}\n")
+
+
+# =============================================================================
+# ENTRYPOINT
+# =============================================================================
+COMMANDS = {
+    "install": do_install,
+    "uninstall": do_uninstall,
+    "configure": do_configure,
+}
+
+
+def main():
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "install"
+    if cmd not in COMMANDS:
+        print(f"Usage: sudo python3 pimiproxy.py [{'|'.join(COMMANDS)}]")
+        sys.exit(1)
+    try:
+        COMMANDS[cmd]()
+    except KeyboardInterrupt:
+        print("\n\nInterrupted.")
+        sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()

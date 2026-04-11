@@ -4,42 +4,17 @@
 
 ## Table of contents
 
-- [pimiproxy — Installation \& Usage Instructions](#pimiproxy--installation--usage-instructions)
-  - [Table of contents](#table-of-contents)
-  - [1. Before you begin](#1-before-you-begin)
-  - [2. Preparing offline image archives (optional)](#2-preparing-offline-image-archives-optional)
-  - [3. Running the installer](#3-running-the-installer)
-  - [4. Installer prompts explained](#4-installer-prompts-explained)
-    - [Install directory](#install-directory)
-    - [Hostname](#hostname)
-    - [Dashboard port](#dashboard-port)
-    - [Mihomo API port](#mihomo-api-port)
-    - [Mixed proxy port](#mixed-proxy-port)
-    - [API secret](#api-secret)
-    - [Clash API subscription URL](#clash-api-subscription-url)
-    - [Dashboard choice](#dashboard-choice)
-  - [5. Connecting devices to the proxy](#5-connecting-devices-to-the-proxy)
-    - [Windows](#windows)
-    - [macOS](#macos)
-    - [iPhone / iPad](#iphone--ipad)
-    - [Android](#android)
-    - [Linux (system-wide)](#linux-system-wide)
-  - [6. Accessing the dashboard](#6-accessing-the-dashboard)
-  - [7. Configuring an upstream proxy or VPN](#7-configuring-an-upstream-proxy-or-vpn)
-  - [8. Routing the Pi's own traffic through the proxy](#8-routing-the-pis-own-traffic-through-the-proxy)
-  - [9. Day-to-day management](#9-day-to-day-management)
-    - [Start / stop / restart containers](#start--stop--restart-containers)
-    - [View logs](#view-logs)
-    - [Check container status](#check-container-status)
-    - [Update images](#update-images)
-    - [Edit config](#edit-config)
-  - [10. Uninstalling](#10-uninstalling)
-  - [11. Troubleshooting](#11-troubleshooting)
-    - [Dashboard won't load](#dashboard-wont-load)
-    - [`pimiproxy.local` doesn't resolve](#pimiproxylocal-doesnt-resolve)
-    - [Proxy not working on a device](#proxy-not-working-on-a-device)
-    - [`clash-system on` has no effect](#clash-system-on-has-no-effect)
-    - [Install fails with a Docker error](#install-fails-with-a-docker-error)
+1. [Before you begin](#1-before-you-begin)
+2. [Preparing offline image archives (optional)](#2-preparing-offline-image-archives-optional)
+3. [Running the installer](#3-running-the-installer)
+4. [Installer prompts explained](#4-installer-prompts-explained)
+5. [Connecting devices to the proxy](#5-connecting-devices-to-the-proxy)
+6. [Accessing the dashboard](#6-accessing-the-dashboard)
+7. [Configuring an upstream proxy or VPN](#7-configuring-an-upstream-proxy-or-vpn)
+8. [Routing the Pi's own traffic through the proxy](#8-routing-the-pis-own-traffic-through-the-proxy)
+9. [Day-to-day management](#9-day-to-day-management)
+10. [Uninstalling](#10-uninstalling)
+11. [Troubleshooting](#11-troubleshooting)
 
 ---
 
@@ -74,7 +49,7 @@ docker save ghcr.io/metacubex/metacubexd:latest   | gzip > metacubexd.tar.gz
 docker save ghcr.io/zephyruso/zashboard:latest    | gzip > zashboard.tar.gz
 ```
 
-Then copy the `.tar.gz` files to the Pi into the same directory as `pimiproxy.sh`:
+Then copy the `.tar.gz` files to the Pi into the same directory as `pimiproxy.py`:
 
 ```bash
 scp mihomo.tar.gz metacubexd.tar.gz zashboard.tar.gz user@pimiproxy.local:~/pi-proxy/
@@ -86,10 +61,30 @@ If the archives are present in the same directory as the script when you run it,
 
 ## 3. Running the installer
 
-SSH into your Pi (or open a terminal on it directly), navigate to the directory containing `pimiproxy.sh`, and run:
+SSH into your Pi (or open a terminal on it directly) and navigate to the directory containing the pimiproxy files.
+
+### Option A — Bootstrap (recommended)
+
+The bootstrap script detects your distro, installs Python 3, Docker (via the official `get.docker.com` installer), avahi-daemon, and raspi-config automatically, then launches the Python installer. This is the easiest path and works on Debian, Ubuntu, Fedora, Arch, openSUSE, Alpine, and their derivatives.
 
 ```bash
-sudo bash pimiproxy.sh install
+sudo bash pimiproxy-bootstrap.sh
+```
+
+Pass a subcommand to control what happens after prerequisites are confirmed:
+
+```bash
+sudo bash pimiproxy-bootstrap.sh install     # default
+sudo bash pimiproxy-bootstrap.sh uninstall
+sudo bash pimiproxy-bootstrap.sh configure
+```
+
+### Option B — Python script directly
+
+If Python 3, Docker + Compose, and avahi-daemon are already installed:
+
+```bash
+sudo python3 pimiproxy.py install
 ```
 
 The script will walk you through a series of prompts. Press **Enter** at each one to accept the default value shown in brackets.
@@ -97,8 +92,18 @@ The script will walk you through a series of prompts. Press **Enter** at each on
 To uninstall later:
 
 ```bash
-sudo bash pimiproxy.sh uninstall
+sudo python3 pimiproxy.py uninstall
 ```
+
+### Supported platforms
+
+| Distro family | Package manager | Notes |
+|---|---|---|
+| Debian / Raspberry Pi OS / Ubuntu / Mint | apt | Fully tested baseline |
+| Fedora / RHEL / CentOS / Rocky / Alma | dnf | Docker installed via get.docker.com |
+| Arch / Manjaro / EndeavourOS | pacman | Docker installed via get.docker.com |
+| openSUSE | zypper | Docker installed via get.docker.com |
+| Alpine | apk | Docker installed via get.docker.com |
 
 ---
 
@@ -242,23 +247,43 @@ The dashboard shows live connections, traffic speed, active rules, and lets you 
 
 ---
 
-## 7. Configuring an upstream proxy or VPN
+## 7. Configuring proxy groups and rules
 
-Out of the box, pimiproxy passes all traffic through directly — it is a proxy server, but with no upstream provider configured. To actually route traffic through a VPN or proxy service, you need to edit the Mihomo config.
+Out of the box, pimiproxy passes all traffic through directly if no subscription URL was provided at install. Use the interactive configurator to set up your provider and routing:
 
 ```bash
-sudo nano /opt/pimiproxy/config/config.yaml
+sudo python3 pimiproxy.py configure
 ```
 
-Add your provider's details under `proxies`, configure `proxy-groups`, and write `rules` to control which traffic goes where. The [Mihomo configuration wiki](https://wiki.metacubex.one) is the full reference.
+### What you can do in configure mode
 
-After editing, apply the changes:
+**Subscription URL** — add or change your Clash/Mihomo API URL from your provider. This is the URL that delivers the list of proxy servers.
+
+**Proxy groups** — add groups that control how traffic is routed:
+
+| Type | Behaviour |
+|------|-----------|
+| `select` | You pick a server manually in the dashboard |
+| `url-test` | Automatically uses the fastest server |
+| `fallback` | Uses the first available server |
+| `load-balance` | Spreads connections across servers |
+
+**Rules** — control which traffic goes where. Rules are evaluated top to bottom:
+
+| Example | Meaning |
+|---------|---------|
+| `DOMAIN-SUFFIX,google.com,Proxy` | Send Google traffic via Proxy group |
+| `IP-CIDR,192.168.0.0/16,DIRECT` | Keep LAN traffic direct |
+| `GEOIP,CN,DIRECT` | Send China-IP traffic direct |
+| `MATCH,Proxy` | Send everything else via Proxy (catch-all) |
+
+**Presets** — common rule sets available in one step: LAN bypass, local hostname bypass, China mainland DIRECT, and catch-all options.
+
+After making changes, configure mode will ask if you want to restart Mihomo immediately to apply them. You can also restart manually:
 
 ```bash
 cd /opt/pimiproxy && docker compose restart mihomo
 ```
-
-Or use the dashboard — it can reload config without a full restart.
 
 ---
 
@@ -341,7 +366,7 @@ cd /opt/pimiproxy && docker compose restart mihomo
 ## 10. Uninstalling
 
 ```bash
-sudo bash pimiproxy.sh uninstall
+sudo python3 pimiproxy.py uninstall
 ```
 
 The uninstaller will:
@@ -386,5 +411,5 @@ The uninstaller will:
 ### Install fails with a Docker error
 
 - Confirm Docker is running: `systemctl status docker`
-- If using offline archives, confirm the `.tar.gz` files are in the same directory as `pimiproxy.sh`
+- If using offline archives, confirm the `.tar.gz` files are in the same directory as `pimiproxy.py`
 - Try pulling manually to see the error: `docker pull --platform linux/arm64 ghcr.io/metacubex/mihomo:latest`
