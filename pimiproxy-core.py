@@ -160,7 +160,9 @@ def fetch_subscription(url: str) -> dict:
     import urllib.request
     info("Fetching subscription...")
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "clash.meta"})
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "Clash-Verge/1.0 (clash-verge-rev; mihomo)"})
         with urllib.request.urlopen(req, timeout=30) as resp:
             content = resp.read().decode("utf-8", errors="replace")
     except Exception as e:
@@ -365,7 +367,7 @@ def build_config(cfg: dict) -> str:
     L("    geoip: false")
     L("  fake-ip-filter:")
     for entry in [
-            "*.lan", "*.lan", "+.facebook.com", "+.fbcdn.net",
+            "*.lan", "*.local", "+.facebook.com", "+.fbcdn.net",
             "+.messenger.com", "+.doubleclick.net",
             "connectivitycheck.gstatic.com"
     ]:
