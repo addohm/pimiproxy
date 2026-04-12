@@ -1,3 +1,17 @@
+## [4.6.0] — 2026-04-12
+
+### Fixed
+- **Gateway mode (Quest 3 / forwarded clients)** — devices that use the Pi as their network gateway (not just a proxy endpoint) now get their traffic routed correctly. Three changes combined: `auto-route: true` so Mihomo registers kernel routing rules for forwarded packets; `auto-detect-interface: true` (removes hardcoded `eth0`) so Mihomo picks the correct WAN interface automatically; and kernel IP forwarding enabled at install time (`net.ipv4.ip_forward=1`, persisted via `/etc/sysctl.d/99-pimiproxy.conf`). Without forwarding enabled the Pi was silently dropping packets from gateway clients.
+
+### Added
+- **IP forwarding** — installer writes `/etc/sysctl.d/99-pimiproxy.conf` and applies `net.ipv4.ip_forward=1` immediately. Uninstaller removes the file and resets the value.
+
+### Changed
+- **TUN auto-route enabled by default** — `auto-route: true` and `auto-detect-interface: true` are now the defaults in generated `config.yaml`. Previously these were both false, which worked for clients that pointed at `host:7890` but broke gateway-mode clients.
+- **Fake-ip filter expanded** — added Meta/Oculus/Facebook/Quest domains (`+.meta.com`, `+.oculus.com`, `+.oculuscdn.com`, `+.facebook.com`, `+.fbcdn.net`, `+.facebook.net`, `+.fb.me`, `+.facebook-hardware.com`, `+.messenger.com`, `+.doubleclick.net`) so Quest 3 OS-level connectivity checks and store traffic resolve correctly under fake-ip DNS mode.
+
+---
+
 ## [4.5.0] — 2026-04-12
 
 ### Added

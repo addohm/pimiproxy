@@ -472,9 +472,8 @@ def build_config(cfg: dict) -> str:
     L("  enable: true")
     L("  stack: gvisor")
     L("  device: mihomo")
-    L("  auto-route: false")
-    L("  auto-detect-interface: false")
-    L("  interface-name: eth0")
+    L("  auto-route: true")
+    L("  auto-detect-interface: true")
     L("  dns-hijack:")
     L("    - any:53")
     L()
@@ -1626,6 +1625,14 @@ def do_install():
     }
     write_meta(meta)
 
+    # ── IP forwarding ─────────────────────────────────────────────────────────
+    step("Enabling IP forwarding")
+
+    sysctl_conf = Path("/etc/sysctl.d/99-pimiproxy.conf")
+    sysctl_conf.write_text("net.ipv4.ip_forward = 1\n")
+    run(["sysctl", "-w", "net.ipv4.ip_forward=1"], silent=True)
+    info("IP forwarding enabled (persistent via /etc/sysctl.d/99-pimiproxy.conf).")
+
     # ── login banner ──────────────────────────────────────────────────────────
     step("Login banner")
 
@@ -1715,6 +1722,10 @@ def do_refresh():
     compose_run(compose, "restart", "mihomo", cwd=install_dir, silent=False)
     info("Mihomo restarted.")
 
+    # Rebuild the login banner so proxy count stays current
+    BANNER_PATH.write_text(build_banner(cfg, meta))
+    info("Login banner updated.")
+
 
 # =============================================================================
 # UNINSTALL
@@ -1798,6 +1809,12 @@ def do_uninstall():
     if BANNER_PATH.exists():
         BANNER_PATH.unlink()
         info(f"Removed login banner ({BANNER_PATH}).")
+
+    sysctl_conf = Path("/etc/sysctl.d/99-pimiproxy.conf")
+    if sysctl_conf.exists():
+        sysctl_conf.unlink()
+        run(["sysctl", "-w", "net.ipv4.ip_forward=0"], check=False, silent=True)
+        info("Removed IP forwarding config and disabled forwarding.")
 
     # ── hostname ──────────────────────────────────────────────────────────────
     step("Hostname")
