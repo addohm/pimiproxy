@@ -1,3 +1,11 @@
+## [4.5.0] — 2026-04-12
+
+### Added
+- **Login banner** — `/etc/profile.d/pimiproxy-banner.sh` installed at install time. Displays on every interactive shell login: proxy engine state (mihomo container running/stopped), system proxy state (clash-system ON/OFF), proxy count loaded from config, AES hardware acceleration state, dashboard/API/proxy endpoint URLs, and a quick-command reference. Removed by the uninstaller. Rebuilt automatically when ports change via `configure` option 9.
+- **AES hardware acceleration check** — `has_aes_hardware()` reads `/proc/cpuinfo` flags/Features for the `aes` capability flag. Works on ARM and x86_64. Result shown at end of install, in `status` output, and baked into the login banner. Warns the user when AES is unavailable that encryption runs in software and latency will be higher on heavy traffic.
+
+---
+
 ## [4.4.0] — 2026-04-12
 
 ### Added

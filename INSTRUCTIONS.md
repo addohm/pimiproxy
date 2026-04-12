@@ -355,6 +355,31 @@ sudo clash-system restart
 
 ## 9. Day-to-day management
 
+### Login banner
+
+A status banner is displayed automatically on every interactive SSH or terminal login:
+
+```
+  pimiproxy
+  ──────────────────────────────────────────
+  Proxy engine    ●  running
+  System proxy    ○  OFF
+  Proxies loaded     47
+  AES hardware    ●  available
+  ──────────────────────────────────────────
+  Dashboard  →  http://pimiproxy.lan:8080
+  API        →  http://pimiproxy.lan:9090
+  Proxy      →  pimiproxy.lan:7890  (HTTP/SOCKS5)
+  ──────────────────────────────────────────
+  clash-system [on|off|status|restart]
+  pimiproxy-core.py [status|logs|configure|debug]
+  ──────────────────────────────────────────
+```
+
+The AES line shows green `●  available` when the CPU has hardware AES acceleration, or yellow `○  software fallback — higher latency` when it does not. This is checked once at install time and baked into the banner — it won't change unless you reinstall.
+
+The banner is installed to `/etc/profile.d/pimiproxy-banner.sh` and is removed by the uninstaller. If you change ports via `configure`, the banner is rebuilt automatically.
+
 ### Check status
 
 ```bash

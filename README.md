@@ -13,6 +13,7 @@ Once installed, any device on your network can route its traffic through the Pi 
 - Provides a web dashboard (Metacubexd or Zashboard) for live traffic monitoring and config control
 - Optionally routes the Pi's own traffic through the proxy via `clash-system`
 - Sets up mDNS so the Pi is reachable as `pimiproxy.local` on the LAN, and as `pimiproxy.lan` on routers that use `.lan` as the local domain
+- Shows a status banner on every SSH/terminal login — proxy engine state, system proxy on/off, proxy count, endpoints, and quick-command reference
 
 ## What it does not do
 

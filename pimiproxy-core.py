@@ -158,6 +158,25 @@ def run_ok(cmd):
     return run(cmd, check=False, silent=True).returncode == 0
 
 
+def has_aes_hardware() -> bool:
+    """
+    Return True if the CPU advertises hardware AES acceleration.
+
+    Works on both ARM (/proc/cpuinfo Features: ... aes ...) and x86_64
+    (/proc/cpuinfo flags: ... aes ...).  Without hardware AES, all proxy
+    encryption runs in software and latency on heavy traffic will be higher.
+    """
+    try:
+        for line in Path("/proc/cpuinfo").read_text().splitlines():
+            key, _, val = line.partition(":")
+            if key.strip() in ("flags", "Features"):
+                if "aes" in val.split():
+                    return True
+    except Exception:
+        pass
+    return False
+
+
 # =============================================================================
 # HOSTNAME
 # =============================================================================
@@ -384,7 +403,8 @@ def load_image(archive: str, fallback: str, arch: str) -> str:
 # =============================================================================
 # METADATA  (stored as JSON — no quoting issues, no sourcing issues)
 # =============================================================================
-META_PATH = Path("/opt/pimiproxy/.pimiproxy-meta.json")
+META_PATH   = Path("/opt/pimiproxy/.pimiproxy-meta.json")
+BANNER_PATH = Path("/etc/profile.d/pimiproxy-banner.sh")
 
 # Docker image references
 MIHOMO_IMAGE     = "ghcr.io/metacubex/mihomo:latest"
@@ -662,6 +682,78 @@ def build_clash_system() -> str:
     return "\n".join(lines)
 
 
+def build_banner(cfg: dict, meta: dict) -> str:
+    """
+    Generate /etc/profile.d/pimiproxy-banner.sh — displayed on interactive
+    login. Hostname, ports, and AES capability are baked in at generation time;
+    container state and routing rules are checked live on each login.
+    """
+    hostname   = meta.get("hostname", "pimiproxy")
+    dash_port  = cfg.get("dashboard_port", meta.get("dashboard_port", "8080"))
+    api_port   = cfg.get("api_port",       meta.get("api_port",       "9090"))
+    mixed_port = cfg.get("mixed_port",     meta.get("mixed_port",     "7890"))
+    cfg_file   = f"{meta.get('install_dir', '/opt/pimiproxy')}/config/config.yaml"
+    aes_ok     = has_aes_hardware()
+
+    lines = []
+
+    def L(s=""):
+        lines.append(s)
+
+    L("#!/usr/bin/env bash")
+    L("# pimiproxy login banner — managed by pimiproxy-core.py")
+    L("# Shows proxy status on every interactive shell login.")
+    L("[[ $- == *i* ]] || return")
+    L()
+    L("_G='\\033[0;32m'  # green")
+    L("_R='\\033[0;31m'  # red")
+    L("_Y='\\033[1;33m'  # yellow")
+    L("_C='\\033[0;36m'  # cyan")
+    L("_B='\\033[1m'     # bold")
+    L("_D='\\033[2m'     # dim")
+    L("_N='\\033[0m'     # reset")
+    L("_S='  ──────────────────────────────────────────'")
+    L()
+    L('printf "\\n${_C}${_B}  pimiproxy${_N}\\n%s\\n" "$_S"')
+    L()
+    L("# ── Proxy engine (mihomo container) ─────────────────────────────────")
+    L("if docker inspect -f '{{.State.Running}}' mihomo 2>/dev/null | grep -q true; then")
+    L("  printf '  Proxy engine    %s\\n' \"${_G}●  running${_N}\"")
+    L("else")
+    L("  printf '  Proxy engine    %s\\n' \"${_R}●  stopped${_N}\"")
+    L("fi")
+    L()
+    L("# ── System proxy (clash-system routing rules) ────────────────────────")
+    L("if ip rule show 2>/dev/null | grep -q 'priority 101'; then")
+    L("  printf '  System proxy    %s\\n' \"${_G}●  ON${_N}\"")
+    L("else")
+    L("  printf '  System proxy    %s\\n' \"${_R}○  OFF${_N}\"")
+    L("fi")
+    L()
+    L("# ── Proxy count ──────────────────────────────────────────────────────")
+    L(f"_COUNT=$(grep -c '- name:' '{cfg_file}' 2>/dev/null || echo 0)")
+    L('if [[ "$_COUNT" -gt 0 ]]; then')
+    L("  printf '  Proxies loaded  %s\\n' \"${_D}${_COUNT}${_N}\"")
+    L("fi")
+    L()
+    L("# ── AES hardware acceleration (baked in at install time) ─────────────")
+    if aes_ok:
+        L("  printf '  AES hardware    %s\\n' \"${_G}●  available${_N}\"")
+    else:
+        L("  printf '  AES hardware    %s\\n' \"${_Y}○  software fallback — higher latency${_N}\"")
+    L()
+    L('printf "%s\\n" "$_S"')
+    L(f'printf "  Dashboard  →  %s\\n" "http://{hostname}.lan:{dash_port}"')
+    L(f'printf "  API        →  %s\\n" "http://{hostname}.lan:{api_port}"')
+    L(f'printf "  Proxy      →  %s\\n" "{hostname}.lan:{mixed_port}  (HTTP/SOCKS5)"')
+    L('printf "%s\\n" "$_S"')
+    L('printf "  %s\\n" "${_D}clash-system [on|off|status|restart]${_N}"')
+    L('printf "  %s\\n" "${_D}pimiproxy-core.py [status|logs|configure|debug]${_N}"')
+    L('printf "%s\\n\\n" "$_S"')
+
+    return "\n".join(lines) + "\n"
+
+
 # =============================================================================
 # STATUS
 # =============================================================================
@@ -733,6 +825,15 @@ def do_status():
     else:
         warn("Proxy test failed — check Mihomo logs:")
         warn("  sudo python3 pimiproxy-core.py logs")
+
+    # ── hardware ──────────────────────────────────────────────────────────────
+    step("Hardware")
+    if has_aes_hardware():
+        info("AES hardware acceleration: available — optimal encryption performance.")
+    else:
+        warn("AES hardware acceleration: not available.")
+        warn("Encryption runs in software — expect higher latency on heavy or "
+             "high-speed connections.")
 
     # ── endpoints ─────────────────────────────────────────────────────────────
     print()
@@ -1284,6 +1385,11 @@ def do_configure():
                     meta[key] = cfg[key]
             write_meta(meta)
 
+            # Rebuild login banner so it shows updated ports
+            if BANNER_PATH.exists():
+                BANNER_PATH.write_text(build_banner(cfg, meta))
+                info("Login banner updated.")
+
             # Restart: recreate all containers if compose changed, otherwise
             # just bounce Mihomo (config.yaml is re-read on start)
             if compose_changed:
@@ -1504,6 +1610,13 @@ def do_install():
     }
     write_meta(meta)
 
+    # ── login banner ──────────────────────────────────────────────────────────
+    step("Login banner")
+
+    BANNER_PATH.write_text(build_banner(cfg, meta))
+    BANNER_PATH.chmod(0o644)
+    info(f"Login banner installed ({BANNER_PATH}).")
+
     # ── launch ────────────────────────────────────────────────────────────────
     step("Starting services")
 
@@ -1531,6 +1644,13 @@ def do_install():
     print()
     print("  Add or change proxy groups and rules:")
     print(f"    sudo python3 /opt/pimiproxy/pimiproxy-core.py configure")
+    print()
+    if has_aes_hardware():
+        info("Hardware AES acceleration: available — optimal encryption performance.")
+    else:
+        warn("Hardware AES acceleration: not available on this CPU.")
+        warn("Encryption will run in software — expect higher latency on heavy "
+             "or high-speed connections. A Pi 3 or newer is recommended.")
     print()
     if _hostname_changed:
         warn(f"{hostname_new}.lan won't resolve until the Pi renews its DHCP "
@@ -1658,6 +1778,10 @@ def do_uninstall():
     if cron_path.exists():
         cron_path.unlink()
         info("Removed daily refresh cron.")
+
+    if BANNER_PATH.exists():
+        BANNER_PATH.unlink()
+        info(f"Removed login banner ({BANNER_PATH}).")
 
     # ── hostname ──────────────────────────────────────────────────────────────
     step("Hostname")
