@@ -356,15 +356,142 @@ def save_subscription(install_path, url: str) -> bool:
     return True
 
 
-def apt_install(*packages):
+# =============================================================================
+# DISTRO DETECTION & PACKAGE MANAGEMENT
+# =============================================================================
+def detect_distro() -> str:
+    """
+    Return a distro family string: 'debian', 'fedora', 'arch', 'suse', 'alpine'.
+    Falls back to 'debian' if unknown.
+    """
+    os_release = Path("/etc/os-release")
+    if os_release.exists():
+        text = os_release.read_text().lower()
+        if any(k in text for k in ("fedora", "rhel", "centos", "rocky", "alma")):
+            return "fedora"
+        if any(k in text for k in ("arch", "manjaro", "endeavour")):
+            return "arch"
+        if "opensuse" in text or "suse" in text:
+            return "suse"
+        if "alpine" in text:
+            return "alpine"
+    if shutil.which("apt-get"):
+        return "debian"
+    if shutil.which("dnf") or shutil.which("yum"):
+        return "fedora"
+    if shutil.which("pacman"):
+        return "arch"
+    if shutil.which("zypper"):
+        return "suse"
+    if shutil.which("apk"):
+        return "alpine"
+    return "debian"
+
+
+def pkg_update(distro: str):
+    """Refresh package lists for the given distro family."""
+    if distro == "debian":
+        run(["apt-get", "update", "-qq"], silent=True)
+    elif distro == "fedora":
+        pass  # dnf installs are self-refreshing
+    elif distro == "arch":
+        run(["pacman", "-Sy", "--noconfirm"], silent=True)
+    elif distro == "suse":
+        run(["zypper", "refresh"], silent=True)
+    elif distro == "alpine":
+        run(["apk", "update"], silent=True)
+
+
+def pkg_install(distro: str, *packages):
+    """Install one or more packages using the distro's package manager."""
     with Spinner(f"Installing {', '.join(packages)}"):
-        env = os.environ.copy()
-        env["DEBIAN_FRONTEND"] = "noninteractive"
-        run([
-            "apt-get", "install", "-y", "-qq", "--no-install-recommends",
-            *packages
-        ],
-            silent=True)
+        if distro == "debian":
+            env = os.environ.copy()
+            env["DEBIAN_FRONTEND"] = "noninteractive"
+            run(["apt-get", "install", "-y", "-qq", "--no-install-recommends",
+                 *packages], silent=True)
+        elif distro == "fedora":
+            run(["dnf", "install", "-y", "--quiet", *packages], silent=True)
+        elif distro == "arch":
+            run(["pacman", "-S", "--noconfirm", "--needed", *packages],
+                silent=True)
+        elif distro == "suse":
+            run(["zypper", "install", "-y", *packages], silent=True)
+        elif distro == "alpine":
+            run(["apk", "add", "--no-cache", *packages], silent=True)
+
+
+def pkg_remove(distro: str, *packages):
+    """Remove one or more packages using the distro's package manager."""
+    with Spinner(f"Removing {', '.join(packages)}"):
+        if distro == "debian":
+            run(["apt-get", "remove", "-y", *packages],
+                silent=True, check=False)
+        elif distro == "fedora":
+            run(["dnf", "remove", "-y", *packages], silent=True, check=False)
+        elif distro == "arch":
+            run(["pacman", "-R", "--noconfirm", *packages],
+                silent=True, check=False)
+        elif distro == "suse":
+            run(["zypper", "remove", "-y", *packages], silent=True, check=False)
+        elif distro == "alpine":
+            run(["apk", "del", *packages], silent=True, check=False)
+
+
+def setup_docker_repo(distro: str, china_mirrors: bool):
+    """
+    Add Docker's official package repo if docker is not already installed.
+    When china_mirrors=True, uses Aliyun's mirror of Docker CE (accessible
+    from mainland China where hub.docker.com / download.docker.com may be
+    blocked or very slow).
+    """
+    if shutil.which("docker"):
+        return  # already present, nothing to configure
+
+    if distro == "debian":
+        # Detect debian codename
+        result = run(["lsb_release", "-cs"], capture=True, check=False)
+        codename = result.stdout.strip() if result and result.returncode == 0 else "bookworm"
+
+        if china_mirrors:
+            base = "https://mirrors.aliyun.com/docker-ce/linux/debian"
+            info("Using Aliyun mirror for Docker CE (China mode).")
+        else:
+            base = "https://download.docker.com/linux/debian"
+
+        # Install prerequisites for apt over HTTPS
+        pkg_install(distro, "ca-certificates", "curl", "gnupg")
+
+        keyring = Path("/etc/apt/keyrings/docker.gpg")
+        keyring.parent.mkdir(parents=True, exist_ok=True)
+        with Spinner("Adding Docker GPG key"):
+            run(f'curl -fsSL {base}/gpg | gpg --dearmor -o {keyring}',
+                silent=True)
+        keyring.chmod(0o644)
+
+        sources = Path("/etc/apt/sources.list.d/docker.list")
+        sources.write_text(
+            f"deb [arch=arm64 signed-by={keyring}] {base} {codename} stable\n"
+        )
+        run(["apt-get", "update", "-qq"], silent=True)
+        info("Docker CE repo configured.")
+
+    elif distro == "fedora":
+        if china_mirrors:
+            repo_url = "https://mirrors.aliyun.com/docker-ce/linux/fedora/docker-ce.repo"
+            info("Using Aliyun mirror for Docker CE (China mode).")
+        else:
+            repo_url = "https://download.docker.com/linux/fedora/docker-ce.repo"
+
+        pkg_install(distro, "dnf-plugins-core")
+        with Spinner("Adding Docker CE repo"):
+            run(["dnf", "config-manager", "--add-repo", repo_url], silent=True)
+        info("Docker CE repo configured.")
+
+
+def apt_install(*packages):
+    """Legacy helper — callers that haven't been updated yet use this."""
+    pkg_install("debian", *packages)
 
 
 # =============================================================================
@@ -1630,8 +1757,10 @@ def do_configure():
 # =============================================================================
 # INSTALL
 # =============================================================================
-def do_install():
+def do_install(china_mirrors: bool = False):
     banner("pimiproxy installer", C.CYAN)
+    if china_mirrors:
+        info("China mirror mode enabled — Docker CE will be fetched via Aliyun.")
 
     # ── defaults ──────────────────────────────────────────────────────────────
     install_dir = "/opt/pimiproxy"
@@ -1706,17 +1835,31 @@ def do_install():
     # ── packages ──────────────────────────────────────────────────────────────
     step("Packages")
 
+    distro = detect_distro()
+    info(f"Detected distro family: {distro}")
+
     with Spinner("Updating package lists"):
-        run(["apt-get", "update", "-qq"], silent=True)
+        pkg_update(distro)
     info("Package lists updated.")
 
-    apt_install("avahi-daemon", "libnss-mdns")
+    # mDNS — package names differ by distro
+    _mdns_pkgs = {
+        "debian": ("avahi-daemon", "libnss-mdns"),
+        "fedora": ("avahi", "nss-mdns"),
+        "arch":   ("avahi", "nss-mdns"),
+        "suse":   ("avahi", "nss-mdns"),
+        "alpine": ("avahi",),
+    }.get(distro, ("avahi-daemon",))
+    pkg_install(distro, *_mdns_pkgs)
     with Spinner("Enabling avahi-daemon"):
         run(["systemctl", "enable", "--now", "avahi-daemon"], silent=True)
     info("avahi-daemon ready.")
 
+    # Docker — add repo first if needed, then install
+    setup_docker_repo(distro, china_mirrors)
     if not shutil.which("docker"):
-        apt_install("docker.io")
+        _docker_pkg = "docker-ce" if distro in ("fedora", "arch", "suse") else "docker.io"
+        pkg_install(distro, _docker_pkg)
     else:
         v = run(["docker", "--version"], capture=True).stdout.strip()
         info(f"Docker already present: {v}")
@@ -1727,9 +1870,9 @@ def do_install():
     if compose is None:
         info("Installing docker-compose-plugin...")
         try:
-            apt_install("docker-compose-plugin")
+            pkg_install(distro, "docker-compose-plugin")
         except Exception:
-            apt_install("docker-compose")
+            pkg_install(distro, "docker-compose")
         compose = find_compose()
         if compose is None:
             die("Could not find or install any Docker Compose variant.")
@@ -2090,10 +2233,15 @@ def do_uninstall():
     if confirm(
             "Remove avahi-daemon? Only if nothing else on this Pi needs mDNS."
     ):
-        with Spinner("Removing avahi-daemon"):
-            run(["apt-get", "remove", "-y", "avahi-daemon", "libnss-mdns"],
-                silent=True,
-                check=False)
+        distro = detect_distro()
+        _mdns_pkgs = {
+            "debian": ("avahi-daemon", "libnss-mdns"),
+            "fedora": ("avahi", "nss-mdns"),
+            "arch":   ("avahi", "nss-mdns"),
+            "suse":   ("avahi", "nss-mdns"),
+            "alpine": ("avahi",),
+        }.get(distro, ("avahi-daemon",))
+        pkg_remove(distro, *_mdns_pkgs)
         info("avahi-daemon removed.")
 
     print(f"\n{C.BOLD}{C.GREEN}Uninstall complete.{C.NC}\n")
@@ -2120,7 +2268,11 @@ _TAKES_ARG = {"hostname", "logs", "restart", "debug"}
 
 
 def main():
-    cmd = sys.argv[1] if len(sys.argv) > 1 else "install"
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    flags = {a for a in sys.argv[1:] if a.startswith("--")}
+    china_mirrors = "--china-mirrors" in flags
+
+    cmd = args[0] if args else "install"
     if cmd not in COMMANDS:
         simple = "|".join(k for k in COMMANDS if k not in _TAKES_ARG)
         print(f"Usage: sudo python3 pimiproxy-core.py [{simple}]")
@@ -2132,9 +2284,15 @@ def main():
         )
         print("       sudo python3 pimiproxy-core.py hostname <new-hostname>")
         print("       sudo python3 pimiproxy-core.py debug    [url]")
+        print()
+        print("Flags (install only):")
+        print("       --china-mirrors   Use Aliyun mirrors for Docker CE")
         sys.exit(1)
     try:
-        COMMANDS[cmd]()
+        if cmd == "install":
+            do_install(china_mirrors=china_mirrors)
+        else:
+            COMMANDS[cmd]()
     except KeyboardInterrupt:
         print("\n\nInterrupted.")
         sys.exit(0)
