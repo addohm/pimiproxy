@@ -118,6 +118,55 @@ def run_ok(cmd):
 
 
 # =============================================================================
+# HOSTNAME
+# =============================================================================
+
+# OS default hostnames that indicate the device hasn't been renamed yet
+_DEFAULT_HOSTNAMES = {"raspberrypi", "localhost", "debian", "ubuntu", "alarm"}
+
+
+def current_hostname() -> str:
+    return run(["hostname"], capture=True).stdout.strip()
+
+
+def set_hostname(new_name: str):
+    """Set the system hostname and update /etc/hosts and cloud-init."""
+    old = current_hostname()
+
+    run(["hostnamectl", "set-hostname", new_name])
+
+    hosts = Path("/etc/hosts")
+    txt = hosts.read_text()
+    if "127.0.1.1" in txt:
+        hosts.write_text("\n".join(
+            f"127.0.1.1\t{new_name}" if l.startswith("127.0.1.1") else l
+            for l in txt.splitlines()))
+    else:
+        with hosts.open("a") as f:
+            f.write(f"\n127.0.1.1\t{new_name}\n")
+
+    cloud_cfg = Path("/etc/cloud/cloud.cfg")
+    if cloud_cfg.exists():
+        c = cloud_cfg.read_text()
+        cloud_cfg.write_text(
+            c.replace("preserve_hostname: false", "preserve_hostname: true"))
+        info("cloud-init: preserve_hostname set.")
+
+    info(f"Hostname: {old} -> {new_name}")
+
+
+def do_set_hostname():
+    """Subcommand: pimiproxy-core.py hostname <new-hostname>"""
+    if len(sys.argv) < 3 or not sys.argv[2].strip():
+        die("Usage: sudo python3 pimiproxy-core.py hostname <new-hostname>")
+    name = sys.argv[2].strip()
+    step(f"Setting hostname to '{name}'")
+    set_hostname(name)
+    warn("Restart avahi-daemon for mDNS to pick up the new name:")
+    warn("  sudo systemctl restart avahi-daemon")
+
+
+# =============================================================================
 # SUBSCRIPTION HELPERS
 # =============================================================================
 def extract_yaml_blocks(content: str) -> dict:
@@ -918,7 +967,8 @@ def do_install():
 
     # ── defaults ──────────────────────────────────────────────────────────────
     install_dir = "/opt/pimiproxy"
-    hostname_new = "pimiproxy"
+    _cur = current_hostname()
+    hostname_new = _cur if _cur.lower() not in _DEFAULT_HOSTNAMES else "pimiproxy"
     dashboard_port = "8080"
     api_port = "9090"
     mixed_port = "7890"
@@ -961,28 +1011,10 @@ def do_install():
     # ── hostname ──────────────────────────────────────────────────────────────
     step("Hostname")
 
-    old_hostname = run(["hostname"], capture=True).stdout.strip()
-    run(["hostnamectl", "set-hostname", hostname_new])
-
-    hosts = Path("/etc/hosts")
-    content = hosts.read_text()
-    if "127.0.1.1" in content:
-        new_content = "\n".join(f"127.0.1.1\t{hostname_new}" if line.
-                                startswith("127.0.1.1") else line
-                                for line in content.splitlines())
-        hosts.write_text(new_content)
+    if hostname_new == current_hostname():
+        info(f"Hostname unchanged: {hostname_new}")
     else:
-        with hosts.open("a") as f:
-            f.write(f"\n127.0.1.1\t{hostname_new}\n")
-
-    cloud_cfg = Path("/etc/cloud/cloud.cfg")
-    if cloud_cfg.exists():
-        txt = cloud_cfg.read_text()
-        cloud_cfg.write_text(
-            txt.replace("preserve_hostname: false", "preserve_hostname: true"))
-        info("cloud-init: preserve_hostname set.")
-
-    info(f"Hostname: {old_hostname} -> {hostname_new}")
+        set_hostname(hostname_new)
 
     # ── packages ──────────────────────────────────────────────────────────────
     step("Packages")
@@ -1306,13 +1338,16 @@ COMMANDS = {
     "uninstall": do_uninstall,
     "configure": do_configure,
     "refresh": do_refresh,
+    "hostname": do_set_hostname,
 }
 
 
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "install"
     if cmd not in COMMANDS:
-        print(f"Usage: sudo python3 pimiproxy.py [{'|'.join(COMMANDS)}]")
+        cmds = "|".join(k for k in COMMANDS if k != "hostname")
+        print(f"Usage: sudo python3 pimiproxy-core.py [{cmds}]")
+        print(f"       sudo python3 pimiproxy-core.py hostname <new-hostname>")
         sys.exit(1)
     try:
         COMMANDS[cmd]()

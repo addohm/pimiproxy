@@ -1,3 +1,13 @@
+## [4.2.0] — 2026-04-12
+
+### Added
+- **`hostname` subcommand** — `sudo python3 pimiproxy-core.py hostname <new-hostname>` changes the system hostname without requiring a full reinstall. Updates `/etc/hostname`, `/etc/hosts`, cloud-init if present, and reminds you to restart avahi-daemon for mDNS to pick up the change.
+
+### Changed
+- **Hostname prompt at install is now optional** — if the device already has a custom hostname (anything not in the generic defaults: `raspberrypi`, `localhost`, `debian`, `ubuntu`, `alarm`), the installer pre-fills the prompt with the current hostname rather than defaulting to `pimiproxy`. Pressing Enter keeps the existing name unchanged. The hostname step is skipped entirely if the entered value matches the current hostname.
+
+---
+
 ## [4.1.0] — 2026-04-11
 
 ### Fixed
