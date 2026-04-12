@@ -5,6 +5,6 @@ CLAUDE.md
 
 *.yaml
 *.yaml.old
-*tar.gz
+*.tar.gz
 
 getapiconfig.py
