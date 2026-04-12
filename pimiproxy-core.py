@@ -492,9 +492,25 @@ def build_config(cfg: dict) -> str:
     L("    geoip: false")
     L("  fake-ip-filter:")
     for entry in [
-            "*.lan", "*.local", "+.facebook.com", "+.fbcdn.net",
-            "+.messenger.com", "+.doubleclick.net",
-            "connectivitycheck.gstatic.com"
+            # LAN / mDNS — never fake-IP local hostnames
+            "*.lan", "*.local",
+            # Android / Meta connectivity checks — must resolve to real IPs
+            # or the device reports no internet and may throttle/block traffic
+            "connectivitycheck.gstatic.com",
+            "captive.apple.com",
+            # Meta / Oculus / Quest 3 — Quest OS is Android-based and makes
+            # extensive use of these domains at the OS level
+            "+.meta.com",
+            "+.oculus.com",
+            "+.oculuscdn.com",
+            "+.facebook.com",
+            "+.fbcdn.net",
+            "+.facebook.net",
+            "+.fb.me",
+            "+.facebook-hardware.com",
+            "+.messenger.com",
+            # Google advertising
+            "+.doubleclick.net",
     ]:
         L(f'    - "{entry}"')
     L()
@@ -705,13 +721,13 @@ def build_banner(cfg: dict, meta: dict) -> str:
     L("# Shows proxy status on every interactive shell login.")
     L("[[ $- == *i* ]] || return")
     L()
-    L("_G='\\033[0;32m'  # green")
-    L("_R='\\033[0;31m'  # red")
-    L("_Y='\\033[1;33m'  # yellow")
-    L("_C='\\033[0;36m'  # cyan")
-    L("_B='\\033[1m'     # bold")
-    L("_D='\\033[2m'     # dim")
-    L("_N='\\033[0m'     # reset")
+    L("_G=$'\\033[0;32m'  # green")
+    L("_R=$'\\033[0;31m'  # red")
+    L("_Y=$'\\033[1;33m'  # yellow")
+    L("_C=$'\\033[0;36m'  # cyan")
+    L("_B=$'\\033[1m'     # bold")
+    L("_D=$'\\033[2m'     # dim")
+    L("_N=$'\\033[0m'     # reset")
     L("_S='  ──────────────────────────────────────────'")
     L()
     L('printf "\\n${_C}${_B}  pimiproxy${_N}\\n%s\\n" "$_S"')
