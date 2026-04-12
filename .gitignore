@@ -4,6 +4,7 @@ clash-system-status.sh
 CLAUDE.md
 
 *.yaml
+*.yaml.old
 *tar.gz
 
 getapiconfig.py
