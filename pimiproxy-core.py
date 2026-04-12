@@ -335,6 +335,11 @@ def load_image(archive: str, fallback: str, arch: str) -> str:
 # =============================================================================
 META_PATH = Path("/opt/pimiproxy/.pimiproxy-meta.json")
 
+# Docker image references
+MIHOMO_IMAGE     = "ghcr.io/metacubex/mihomo:latest"
+METACUBEXD_IMAGE = "ghcr.io/metacubex/metacubexd:latest"
+ZASHBOARD_IMAGE  = "ghcr.io/zephyruso/zashboard:latest"
+
 
 def write_meta(data: dict):
     META_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -607,6 +612,142 @@ def build_clash_system() -> str:
 
 
 # =============================================================================
+# STATUS
+# =============================================================================
+def do_status():
+    import time
+    import urllib.request
+    import urllib.error
+
+    meta        = read_meta()
+    install_dir = Path(meta["install_dir"])
+    compose     = (meta["compose_bin"], meta["compose_sub"])
+    mixed_port  = meta.get("mixed_port", "7890")
+    api_port    = meta.get("api_port", "9090")
+    dash_port   = meta.get("dashboard_port", "8080")
+    hostname    = meta.get("hostname", "pimiproxy")
+
+    banner("pimiproxy status", C.CYAN)
+
+    # ── containers ────────────────────────────────────────────────────────────
+    step("Containers")
+    run(compose_cmd(compose, "ps"), cwd=install_dir, check=False)
+
+    # ── clash-system ──────────────────────────────────────────────────────────
+    step("System proxy (clash-system)")
+    cs = Path("/usr/local/bin/clash-system")
+    if cs.exists():
+        run([str(cs), "status"], check=False)
+    else:
+        warn("clash-system not installed.")
+
+    # ── subscription ──────────────────────────────────────────────────────────
+    step("Subscription")
+    ext_cfg_path = install_dir / ".pimiproxy-config.json"
+    if ext_cfg_path.exists():
+        cfg = json.loads(ext_cfg_path.read_text())
+        url = cfg.get("subscription_url", "")
+        if url:
+            info(f"URL: {url}")
+            count = cfg.get("subscription_proxies_yaml", "").count("- name:")
+            info(f"Proxies loaded: {count}")
+        else:
+            info("No subscription URL configured.")
+    else:
+        warn("Config not found — is pimiproxy installed?")
+
+    # ── proxy connectivity test ───────────────────────────────────────────────
+    step("Proxy connectivity test")
+    proxy_addr = f"http://127.0.0.1:{mixed_port}"
+    tests = [
+        ("HTTP ", "http://www.gstatic.com/generate_204"),
+        ("HTTPS", "https://www.gstatic.com/generate_204"),
+    ]
+    handler = urllib.request.ProxyHandler({"http": proxy_addr, "https": proxy_addr})
+    opener  = urllib.request.build_opener(handler)
+    all_ok  = True
+    for label, test_url in tests:
+        try:
+            t0 = time.monotonic()
+            with opener.open(test_url, timeout=10) as resp:
+                ms = (time.monotonic() - t0) * 1000
+                info(f"{label}  {test_url}  ->  {resp.status}  ({ms:.0f}ms)")
+        except Exception as exc:
+            warn(f"{label}  {test_url}  ->  FAILED  ({exc})")
+            all_ok = False
+    if all_ok:
+        info("Proxy is working correctly.")
+    else:
+        warn("Proxy test failed — check Mihomo logs:")
+        warn("  sudo python3 pimiproxy-core.py logs")
+
+    # ── endpoints ─────────────────────────────────────────────────────────────
+    print()
+    print(f"  Dashboard  ->  http://{hostname}.lan:{dash_port}")
+    print(f"  API        ->  http://{hostname}.lan:{api_port}")
+    print(f"  Proxy      ->  0.0.0.0:{mixed_port}  (HTTP/SOCKS5)")
+    print()
+
+
+# =============================================================================
+# LOGS
+# =============================================================================
+def do_logs():
+    meta        = read_meta()
+    install_dir = Path(meta["install_dir"])
+    compose     = (meta["compose_bin"], meta["compose_sub"])
+
+    service = sys.argv[2] if len(sys.argv) > 2 else "mihomo"
+    if service not in {"mihomo", "dashboard"}:
+        die(f"Unknown service '{service}'. Use: mihomo  or  dashboard")
+
+    step(f"Logs: {service}  (Ctrl-C to stop)")
+    try:
+        run(compose_cmd(compose, "logs", "-f", "--tail=50", service),
+            cwd=install_dir, check=False)
+    except KeyboardInterrupt:
+        print()
+
+
+# =============================================================================
+# RESTART
+# =============================================================================
+def do_restart():
+    meta        = read_meta()
+    install_dir = Path(meta["install_dir"])
+    compose     = (meta["compose_bin"], meta["compose_sub"])
+
+    service = sys.argv[2] if len(sys.argv) > 2 else None
+    if service and service not in {"mihomo", "dashboard"}:
+        die(f"Unknown service '{service}'. Use: mihomo, dashboard, or omit for all")
+
+    if service:
+        step(f"Restarting {service}")
+        compose_run(compose, "restart", service, cwd=install_dir)
+    else:
+        step("Restarting all containers")
+        compose_run(compose, "restart", cwd=install_dir)
+    info("Done.")
+
+
+# =============================================================================
+# UPDATE
+# =============================================================================
+def do_update():
+    meta        = read_meta()
+    install_dir = Path(meta["install_dir"])
+    compose     = (meta["compose_bin"], meta["compose_sub"])
+
+    banner("pimiproxy update", C.CYAN)
+    step("Pulling latest images")
+    compose_run(compose, "pull", cwd=install_dir)
+
+    step("Recreating containers with new images")
+    compose_run(compose, "up", "-d", "--force-recreate", cwd=install_dir)
+    info("Update complete.")
+
+
+# =============================================================================
 # CONFIGURE MODE
 # Interactive editor for proxy groups and rules — reads existing config,
 # lets the user add/remove entries, writes the result back.
@@ -638,7 +779,9 @@ def do_configure():
             "rules": [],
         }
 
-    changed = False
+    compose         = (meta["compose_bin"], meta["compose_sub"])
+    changed         = False
+    compose_changed = False
 
     while True:
         print(f"\n{C.BOLD}── Configure pimiproxy ─────────────────────{C.NC}")
@@ -647,10 +790,13 @@ def do_configure():
         print("  3) Manage rules")
         print("  4) Show current config")
         print("  5) Refresh subscription now")
-        print("  6) Save and apply")
-        print("  7) Exit without saving")
+        print("  6) Change API secret")
+        print("  7) Change ports")
+        print("  8) Switch dashboard")
+        print("  9) Save and apply")
+        print(" 10) Exit without saving")
         print()
-        choice = input("  Selection [1-7]: ").strip()
+        choice = input("  Selection [1-10]: ").strip()
 
         # ── subscription URL ─────────────────────────────────────────────────
         if choice == "1":
@@ -922,36 +1068,108 @@ def do_configure():
                     cfg = json.loads(ext_cfg_path.read_text())
                     cfg_path.write_text(build_config(cfg))
                     info("config.yaml rebuilt.")
-                    compose = (meta["compose_bin"], meta["compose_sub"])
-                    compose_run(compose,
-                                "restart",
-                                "mihomo",
-                                cwd=install_dir,
-                                silent=False)
+                    compose_run(compose, "restart", "mihomo",
+                                cwd=install_dir, silent=False)
                     info("Mihomo restarted.")
 
-        # ── save and apply ───────────────────────────────────────────────────
+        # ── change API secret ────────────────────────────────────────────────
         elif choice == "6":
-            if not changed:
+            current_secret = cfg.get("api_secret",
+                                     meta.get("api_secret", "pimiproxy"))
+            print(f"\n  Current API secret: {current_secret}")
+            new_secret = ask_secret("New API secret", current_secret)
+            if new_secret != current_secret:
+                cfg["api_secret"] = new_secret
+                info("API secret updated — save and apply to activate.")
+                changed = True
+            else:
+                info("Secret unchanged.")
+
+        # ── change ports ─────────────────────────────────────────────────────
+        elif choice == "7":
+            cur_dash  = cfg.get("dashboard_port",
+                                meta.get("dashboard_port", "8080"))
+            cur_api   = cfg.get("api_port", meta.get("api_port", "9090"))
+            cur_mixed = cfg.get("mixed_port", meta.get("mixed_port", "7890"))
+            print(f"\n  {C.BOLD}Current ports:{C.NC}")
+            print(f"    Dashboard  port : {cur_dash}")
+            print(f"    Mihomo API port : {cur_api}")
+            print(f"    Mixed proxy port: {cur_mixed}")
+            print()
+            new_dash  = ask("Dashboard port",   cur_dash)
+            new_api   = ask("Mihomo API port",  cur_api)
+            new_mixed = ask("Mixed proxy port", cur_mixed)
+            if new_dash != cur_dash:
+                cfg["dashboard_port"] = new_dash
+                compose_changed = True
+            if new_api != cur_api:
+                cfg["api_port"] = new_api
+                changed = True
+            if new_mixed != cur_mixed:
+                cfg["mixed_port"] = new_mixed
+                changed = True
+            if changed or compose_changed:
+                info("Ports updated — save and apply to activate.")
+
+        # ── switch dashboard ──────────────────────────────────────────────────
+        elif choice == "8":
+            cur_dash = cfg.get("dash_name", "metacubexd")
+            other    = "zashboard" if cur_dash == "metacubexd" else "metacubexd"
+            other_img = (ZASHBOARD_IMAGE if other == "zashboard"
+                         else METACUBEXD_IMAGE)
+            other_arc = (f"{other}.tar.gz")
+            print(f"\n  Current dashboard: {cur_dash}")
+            if confirm(f"Switch to {other}?"):
+                step(f"Loading {other} image")
+                arch = meta.get("arch", "linux/arm64")
+                new_img = load_image(other_arc, other_img, arch)
+                cfg["dashboard_image"] = new_img
+                cfg["dash_name"]       = other
+                info(f"Dashboard switched to {other} — save and apply to activate.")
+                compose_changed = True
+
+        # ── save and apply ───────────────────────────────────────────────────
+        elif choice == "9":
+            if not changed and not compose_changed:
                 info("No changes to save.")
                 break
 
-            cfg_text = build_config(cfg)
-            cfg_path.write_text(cfg_text)
+            # Always write config.yaml (covers secret, api_port, mixed_port)
+            cfg_path.write_text(build_config(cfg))
             ext_cfg_path.write_text(json.dumps(cfg, indent=2))
-            info("Config files written.")
+            info("config.yaml written.")
 
-            compose = (meta["compose_bin"], meta["compose_sub"])
-            if confirm("Restart Mihomo now to apply changes?", default=True):
-                compose_run(compose,
-                            "restart",
-                            "mihomo",
-                            cwd=Path(meta["install_dir"]),
-                            silent=False)
-                info("Mihomo restarted.")
+            # Rebuild docker-compose.yml when ports or dashboard changed
+            if compose_changed:
+                (install_dir / "docker-compose.yml").write_text(
+                    build_compose(cfg))
+                info("docker-compose.yml rebuilt.")
+
+            # Persist port / secret changes back to meta so future subcommands
+            # (status, logs, restart) read the right values
+            for key in ("dashboard_port", "api_port", "mixed_port",
+                        "api_secret"):
+                if key in cfg:
+                    meta[key] = cfg[key]
+            write_meta(meta)
+
+            # Restart: recreate all containers if compose changed, otherwise
+            # just bounce Mihomo (config.yaml is re-read on start)
+            if compose_changed:
+                if confirm("Recreate containers now to apply changes?",
+                           default=True):
+                    compose_run(compose, "up", "-d", "--force-recreate",
+                                cwd=install_dir)
+                    info("Containers recreated.")
+            else:
+                if confirm("Restart Mihomo now to apply changes?",
+                           default=True):
+                    compose_run(compose, "restart", "mihomo",
+                                cwd=install_dir, silent=False)
+                    info("Mihomo restarted.")
             break
 
-        elif choice == "7":
+        elif choice == "10":
             info("Exiting without saving.")
             break
 
@@ -974,10 +1192,6 @@ def do_install():
     mixed_port = "7890"
     api_secret = "pimiproxy"
     arch = "linux/arm64"
-
-    mihomo_image = "ghcr.io/metacubex/mihomo:latest"
-    metacubexd_image = "ghcr.io/metacubex/metacubexd:latest"
-    zashboard_image = "ghcr.io/zephyruso/zashboard:latest"
 
     # ── prompts ───────────────────────────────────────────────────────────────
     step("Configuration")
@@ -1049,14 +1263,14 @@ def do_install():
     # ── images ────────────────────────────────────────────────────────────────
     step("Container images")
 
-    engine = load_image("mihomo.tar.gz", mihomo_image, arch)
+    engine = load_image("mihomo.tar.gz", MIHOMO_IMAGE, arch)
     info(f"Engine image:    {engine}")
 
     if dash_choice == 2:
-        dashboard = load_image("zashboard.tar.gz", zashboard_image, arch)
+        dashboard = load_image("zashboard.tar.gz", ZASHBOARD_IMAGE, arch)
         dash_name = "zashboard"
     else:
-        dashboard = load_image("metacubexd.tar.gz", metacubexd_image, arch)
+        dashboard = load_image("metacubexd.tar.gz", METACUBEXD_IMAGE, arch)
         dash_name = "metacubexd"
     info(f"Dashboard image: {dashboard} ({dash_name})")
 
@@ -1149,6 +1363,7 @@ def do_install():
         "api_port": api_port,
         "mixed_port": mixed_port,
         "api_secret": api_secret,
+        "arch": arch,
         "compose_bin": compose[0],
         "compose_sub": compose[1],
     }
@@ -1334,20 +1549,29 @@ def do_uninstall():
 # ENTRYPOINT
 # =============================================================================
 COMMANDS = {
-    "install": do_install,
+    "install":   do_install,
     "uninstall": do_uninstall,
     "configure": do_configure,
-    "refresh": do_refresh,
-    "hostname": do_set_hostname,
+    "refresh":   do_refresh,
+    "status":    do_status,
+    "logs":      do_logs,
+    "restart":   do_restart,
+    "update":    do_update,
+    "hostname":  do_set_hostname,
 }
+
+# Commands that accept an optional second argument
+_TAKES_ARG = {"hostname", "logs", "restart"}
 
 
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "install"
     if cmd not in COMMANDS:
-        cmds = "|".join(k for k in COMMANDS if k != "hostname")
-        print(f"Usage: sudo python3 pimiproxy-core.py [{cmds}]")
-        print(f"       sudo python3 pimiproxy-core.py hostname <new-hostname>")
+        simple = "|".join(k for k in COMMANDS if k not in _TAKES_ARG)
+        print(f"Usage: sudo python3 pimiproxy-core.py [{simple}]")
+        print( "       sudo python3 pimiproxy-core.py logs     [mihomo|dashboard]")
+        print( "       sudo python3 pimiproxy-core.py restart  [mihomo|dashboard]")
+        print( "       sudo python3 pimiproxy-core.py hostname <new-hostname>")
         sys.exit(1)
     try:
         COMMANDS[cmd]()

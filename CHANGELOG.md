@@ -1,3 +1,21 @@
+## [4.3.0] — 2026-04-12
+
+### Added
+- **`status` subcommand** — shows container health, clash-system state, subscription info (URL + proxy count), and runs a live HTTP and HTTPS connectivity test through the proxy. Reports pass/fail with latency for both tests and prints the dashboard/API/proxy endpoint URLs at the end.
+- **`logs [mihomo|dashboard]` subcommand** — tails the live log stream for the specified container (default: `mihomo`). Equivalent to `cd /opt/pimiproxy && docker compose logs -f`.
+- **`restart [mihomo|dashboard]` subcommand** — restarts one container or all if no argument given. Equivalent to `docker compose restart`.
+- **`update` subcommand** — pulls the latest Docker images for all containers and force-recreates them. Equivalent to `docker compose pull && docker compose up -d --force-recreate`.
+- **Configure option 6: Change API secret** — change the Mihomo API secret post-install without reinstalling.
+- **Configure option 7: Change ports** — change dashboard, API, or mixed proxy ports post-install. Dashboard port changes rebuild `docker-compose.yml`; API/proxy port changes rebuild `config.yaml`.
+- **Configure option 8: Switch dashboard** — switch between Metacubexd and Zashboard without reinstalling. Pulls/loads the new image and rebuilds `docker-compose.yml` on save.
+
+### Changed
+- **Configure save (now option 9)** — Save and apply now rebuilds `docker-compose.yml` when port or dashboard changes are pending, and updates meta so `status`/`logs`/`restart` read the correct ports after a change.
+- **Image names extracted to module-level constants** — `MIHOMO_IMAGE`, `METACUBEXD_IMAGE`, `ZASHBOARD_IMAGE` — used by install, update, and configure dashboard switch.
+- **`arch` stored in install metadata** — used by configure dashboard switch to pull the correct platform image.
+
+---
+
 ## [4.2.0] — 2026-04-12
 
 ### Added
