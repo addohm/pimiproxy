@@ -1,14 +1,24 @@
+## [4.7.0] — 2026-04-12
+
+### Added
+- **"Quest" proxy group** — always injected into `config.yaml` regardless of subscription. Type `select`, default `DIRECT`. Covers Meta/Oculus/Quest OS domains and streaming fitness platforms (Les Mills, Brightcove). Routing these direct bypasses the upstream proxy server so geo-licensed content (Les Mills Bodycombat VR, etc.) sees the Pi's real home IP instead of the proxy's exit IP. Switchable to any proxy via the Mihomo dashboard or `configure`. Quest domain rules are prepended before the subscription catch-all so they are evaluated first.
+
+---
+
 ## [4.6.0] — 2026-04-12
 
 ### Fixed
-- **Gateway mode (Quest 3 / forwarded clients)** — devices that use the Pi as their network gateway (not just a proxy endpoint) now get their traffic routed correctly. Three changes combined: `auto-route: true` so Mihomo registers kernel routing rules for forwarded packets; `auto-detect-interface: true` (removes hardcoded `eth0`) so Mihomo picks the correct WAN interface automatically; and kernel IP forwarding enabled at install time (`net.ipv4.ip_forward=1`, persisted via `/etc/sysctl.d/99-pimiproxy.conf`). Without forwarding enabled the Pi was silently dropping packets from gateway clients.
+- **Gateway mode (Quest 3 / forwarded clients)** — devices that use the Pi as their network gateway now get their traffic routed correctly. Three changes: `auto-route: true` so Mihomo registers kernel routing rules for forwarded packets; `auto-detect-interface: true` so Mihomo picks the correct WAN interface automatically; kernel IP forwarding enabled at install time (`net.ipv4.ip_forward=1`, persisted via `/etc/sysctl.d/99-pimiproxy.conf`). Without forwarding enabled the Pi was silently dropping packets from gateway clients.
+- **`clash-system` rewritten for `auto-route: true`** — the old script used manual ip rules and routing table 101 (designed for `auto-route: false`). This conflicted with Mihomo's own auto-route rules. New design: `off` adds an `iptables mangle OUTPUT` rule that marks Pi-originated packets with Mihomo's routing mark (666), which Mihomo's ip rule exempts from the TUN. Forwarded packets (Quest 3 etc.) travel through the FORWARD chain and are never marked, so they always reach Mihomo. `on` removes the bypass mark — Pi traffic also routes through the proxy.
 
 ### Added
 - **IP forwarding** — installer writes `/etc/sysctl.d/99-pimiproxy.conf` and applies `net.ipv4.ip_forward=1` immediately. Uninstaller removes the file and resets the value.
+- **`pimiproxy-bypass.service`** — systemd unit installed and enabled at install time. Runs `clash-system off` after network is up on every boot, ensuring Pi traffic goes direct by default. Removed by the uninstaller (which also clears any leftover iptables rules).
 
 ### Changed
-- **TUN auto-route enabled by default** — `auto-route: true` and `auto-detect-interface: true` are now the defaults in generated `config.yaml`. Previously these were both false, which worked for clients that pointed at `host:7890` but broke gateway-mode clients.
-- **Fake-ip filter expanded** — added Meta/Oculus/Facebook/Quest domains (`+.meta.com`, `+.oculus.com`, `+.oculuscdn.com`, `+.facebook.com`, `+.fbcdn.net`, `+.facebook.net`, `+.fb.me`, `+.facebook-hardware.com`, `+.messenger.com`, `+.doubleclick.net`) so Quest 3 OS-level connectivity checks and store traffic resolve correctly under fake-ip DNS mode.
+- **TUN auto-route enabled by default** — `auto-route: true` and `auto-detect-interface: true` in generated `config.yaml`. Previously both were false — worked for clients using port 7890 but broke gateway-mode clients.
+- **DNS nameservers changed** — primary `8.8.8.8` / `1.1.1.1`, fallback `8.8.4.4` / `1.0.0.1`. Previous defaults (`223.5.5.5` / `119.29.29.29`) were Chinese DNS services and gave incorrect geo-routing for most users.
+- **Fake-ip filter expanded** — added connectivity check domains for Android/Apple/Windows, NTP servers (`time.android.com`, `pool.ntp.org`), STUN (`stun.l.google.com` for WebRTC-based Quest apps), Instagram/CDN domains, `+.googlevideo.com`, and Les Mills/Brightcove domains (`+.lesmills.com`, `+.lesmillsplus.com`, `+.lesmillsondemand.com`, `+.brightcove.com`, `+.brightcove.net`, `+.bcovlive.io`, `+.boltdns.net`) for Widevine DRM and geo-routed video delivery.
 
 ---
 

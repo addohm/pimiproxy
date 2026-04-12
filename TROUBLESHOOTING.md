@@ -15,6 +15,7 @@
 9. [Dashboard Can't Reach the Mihomo API](#9-dashboard-cant-reach-the-mihomo-api)
 10. [Recovering a Broken Config](#10-recovering-a-broken-config)
 11. [Devices on the Network Can't Connect to the Proxy](#11-devices-on-the-network-cant-connect-to-the-proxy)
+12. [App Shows No Connectivity Despite Proxy Being Configured](#12-app-shows-no-connectivity-despite-proxy-being-configured)
 
 ---
 
@@ -480,3 +481,58 @@ sudo ufw allow 7890/tcp
 ### Check 5 — Confirm the Pi's IP hasn't changed
 
 If the Pi's IP address changed since you configured the proxy settings on the device, the device will be pointing at the wrong host. Set a static IP or DHCP reservation on your router for the Pi's MAC address to prevent this.
+
+---
+
+## 12. App Shows No Connectivity Despite Proxy Being Configured
+
+**Symptom:** A device is correctly configured to use pimiproxy as its HTTP/SOCKS5 proxy, other apps work fine, but one specific app shows "no internet" or "offline" — and the app never appears in Mihomo's logs at all.
+
+### Why this happens
+
+The standard pimiproxy setup is an **explicit proxy**: devices are told "send your traffic to `pimiproxy.lan:7890`". This only works for apps that respect the operating system's proxy setting. Apps built on standard HTTP clients (browsers, most apps) honour it automatically.
+
+However, some apps — particularly games built on the **Unity engine** — use their own networking stack and bypass the OS proxy entirely. These apps send traffic directly to the router, skipping the Pi completely. On a network where direct internet access is blocked (e.g. behind a firewall or in a region with internet restrictions), this causes the app to report no connectivity even though the device and all other apps work fine.
+
+**Real-world example:** On a Meta Quest 3 configured with `pimiproxy.lan:7890` as its WiFi proxy, Golf+ (Unity) works correctly because it uses Unity's default WebRequest, which respects the system proxy. Les Mills Bodycombat (also Unity) shows "offline" and makes zero connections through the proxy — because it uses its own HTTP client that ignores the system proxy entirely.
+
+You can confirm this is the cause by checking Mihomo's logs while the app is open:
+
+```bash
+sudo python3 pimiproxy-core.py logs
+```
+
+If the app generates zero log entries while other apps show activity, it is bypassing the proxy.
+
+### The fix: transparent gateway mode
+
+Instead of using an explicit proxy setting, configure the **device's WiFi gateway** to point at the Pi. All traffic from the device is then routed through the Pi at the network level — apps can't bypass it because they never make direct decisions about routing. Mihomo's TUN interface captures everything transparently.
+
+**On the Pi:** no changes needed. pimiproxy already runs Mihomo with TUN mode and `auto-route: true`, which handles all gateway traffic automatically.
+
+**On the device** (using Meta Quest 3 as the example):
+
+1. Open **Settings → Wi-Fi**, tap the connected network, and choose **Edit** or **Advanced**.
+2. Switch IP settings from **DHCP** to **Static**.
+3. Fill in the fields:
+   - **IP address:** assign a static IP outside your router's DHCP range (e.g. `192.168.1.200`)
+   - **Gateway:** the Pi's LAN IP address (find it with `sudo python3 pimiproxy-core.py status` or check the login banner)
+   - **DNS:** your router's IP, or the Pi's IP if you want Mihomo to handle DNS
+   - **Subnet mask / Prefix:** match your network (typically `255.255.255.0` / `24`)
+4. Remove any explicit proxy setting — it is no longer needed.
+
+After saving, all traffic from the device routes through the Pi regardless of whether the app honours a proxy setting or not.
+
+> **Note:** Gateway mode requires entering the Pi's IP address directly — WiFi gateway fields do not accept hostnames. The Pi's current IP is shown in the `status` output and the login banner.
+
+### Choosing between explicit proxy and gateway mode
+
+| | Explicit proxy (`pimiproxy.lan:7890`) | Gateway mode (Pi as WiFi gateway) |
+|---|---|---|
+| Setup | One field in WiFi proxy settings | Static IP + change gateway field |
+| Works with | Apps that respect OS proxy | All apps, regardless of networking stack |
+| Affects | Only proxied traffic | All traffic from the device |
+| Per-device config | Yes | Yes |
+| Hostname usable | Yes (`pimiproxy.lan`) | No (IP required for gateway field) |
+
+For most devices and apps, the explicit proxy is simpler and sufficient. Use gateway mode only when you have a specific app that is known to bypass the system proxy.

@@ -6,6 +6,7 @@ Run as root: sudo python3 pimiproxy.py [install|uninstall|configure]
 """
 
 import os
+import re
 import sys
 import shutil
 import subprocess
@@ -57,6 +58,11 @@ def banner(msg, colour=C.CYAN):
 def die(msg):
     print(f"{C.RED}  ✖  {msg}{C.NC}", file=sys.stderr)
     sys.exit(1)
+
+
+def yaml_quote(s: str) -> str:
+    """Return s as a safely double-quoted YAML scalar value."""
+    return '"' + s.replace('\\', '\\\\').replace('"', '\\"') + '"'
 
 
 def confirm(msg, default=False):
@@ -112,9 +118,9 @@ class Spinner:
     FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 
     def __init__(self, msg: str):
-        self.msg   = msg
+        self.msg = msg
         self._stop = threading.Event()
-        self._t    = threading.Thread(target=self._spin, daemon=True)
+        self._t = threading.Thread(target=self._spin, daemon=True)
 
     def _spin(self):
         for frame in itertools.cycle(self.FRAMES):
@@ -226,9 +232,12 @@ def do_set_hostname():
     # Restart avahi-daemon so .local mDNS immediately uses the new name
     with Spinner("Restarting avahi-daemon"):
         result = run(["systemctl", "restart", "avahi-daemon"],
-                     check=False, silent=True)
+                     check=False,
+                     silent=True)
     if result.returncode == 0:
-        info("avahi-daemon restarted — .local will resolve to the new hostname.")
+        info(
+            "avahi-daemon restarted — .local will resolve to the new hostname."
+        )
     else:
         warn("avahi-daemon not running — .local won't update until it starts.")
 
@@ -283,7 +292,9 @@ def fetch_subscription(url: str) -> dict:
     try:
         req = urllib.request.Request(
             url,
-            headers={"User-Agent": "Clash-Verge/1.0 (clash-verge-rev; mihomo)"})
+            headers={
+                "User-Agent": "Clash-Verge/1.0 (clash-verge-rev; mihomo)"
+            })
         with urllib.request.urlopen(req, timeout=30) as resp:
             content = resp.read().decode("utf-8", errors="replace")
     except Exception as e:
@@ -301,7 +312,8 @@ def fetch_subscription(url: str) -> dict:
     info(f"Found {count} proxies.")
 
     if "proxy-groups" in blocks:
-        info("Found proxy-groups from provider — will use instead of defaults.")
+        info(
+            "Found proxy-groups from provider — will use instead of defaults.")
 
     if "rules" in blocks:
         # Strip GEOIP rules — they require the MaxMind MMDB database which
@@ -313,10 +325,14 @@ def fetch_subscription(url: str) -> dict:
         filtered = [l for l in rules_lines if "GEOIP," not in l.upper()]
         removed = len(rules_lines) - len(filtered)
         if removed:
-            info(f"Removed {removed} GEOIP rules (require MMDB — covered by IP-CIDR rules).")
+            info(
+                f"Removed {removed} GEOIP rules (require MMDB — covered by IP-CIDR rules)."
+            )
         blocks["rules"] = "".join(filtered).rstrip()
         rule_count = blocks["rules"].count("    - ")
-        info(f"Found {rule_count} rules from provider — will use instead of defaults.")
+        info(
+            f"Found {rule_count} rules from provider — will use instead of defaults."
+        )
 
     return blocks
 
@@ -344,8 +360,11 @@ def apt_install(*packages):
     with Spinner(f"Installing {', '.join(packages)}"):
         env = os.environ.copy()
         env["DEBIAN_FRONTEND"] = "noninteractive"
-        run(["apt-get", "install", "-y", "-qq", "--no-install-recommends",
-             *packages], silent=True)
+        run([
+            "apt-get", "install", "-y", "-qq", "--no-install-recommends",
+            *packages
+        ],
+            silent=True)
 
 
 # =============================================================================
@@ -403,13 +422,13 @@ def load_image(archive: str, fallback: str, arch: str) -> str:
 # =============================================================================
 # METADATA  (stored as JSON — no quoting issues, no sourcing issues)
 # =============================================================================
-META_PATH   = Path("/opt/pimiproxy/.pimiproxy-meta.json")
+META_PATH = Path("/opt/pimiproxy/.pimiproxy-meta.json")
 BANNER_PATH = Path("/etc/profile.d/pimiproxy-banner.sh")
 
 # Docker image references
-MIHOMO_IMAGE     = "ghcr.io/metacubex/mihomo:latest"
+MIHOMO_IMAGE = "ghcr.io/metacubex/mihomo:latest"
 METACUBEXD_IMAGE = "ghcr.io/metacubex/metacubexd:latest"
-ZASHBOARD_IMAGE  = "ghcr.io/zephyruso/zashboard:latest"
+ZASHBOARD_IMAGE = "ghcr.io/zephyruso/zashboard:latest"
 
 
 def write_meta(data: dict):
@@ -492,13 +511,24 @@ def build_config(cfg: dict) -> str:
     L("  fake-ip-filter:")
     for entry in [
             # LAN / mDNS — never fake-IP local hostnames
-            "*.lan", "*.local",
-            # Android / Meta connectivity checks — must resolve to real IPs
-            # or the device reports no internet and may throttle/block traffic
+            "*.lan",
+            "*.local",
+            # Android / Meta / Apple connectivity checks — must resolve to real
+            # IPs or the OS reports no internet and throttles/blocks traffic
             "connectivitycheck.gstatic.com",
+            "connectivitycheck.android.com",
             "captive.apple.com",
-            # Meta / Oculus / Quest 3 — Quest OS is Android-based and makes
-            # extensive use of these domains at the OS level
+            "*.msftconnecttest.com",
+            "*.msftncsi.com",
+            # NTP — clocks must resolve to real servers
+            "time.android.com",
+            "time.facebook.com",
+            "time1.google.com",
+            "pool.ntp.org",
+            "+.pool.ntp.org",
+            # STUN / WebRTC — real IPs needed for ICE candidate negotiation
+            "stun.l.google.com",
+            # Meta / Oculus — Quest OS uses these at the system level
             "+.meta.com",
             "+.oculus.com",
             "+.oculuscdn.com",
@@ -508,8 +538,26 @@ def build_config(cfg: dict) -> str:
             "+.fb.me",
             "+.facebook-hardware.com",
             "+.messenger.com",
-            # Google advertising
-            "+.doubleclick.net",
+            "+.instagram.com",
+            "+.cdninstagram.com",
+            # ── Entries below are commented out ───────────────────────────────
+            # Les Mills and Brightcove are listed here for reference but have no
+            # effect when using the standard proxy setup (pinasmc:7890), because
+            # the Les Mills app (Unity engine) bypasses Android's system proxy
+            # entirely and never sends traffic through Mihomo at all.
+            #
+            # Uncomment these if you configure a device to route through the Pi
+            # as its network gateway (transparent proxy mode), at which point
+            # Mihomo will see Les Mills traffic and these entries ensure real DNS
+            # resolution for DRM license servers and geo-routed CDN endpoints.
+            #
+            # "+.lesmills.com",
+            # "+.lesmillsplus.com",
+            # "+.lesmillsondemand.com",
+            # "+.brightcove.com",
+            # "+.brightcove.net",
+            # "+.bcovlive.io",
+            # "+.boltdns.net",
     ]:
         L(f'    - "{entry}"')
     L()
@@ -540,11 +588,24 @@ def build_config(cfg: dict) -> str:
         L("proxies: []")
         L()
 
+    # Individual proxy server names — used in Quest group so the user can
+    # pick any specific server directly, same as every other proxy group.
+    _sub_proxy_names = re.findall(
+        r'^\s*-\s*name:\s*["\']?([^"\'\n]+?)["\']?\s*$', sub_proxies,
+        re.MULTILINE) if sub_proxies else []
+
     if sub_groups:
-        # Proxy groups from provider — inject verbatim
+        # Proxy groups from provider — inject verbatim, then append Quest group
         L()
         for line in sub_groups.splitlines():
             L(line)
+        L('  - name: "🧭 Meta Quest"')
+        L('    type: select')
+        L('    proxies:')
+        L('      - "DIRECT"')
+        L('      - "Wannaflix"')
+        for name in _sub_proxy_names:
+            L(f'      - {yaml_quote(name)}')
         L()
     else:
         # Fall back: user-configured groups or simple generated defaults
@@ -557,31 +618,72 @@ def build_config(cfg: dict) -> str:
                     "proxies": ["DIRECT"]
                 },
             ]
-        if proxy_groups:
-            L("proxy-groups:")
-            for g in proxy_groups:
-                L(f'  - name: "{g["name"]}"')
-                L(f'    type: {g["type"]}')
-                if "use" in g:
-                    L("    use:")
-                    for u in g["use"]:
-                        L(f"      - {u}")
-                if "proxies" in g:
-                    L("    proxies:")
-                    for p in g["proxies"]:
-                        L(f"      - {p}")
-                if "url" in g:
-                    L(f'    url: {g["url"]}')
-                if "interval" in g:
-                    L(f'    interval: {g["interval"]}')
-                if "tolerance" in g:
-                    L(f'    tolerance: {g["tolerance"]}')
-            L()
+        L("proxy-groups:")
+        for g in proxy_groups:
+            L(f'  - name: "{g["name"]}"')
+            L(f'    type: {g["type"]}')
+            if "use" in g:
+                L("    use:")
+                for u in g["use"]:
+                    L(f"      - {u}")
+            if "proxies" in g:
+                L("    proxies:")
+                for p in g["proxies"]:
+                    L(f"      - {p}")
+            if "url" in g:
+                L(f'    url: {g["url"]}')
+            if "interval" in g:
+                L(f'    interval: {g["interval"]}')
+            if "tolerance" in g:
+                L(f'    tolerance: {g["tolerance"]}')
+        L('  - name: "Quest"')
+        L('    type: select')
+        L('    proxies:')
+        L('      - "DIRECT"')
+        L('      - "Wannaflix"')
+        L()
+
+    # Quest domain rules — always prepended before the subscription catch-all
+    # so traffic for these domains actually reaches the Quest group.
+    _quest_rules = [
+        "DOMAIN-SUFFIX,meta.com,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,oculus.com,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,oculuscdn.com,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,facebook.com,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,fbcdn.net,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,facebook.net,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,instagram.com,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,lesmills.com,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,lesmillsplus.com,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,lesmillsondemand.com,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,brightcove.com,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,brightcove.net,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,bcovlive.io,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,boltdns.net,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,odderslab.com,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,cognitive3d.com,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,facebook-hardware.com,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,unity3d.com,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,golfplusvr.com,🧭 Meta Quest",
+    ]
 
     if sub_rules:
-        # Rules from provider — inject verbatim
-        L()
+        # Write rules: header ourselves, inject Quest rules first,
+        # then write subscription rules skipping their own rules: header.
+        # Detect the indentation the subscription uses so Quest rules match.
+        rule_indent = "  "
         for line in sub_rules.splitlines():
+            s = line.strip()
+            if s and s != "rules:" and s.startswith("-"):
+                rule_indent = " " * (len(line) - len(line.lstrip()))
+                break
+        L()
+        L("rules:")
+        for r in _quest_rules:
+            L(f"{rule_indent}- {r}")
+        for line in sub_rules.splitlines():
+            if line.strip() == "rules:":
+                continue
             L(line)
         L()
     else:
@@ -600,6 +702,8 @@ def build_config(cfg: dict) -> str:
             else:
                 rules = ["MATCH,DIRECT"]
         L("rules:")
+        for r in _quest_rules:
+            L(f"  - {r}")
         for r in rules:
             L(f"  - {r}")
         L()
@@ -641,48 +745,75 @@ def build_compose(cfg: dict) -> str:
 
 
 def build_clash_system() -> str:
+    # How this works with auto-route: true
+    # ─────────────────────────────────────
+    # Mihomo's auto-route installs two key ip rules at startup:
+    #   fwmark 666 → lookup main   (exempt marked packets from TUN)
+    #   all traffic → lookup TUN table  (everything else enters TUN)
+    #
+    # clash-system off (DEFAULT — Pi traffic goes direct):
+    #   iptables mangle OUTPUT marks every packet the Pi itself originates
+    #   with fwmark 666.  Mihomo's ip rule then exempts them from TUN →
+    #   Pi gets direct internet.
+    #   Forwarded packets (Quest 3 etc.) go through the FORWARD chain, NOT
+    #   OUTPUT → never marked → hit Mihomo's TUN table → proxied. ✓
+    #
+    # clash-system on (Pi routes through proxy too):
+    #   Remove the iptables OUTPUT mark rule.  Pi packets no longer carry
+    #   fwmark 666 → fall through to Mihomo's TUN table → proxied.
+    #   Forwarded packets: unchanged → proxied. ✓
+    #
+    # Persisted across reboots by pimiproxy-bypass.service which runs
+    # clash-system off once after network is up.
+
     lines = []
 
     def L(s=""):
         lines.append(s)
 
     L("#!/usr/bin/env bash")
-    L("# clash-system -- toggle transparent proxy routing through the mihomo TUN"
+    L("# clash-system — control whether the Pi's own traffic routes through Mihomo"
+      )
+    L("# Forwarded traffic (e.g. Quest 3 using Pi as gateway) always uses the proxy."
       )
     L()
-    L("RED='\\033[0;31m'; GREEN='\\033[0;32m'; NC='\\033[0m'")
+    L("RED=$'\\033[0;31m'; GREEN=$'\\033[0;32m'; YELLOW=$'\\033[1;33m'; NC=$'\\033[0m'"
+      )
     L()
     L("[[ $EUID -eq 0 ]] || exec sudo \"$0\" \"$@\"")
     L()
-    L("iface_up() { [[ -d /sys/class/net/mihomo ]]; }")
+    L("MARK=666")
+    L()
+    L("iface_up()   { [[ -d /sys/class/net/mihomo ]]; }")
+    L("bypass_set() { iptables -t mangle -C OUTPUT -j MARK --set-mark $MARK 2>/dev/null; }"
+      )
     L()
     L("case \"${1:-}\" in")
     L("  on)")
-    L("    iface_up || { echo -e \"${RED}X${NC} mihomo TUN not found -- is the container running?\"; exit 1; }"
+    L("    iface_up || {")
+    L("      echo -e \"${RED}✗${NC} mihomo TUN not found — is the container running?\""
       )
-    L("    ip rule add to 10.0.0.0/8 table main priority 90  2>/dev/null || true"
+    L("      exit 1")
+    L("    }")
+    L("    iptables -t mangle -D OUTPUT -j MARK --set-mark $MARK 2>/dev/null || true"
       )
-    L("    ip rule add fwmark 666     table main priority 100 2>/dev/null || true"
-      )
-    L("    ip rule add not fwmark 666 table 101  priority 101 2>/dev/null || true"
-      )
-    L("    ip route replace default dev mihomo table 101")
-    L("    echo -e \"System proxy: ${GREEN}ON${NC}\"")
+    L("    echo -e \"System proxy: ${GREEN}ON${NC}  (Pi traffic → Mihomo)\"")
     L("    ;;")
     L("  off)")
-    L("    ip rule  del priority 90  2>/dev/null || true")
-    L("    ip rule  del priority 100 2>/dev/null || true")
-    L("    ip rule  del priority 101 2>/dev/null || true")
-    L("    ip route flush table 101  2>/dev/null || true")
-    L("    echo -e \"System proxy: ${RED}OFF${NC}\"")
+    L("    bypass_set || iptables -t mangle -A OUTPUT -j MARK --set-mark $MARK"
+      )
+    L("    echo -e \"System proxy: ${YELLOW}OFF${NC} (Pi traffic → direct, forwarded clients → Mihomo)\""
+      )
     L("    ;;")
     L("  status)")
-    L("    if ip rule show | grep -q 'priority 101'; then")
-    L("      echo -e \"System proxy: ${GREEN}ON${NC}\"")
+    L("    if bypass_set; then")
+    L("      echo -e \"System proxy: ${YELLOW}OFF${NC} (Pi direct)\"")
     L("    else")
-    L("      echo -e \"System proxy: ${RED}OFF${NC}\"")
+    L("      echo -e \"System proxy: ${GREEN}ON${NC}  (Pi proxied)\"")
     L("    fi")
-    L("    iface_up && echo '  TUN interface: up' || echo '  TUN interface: down (container not running?)'"
+    L("    iface_up \\")
+    L("      && echo -e \"  TUN interface: ${GREEN}up${NC}\" \\")
+    L("      || echo -e \"  TUN interface: ${RED}down${NC} (container not running?)\""
       )
     L("    ;;")
     L("  restart)")
@@ -690,9 +821,37 @@ def build_clash_system() -> str:
     L("    ;;")
     L("  *)")
     L("    echo 'Usage: clash-system [on|off|status|restart]'")
+    L("    echo '  off  — Pi uses direct internet (default); gateway clients still proxied'"
+      )
+    L("    echo '  on   — Pi traffic also routes through Mihomo'")
     L("    exit 1")
     L("    ;;")
     L("esac")
+
+    return "\n".join(lines)
+
+
+BYPASS_SERVICE_PATH = Path("/etc/systemd/system/pimiproxy-bypass.service")
+
+
+def build_bypass_service() -> str:
+    lines = []
+
+    def L(s=""):
+        lines.append(s)
+
+    L("[Unit]")
+    L("Description=pimiproxy — restore Pi traffic bypass after network is up")
+    L("Documentation=https://github.com/your-repo/pimiproxy")
+    L("After=network.target")
+    L()
+    L("[Service]")
+    L("Type=oneshot")
+    L("ExecStart=/usr/local/bin/clash-system off")
+    L("RemainAfterExit=yes")
+    L()
+    L("[Install]")
+    L("WantedBy=multi-user.target")
 
     return "\n".join(lines)
 
@@ -703,12 +862,12 @@ def build_banner(cfg: dict, meta: dict) -> str:
     login. Hostname, ports, and AES capability are baked in at generation time;
     container state and routing rules are checked live on each login.
     """
-    hostname   = meta.get("hostname", "pimiproxy")
-    dash_port  = cfg.get("dashboard_port", meta.get("dashboard_port", "8080"))
-    api_port   = cfg.get("api_port",       meta.get("api_port",       "9090"))
-    mixed_port = cfg.get("mixed_port",     meta.get("mixed_port",     "7890"))
-    cfg_file   = f"{meta.get('install_dir', '/opt/pimiproxy')}/config/config.yaml"
-    aes_ok     = has_aes_hardware()
+    hostname = meta.get("hostname", "pimiproxy")
+    dash_port = cfg.get("dashboard_port", meta.get("dashboard_port", "8080"))
+    api_port = cfg.get("api_port", meta.get("api_port", "9090"))
+    mixed_port = cfg.get("mixed_port", meta.get("mixed_port", "7890"))
+    cfg_file = f"{meta.get('install_dir', '/opt/pimiproxy')}/config/config.yaml"
+    aes_ok = has_aes_hardware()
 
     lines = []
 
@@ -732,38 +891,51 @@ def build_banner(cfg: dict, meta: dict) -> str:
     L('printf "\\n${_C}${_B}  pimiproxy${_N}\\n%s\\n" "$_S"')
     L()
     L("# ── Proxy engine (mihomo container) ─────────────────────────────────")
-    L("if docker inspect -f '{{.State.Running}}' mihomo 2>/dev/null | grep -q true; then")
+    L("if docker inspect -f '{{.State.Running}}' mihomo 2>/dev/null | grep -q true; then"
+      )
     L("  printf '  Proxy engine    %s\\n' \"${_G}●  running${_N}\"")
     L("else")
     L("  printf '  Proxy engine    %s\\n' \"${_R}●  stopped${_N}\"")
     L("fi")
     L()
-    L("# ── System proxy (clash-system routing rules) ────────────────────────")
+    L("# ── System proxy (clash-system routing rules) ────────────────────────"
+      )
     L("if ip rule show 2>/dev/null | grep -q 'priority 101'; then")
     L("  printf '  System proxy    %s\\n' \"${_G}●  ON${_N}\"")
     L("else")
     L("  printf '  System proxy    %s\\n' \"${_R}○  OFF${_N}\"")
     L("fi")
     L()
-    L("# ── Proxy count ──────────────────────────────────────────────────────")
+    L("# ── Proxy count ──────────────────────────────────────────────────────"
+      )
     L(f"_COUNT=$(grep -c '- name:' '{cfg_file}' 2>/dev/null || echo 0)")
     L('if [[ "$_COUNT" -gt 0 ]]; then')
     L("  printf '  Proxies loaded  %s\\n' \"${_D}${_COUNT}${_N}\"")
     L("fi")
     L()
-    L("# ── AES hardware acceleration (baked in at install time) ─────────────")
+    L("# ── AES hardware acceleration (baked in at install time) ─────────────"
+      )
     if aes_ok:
         L("  printf '  AES hardware    %s\\n' \"${_G}●  available${_N}\"")
     else:
-        L("  printf '  AES hardware    %s\\n' \"${_Y}○  software fallback — higher latency${_N}\"")
+        L("  printf '  AES hardware    %s\\n' \"${_Y}○  software fallback — higher latency${_N}\""
+          )
     L()
     L('printf "%s\\n" "$_S"')
     L(f'printf "  Dashboard  →  %s\\n" "http://{hostname}.lan:{dash_port}"')
     L(f'printf "  API        →  %s\\n" "http://{hostname}.lan:{api_port}"')
-    L(f'printf "  Proxy      →  %s\\n" "{hostname}.lan:{mixed_port}  (HTTP/SOCKS5)"')
+    L(f'printf "  Proxy      →  %s\\n" "{hostname}.lan:{mixed_port}  (HTTP/SOCKS5)"'
+      )
     L('printf "%s\\n" "$_S"')
     L('printf "  %s\\n" "${_D}clash-system [on|off|status|restart]${_N}"')
-    L('printf "  %s\\n" "${_D}pimiproxy-core.py [status|logs|configure|debug]${_N}"')
+    L('printf "  %s\\n" "${_D}pimiproxy-core.py [status|logs|configure|debug]${_N}"'
+      )
+    L('printf "%s\\n" "$_S"')
+    L('printf "  ${_Y}Tip:${_N} Some apps (e.g. Unity VR games) ignore the system\\n"'
+      )
+    L('printf "  proxy setting. To proxy all traffic from a device, set\\n"')
+    L(f'printf "  its WiFi gateway and DNS to this Pi\'s IP instead of the router.\\n"'
+      )
     L('printf "%s\\n\\n" "$_S"')
 
     return "\n".join(lines) + "\n"
@@ -777,13 +949,13 @@ def do_status():
     import urllib.request
     import urllib.error
 
-    meta        = read_meta()
+    meta = read_meta()
     install_dir = Path(meta["install_dir"])
-    compose     = (meta["compose_bin"], meta["compose_sub"])
-    mixed_port  = meta.get("mixed_port", "7890")
-    api_port    = meta.get("api_port", "9090")
-    dash_port   = meta.get("dashboard_port", "8080")
-    hostname    = meta.get("hostname", "pimiproxy")
+    compose = (meta["compose_bin"], meta["compose_sub"])
+    mixed_port = meta.get("mixed_port", "7890")
+    api_port = meta.get("api_port", "9090")
+    dash_port = meta.get("dashboard_port", "8080")
+    hostname = meta.get("hostname", "pimiproxy")
 
     banner("pimiproxy status", C.CYAN)
 
@@ -821,9 +993,12 @@ def do_status():
         ("HTTP ", "http://www.gstatic.com/generate_204"),
         ("HTTPS", "https://www.gstatic.com/generate_204"),
     ]
-    handler = urllib.request.ProxyHandler({"http": proxy_addr, "https": proxy_addr})
-    opener  = urllib.request.build_opener(handler)
-    all_ok  = True
+    handler = urllib.request.ProxyHandler({
+        "http": proxy_addr,
+        "https": proxy_addr
+    })
+    opener = urllib.request.build_opener(handler)
+    all_ok = True
     for label, test_url in tests:
         try:
             t0 = time.monotonic()
@@ -844,7 +1019,9 @@ def do_status():
     # ── hardware ──────────────────────────────────────────────────────────────
     step("Hardware")
     if has_aes_hardware():
-        info("AES hardware acceleration: available — optimal encryption performance.")
+        info(
+            "AES hardware acceleration: available — optimal encryption performance."
+        )
     else:
         warn("AES hardware acceleration: not available.")
         warn("Encryption runs in software — expect higher latency on heavy or "
@@ -862,9 +1039,9 @@ def do_status():
 # LOGS
 # =============================================================================
 def do_logs():
-    meta        = read_meta()
+    meta = read_meta()
     install_dir = Path(meta["install_dir"])
-    compose     = (meta["compose_bin"], meta["compose_sub"])
+    compose = (meta["compose_bin"], meta["compose_sub"])
 
     service = sys.argv[2] if len(sys.argv) > 2 else "mihomo"
     if service not in {"mihomo", "dashboard"}:
@@ -873,7 +1050,8 @@ def do_logs():
     step(f"Logs: {service}  (Ctrl-C to stop)")
     try:
         run(compose_cmd(compose, "logs", "-f", "--tail=50", service),
-            cwd=install_dir, check=False)
+            cwd=install_dir,
+            check=False)
     except KeyboardInterrupt:
         print()
 
@@ -882,13 +1060,14 @@ def do_logs():
 # RESTART
 # =============================================================================
 def do_restart():
-    meta        = read_meta()
+    meta = read_meta()
     install_dir = Path(meta["install_dir"])
-    compose     = (meta["compose_bin"], meta["compose_sub"])
+    compose = (meta["compose_bin"], meta["compose_sub"])
 
     service = sys.argv[2] if len(sys.argv) > 2 else None
     if service and service not in {"mihomo", "dashboard"}:
-        die(f"Unknown service '{service}'. Use: mihomo, dashboard, or omit for all")
+        die(f"Unknown service '{service}'. Use: mihomo, dashboard, or omit for all"
+            )
 
     if service:
         step(f"Restarting {service}")
@@ -903,9 +1082,9 @@ def do_restart():
 # UPDATE
 # =============================================================================
 def do_update():
-    meta        = read_meta()
+    meta = read_meta()
     install_dir = Path(meta["install_dir"])
-    compose     = (meta["compose_bin"], meta["compose_sub"])
+    compose = (meta["compose_bin"], meta["compose_sub"])
 
     banner("pimiproxy update", C.CYAN)
     step("Pulling latest images")
@@ -944,12 +1123,14 @@ def do_debug():
     try:
         req = urllib.request.Request(
             url,
-            headers={"User-Agent": "Clash-Verge/1.0 (clash-verge-rev; mihomo)"})
+            headers={
+                "User-Agent": "Clash-Verge/1.0 (clash-verge-rev; mihomo)"
+            })
         with Spinner("Waiting for response"):
             with urllib.request.urlopen(req, timeout=30) as resp:
-                status       = resp.status
+                status = resp.status
                 content_type = resp.headers.get("Content-Type", "(none)")
-                content      = resp.read().decode("utf-8", errors="replace")
+                content = resp.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as e:
         die(f"HTTP {e.code}: {e.reason}")
     except urllib.error.URLError as e:
@@ -959,7 +1140,9 @@ def do_debug():
 
     info(f"Status       : {status}")
     info(f"Content-Type : {content_type}")
-    info(f"Response size: {len(content):,} bytes / {len(content.splitlines())} lines")
+    info(
+        f"Response size: {len(content):,} bytes / {len(content.splitlines())} lines"
+    )
 
     # Parse the response and report what was found
     print()
@@ -969,7 +1152,9 @@ def do_debug():
             count = blocks["proxies"].count("- name:")
             info(f"Proxies      : {count}")
         else:
-            warn("No 'proxies:' block found — provider may require a different URL or token.")
+            warn(
+                "No 'proxies:' block found — provider may require a different URL or token."
+            )
         if "proxy-groups" in blocks:
             groups = blocks["proxy-groups"].count("- name:")
             info(f"Proxy groups : {groups}")
@@ -980,7 +1165,9 @@ def do_debug():
             info("Response looks like a valid Clash/Mihomo config.")
     else:
         warn("Response does not appear to contain valid Clash/Mihomo YAML.")
-        warn("Check the URL and confirm your provider supports Clash/Mihomo clients.")
+        warn(
+            "Check the URL and confirm your provider supports Clash/Mihomo clients."
+        )
 
     # Save full response for manual inspection
     out_path = Path("raw_debug_output.yaml")
@@ -1026,8 +1213,8 @@ def do_configure():
             "rules": [],
         }
 
-    compose         = (meta["compose_bin"], meta["compose_sub"])
-    changed         = False
+    compose = (meta["compose_bin"], meta["compose_sub"])
+    changed = False
     compose_changed = False
 
     while True:
@@ -1315,8 +1502,11 @@ def do_configure():
                     cfg = json.loads(ext_cfg_path.read_text())
                     cfg_path.write_text(build_config(cfg))
                     info("config.yaml rebuilt.")
-                    compose_run(compose, "restart", "mihomo",
-                                cwd=install_dir, silent=False)
+                    compose_run(compose,
+                                "restart",
+                                "mihomo",
+                                cwd=install_dir,
+                                silent=False)
                     info("Mihomo restarted.")
 
         # ── change API secret ────────────────────────────────────────────────
@@ -1334,17 +1524,17 @@ def do_configure():
 
         # ── change ports ─────────────────────────────────────────────────────
         elif choice == "7":
-            cur_dash  = cfg.get("dashboard_port",
-                                meta.get("dashboard_port", "8080"))
-            cur_api   = cfg.get("api_port", meta.get("api_port", "9090"))
+            cur_dash = cfg.get("dashboard_port",
+                               meta.get("dashboard_port", "8080"))
+            cur_api = cfg.get("api_port", meta.get("api_port", "9090"))
             cur_mixed = cfg.get("mixed_port", meta.get("mixed_port", "7890"))
             print(f"\n  {C.BOLD}Current ports:{C.NC}")
             print(f"    Dashboard  port : {cur_dash}")
             print(f"    Mihomo API port : {cur_api}")
             print(f"    Mixed proxy port: {cur_mixed}")
             print()
-            new_dash  = ask("Dashboard port",   cur_dash)
-            new_api   = ask("Mihomo API port",  cur_api)
+            new_dash = ask("Dashboard port", cur_dash)
+            new_api = ask("Mihomo API port", cur_api)
             new_mixed = ask("Mixed proxy port", cur_mixed)
             if new_dash != cur_dash:
                 cfg["dashboard_port"] = new_dash
@@ -1361,9 +1551,9 @@ def do_configure():
         # ── switch dashboard ──────────────────────────────────────────────────
         elif choice == "8":
             cur_dash = cfg.get("dash_name", "metacubexd")
-            other    = "zashboard" if cur_dash == "metacubexd" else "metacubexd"
-            other_img = (ZASHBOARD_IMAGE if other == "zashboard"
-                         else METACUBEXD_IMAGE)
+            other = "zashboard" if cur_dash == "metacubexd" else "metacubexd"
+            other_img = (ZASHBOARD_IMAGE
+                         if other == "zashboard" else METACUBEXD_IMAGE)
             other_arc = (f"{other}.tar.gz")
             print(f"\n  Current dashboard: {cur_dash}")
             if confirm(f"Switch to {other}?"):
@@ -1371,8 +1561,10 @@ def do_configure():
                 arch = meta.get("arch", "linux/arm64")
                 new_img = load_image(other_arc, other_img, arch)
                 cfg["dashboard_image"] = new_img
-                cfg["dash_name"]       = other
-                info(f"Dashboard switched to {other} — save and apply to activate.")
+                cfg["dash_name"] = other
+                info(
+                    f"Dashboard switched to {other} — save and apply to activate."
+                )
                 compose_changed = True
 
         # ── save and apply ───────────────────────────────────────────────────
@@ -1410,14 +1602,20 @@ def do_configure():
             if compose_changed:
                 if confirm("Recreate containers now to apply changes?",
                            default=True):
-                    compose_run(compose, "up", "-d", "--force-recreate",
+                    compose_run(compose,
+                                "up",
+                                "-d",
+                                "--force-recreate",
                                 cwd=install_dir)
                     info("Containers recreated.")
             else:
                 if confirm("Restart Mihomo now to apply changes?",
                            default=True):
-                    compose_run(compose, "restart", "mihomo",
-                                cwd=install_dir, silent=False)
+                    compose_run(compose,
+                                "restart",
+                                "mihomo",
+                                cwd=install_dir,
+                                silent=False)
                     info("Mihomo restarted.")
             break
 
@@ -1438,22 +1636,43 @@ def do_install():
     # ── defaults ──────────────────────────────────────────────────────────────
     install_dir = "/opt/pimiproxy"
     _cur = current_hostname()
-    hostname_new = _cur if _cur.lower() not in _DEFAULT_HOSTNAMES else "pimiproxy"
+    hostname_new = _cur if _cur.lower(
+    ) not in _DEFAULT_HOSTNAMES else "pimiproxy"
     dashboard_port = "8080"
     api_port = "9090"
     mixed_port = "7890"
     api_secret = "pimiproxy"
     arch = "linux/arm64"
+    dash_choice = 1
+
+    # ── express / advanced ────────────────────────────────────────────────────
+    step("Install mode")
+    print()
+    print("  Express install uses all defaults — only asks for hostname and")
+    print(
+        "  your Clash API subscription URL. Everything else is pre-configured."
+    )
+    print()
+    print("  Advanced install walks through every option.")
+    print()
+    mode = choose("Install mode", [
+        "Express  (recommended)",
+        "Advanced (configure all options)",
+    ])
+    express = (mode == 1)
 
     # ── prompts ───────────────────────────────────────────────────────────────
     step("Configuration")
 
-    install_dir = ask("Install directory", install_dir)
-    hostname_new = ask("Hostname", hostname_new)
-    dashboard_port = ask("Dashboard port", dashboard_port)
-    api_port = ask("Mihomo API port", api_port)
-    mixed_port = ask("Mixed proxy port", mixed_port)
-    api_secret = ask_secret("API secret", api_secret)
+    if express:
+        hostname_new = ask("Hostname", hostname_new)
+    else:
+        install_dir = ask("Install directory", install_dir)
+        hostname_new = ask("Hostname", hostname_new)
+        dashboard_port = ask("Dashboard port", dashboard_port)
+        api_port = ask("Mihomo API port", api_port)
+        mixed_port = ask("Mixed proxy port", mixed_port)
+        api_secret = ask_secret("API secret", api_secret)
 
     print()
     print("  ── Clash API Subscription URL " + "─" * 12)
@@ -1463,16 +1682,17 @@ def do_install():
     print()
     print("  This must be a Clash API URL — not a regular VPN config file,")
     print("  not an app download link. If unsure, leave blank. You can add")
-    print("  it later by running:  sudo python3 pimiproxy.py configure")
+    print("  it later by running:  sudo python3 pimiproxy-core.py configure")
     print("  " + "─" * 42)
     print()
     subscription_url = input("  Clash API URL [leave blank to skip]: ").strip()
 
-    print()
-    dash_choice = choose("Dashboard", [
-        "Metacubexd  (standard, default)",
-        "Zashboard   (power user, more stats)",
-    ])
+    if not express:
+        print()
+        dash_choice = choose("Dashboard", [
+            "Metacubexd  (standard, default)",
+            "Zashboard   (power user, more stats)",
+        ])
 
     # ── hostname ──────────────────────────────────────────────────────────────
     step("Hostname")
@@ -1611,6 +1831,15 @@ def do_install():
     cs_path.chmod(0o755)
     info("/usr/local/bin/clash-system installed.")
 
+    # ── bypass service (Pi traffic goes direct by default after reboot) ───────
+    step("Pi traffic bypass service")
+
+    BYPASS_SERVICE_PATH.write_text(build_bypass_service())
+    run(["systemctl", "daemon-reload"], silent=True)
+    run(["systemctl", "enable", "pimiproxy-bypass"], silent=True)
+    run(["systemctl", "start", "pimiproxy-bypass"], silent=True, check=False)
+    info("pimiproxy-bypass.service installed and enabled.")
+
     # ── metadata ──────────────────────────────────────────────────────────────
     meta = {
         "install_dir": install_dir,
@@ -1631,7 +1860,9 @@ def do_install():
     sysctl_conf = Path("/etc/sysctl.d/99-pimiproxy.conf")
     sysctl_conf.write_text("net.ipv4.ip_forward = 1\n")
     run(["sysctl", "-w", "net.ipv4.ip_forward=1"], silent=True)
-    info("IP forwarding enabled (persistent via /etc/sysctl.d/99-pimiproxy.conf).")
+    info(
+        "IP forwarding enabled (persistent via /etc/sysctl.d/99-pimiproxy.conf)."
+    )
 
     # ── login banner ──────────────────────────────────────────────────────────
     step("Login banner")
@@ -1643,7 +1874,7 @@ def do_install():
     # ── launch ────────────────────────────────────────────────────────────────
     step("Starting services")
 
-    compose_run(compose, "up", "-d", cwd=install_path)
+    compose_run(compose, "up", "-d", "--force-recreate", cwd=install_path)
     info("Containers started.")
 
     # ── summary ───────────────────────────────────────────────────────────────
@@ -1669,11 +1900,14 @@ def do_install():
     print(f"    sudo python3 /opt/pimiproxy/pimiproxy-core.py configure")
     print()
     if has_aes_hardware():
-        info("Hardware AES acceleration: available — optimal encryption performance.")
+        info(
+            "Hardware AES acceleration: available — optimal encryption performance."
+        )
     else:
         warn("Hardware AES acceleration: not available on this CPU.")
-        warn("Encryption will run in software — expect higher latency on heavy "
-             "or high-speed connections. A Pi 3 or newer is recommended.")
+        warn(
+            "Encryption will run in software — expect higher latency on heavy "
+            "or high-speed connections. A Pi 3 or newer is recommended.")
     print()
     if _hostname_changed:
         warn(f"{hostname_new}.lan won't resolve until the Pi renews its DHCP "
@@ -1813,8 +2047,28 @@ def do_uninstall():
     sysctl_conf = Path("/etc/sysctl.d/99-pimiproxy.conf")
     if sysctl_conf.exists():
         sysctl_conf.unlink()
-        run(["sysctl", "-w", "net.ipv4.ip_forward=0"], check=False, silent=True)
+        run(["sysctl", "-w", "net.ipv4.ip_forward=0"],
+            check=False,
+            silent=True)
         info("Removed IP forwarding config and disabled forwarding.")
+
+    if BYPASS_SERVICE_PATH.exists():
+        run(["systemctl", "stop", "pimiproxy-bypass"],
+            check=False,
+            silent=True)
+        run(["systemctl", "disable", "pimiproxy-bypass"],
+            check=False,
+            silent=True)
+        BYPASS_SERVICE_PATH.unlink()
+        run(["systemctl", "daemon-reload"], silent=True, check=False)
+        # Clean up any leftover iptables mark rule
+        run([
+            "iptables", "-t", "mangle", "-D", "OUTPUT", "-j", "MARK",
+            "--set-mark", "666"
+        ],
+            check=False,
+            silent=True)
+        info("Removed bypass service and cleared iptables rules.")
 
     # ── hostname ──────────────────────────────────────────────────────────────
     step("Hostname")
@@ -1838,7 +2092,8 @@ def do_uninstall():
     ):
         with Spinner("Removing avahi-daemon"):
             run(["apt-get", "remove", "-y", "avahi-daemon", "libnss-mdns"],
-                silent=True, check=False)
+                silent=True,
+                check=False)
         info("avahi-daemon removed.")
 
     print(f"\n{C.BOLD}{C.GREEN}Uninstall complete.{C.NC}\n")
@@ -1848,16 +2103,16 @@ def do_uninstall():
 # ENTRYPOINT
 # =============================================================================
 COMMANDS = {
-    "install":   do_install,
+    "install": do_install,
     "uninstall": do_uninstall,
     "configure": do_configure,
-    "refresh":   do_refresh,
-    "status":    do_status,
-    "logs":      do_logs,
-    "restart":   do_restart,
-    "update":    do_update,
-    "hostname":  do_set_hostname,
-    "debug":     do_debug,
+    "refresh": do_refresh,
+    "status": do_status,
+    "logs": do_logs,
+    "restart": do_restart,
+    "update": do_update,
+    "hostname": do_set_hostname,
+    "debug": do_debug,
 }
 
 # Commands that accept an optional second argument
@@ -1869,10 +2124,14 @@ def main():
     if cmd not in COMMANDS:
         simple = "|".join(k for k in COMMANDS if k not in _TAKES_ARG)
         print(f"Usage: sudo python3 pimiproxy-core.py [{simple}]")
-        print( "       sudo python3 pimiproxy-core.py logs     [mihomo|dashboard]")
-        print( "       sudo python3 pimiproxy-core.py restart  [mihomo|dashboard]")
-        print( "       sudo python3 pimiproxy-core.py hostname <new-hostname>")
-        print( "       sudo python3 pimiproxy-core.py debug    [url]")
+        print(
+            "       sudo python3 pimiproxy-core.py logs     [mihomo|dashboard]"
+        )
+        print(
+            "       sudo python3 pimiproxy-core.py restart  [mihomo|dashboard]"
+        )
+        print("       sudo python3 pimiproxy-core.py hostname <new-hostname>")
+        print("       sudo python3 pimiproxy-core.py debug    [url]")
         sys.exit(1)
     try:
         COMMANDS[cmd]()
