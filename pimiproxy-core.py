@@ -11,6 +11,8 @@ import shutil
 import subprocess
 import textwrap
 import json
+import threading
+import itertools
 from pathlib import Path
 
 # =============================================================================
@@ -94,6 +96,45 @@ def choose(prompt, options, default=1):
 
 
 # =============================================================================
+# SPINNER  (animated progress for silent long-running operations)
+# =============================================================================
+class Spinner:
+    """
+    Context manager that shows a braille-dot spinner on the current line
+    while a silent long-running operation is in progress.  When the block
+    exits the spinner line is erased so the next info()/warn() prints clean.
+
+    Usage:
+        with Spinner("Updating package lists"):
+            run(["apt-get", "update", "-qq"], silent=True)
+        info("Package lists updated.")
+    """
+    FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+
+    def __init__(self, msg: str):
+        self.msg   = msg
+        self._stop = threading.Event()
+        self._t    = threading.Thread(target=self._spin, daemon=True)
+
+    def _spin(self):
+        for frame in itertools.cycle(self.FRAMES):
+            if self._stop.is_set():
+                break
+            print(f"\r  {C.CYAN}{frame}{C.NC}  {self.msg}", end="", flush=True)
+            self._stop.wait(0.1)
+        # Erase the spinner line so the next print starts on a clean line
+        print(f"\r{' ' * (len(self.msg) + 10)}\r", end="", flush=True)
+
+    def __enter__(self):
+        self._t.start()
+        return self
+
+    def __exit__(self, *_):
+        self._stop.set()
+        self._t.join()
+
+
+# =============================================================================
 # SHELL HELPERS
 # =============================================================================
 def run(cmd, check=True, capture=False, silent=False, cwd=None):
@@ -162,8 +203,20 @@ def do_set_hostname():
     name = sys.argv[2].strip()
     step(f"Setting hostname to '{name}'")
     set_hostname(name)
-    warn("Restart avahi-daemon for mDNS to pick up the new name:")
-    warn("  sudo systemctl restart avahi-daemon")
+
+    # Restart avahi-daemon so .local mDNS immediately uses the new name
+    with Spinner("Restarting avahi-daemon"):
+        result = run(["systemctl", "restart", "avahi-daemon"],
+                     check=False, silent=True)
+    if result.returncode == 0:
+        info("avahi-daemon restarted — .local will resolve to the new hostname.")
+    else:
+        warn("avahi-daemon not running — .local won't update until it starts.")
+
+    warn(f"{name}.lan won't resolve until the Pi renews its DHCP lease.")
+    if confirm("Reboot now so the router picks up the new hostname?",
+               default=False):
+        run(["reboot"])
 
 
 # =============================================================================
@@ -269,12 +322,11 @@ def save_subscription(install_path, url: str) -> bool:
 
 
 def apt_install(*packages):
-    env = os.environ.copy()
-    env["DEBIAN_FRONTEND"] = "noninteractive"
-    run([
-        "apt-get", "install", "-y", "-qq", "--no-install-recommends", *packages
-    ],
-        silent=True)
+    with Spinner(f"Installing {', '.join(packages)}"):
+        env = os.environ.copy()
+        env["DEBIAN_FRONTEND"] = "noninteractive"
+        run(["apt-get", "install", "-y", "-qq", "--no-install-recommends",
+             *packages], silent=True)
 
 
 # =============================================================================
@@ -311,8 +363,8 @@ def load_image(archive: str, fallback: str, arch: str) -> str:
     """
     p = Path(archive)
     if p.exists():
-        info(f"Loading {archive} from disk...")
-        result = run(f"gunzip -c {archive} | docker load", capture=True)
+        with Spinner(f"Loading {archive} from disk"):
+            result = run(f"gunzip -c {archive} | docker load", capture=True)
         output = result.stdout + result.stderr
         for line in output.splitlines():
             if "Loaded image:" in line:
@@ -321,10 +373,9 @@ def load_image(archive: str, fallback: str, arch: str) -> str:
                 return tag
         warn(f"Could not parse image tag from {archive} — will pull instead.")
 
+    # docker pull shows its own layer progress — don't silence it
     info(f"Pulling {fallback} ({arch})...")
-    result = run(["docker", "pull", "--platform", arch, fallback],
-                 check=False,
-                 silent=True)
+    result = run(["docker", "pull", "--platform", arch, fallback], check=False)
     if result.returncode != 0:
         die(f"Failed to pull {fallback}. Check network and registry access.")
     return fallback
@@ -669,9 +720,11 @@ def do_status():
     for label, test_url in tests:
         try:
             t0 = time.monotonic()
-            with opener.open(test_url, timeout=10) as resp:
-                ms = (time.monotonic() - t0) * 1000
-                info(f"{label}  {test_url}  ->  {resp.status}  ({ms:.0f}ms)")
+            with Spinner(f"Testing {label.strip()}"):
+                with opener.open(test_url, timeout=10) as resp:
+                    status = resp.status
+                    ms = (time.monotonic() - t0) * 1000
+            info(f"{label}  {test_url}  ->  {status}  ({ms:.0f}ms)")
         except Exception as exc:
             warn(f"{label}  {test_url}  ->  FAILED  ({exc})")
             all_ok = False
@@ -745,6 +798,84 @@ def do_update():
     step("Recreating containers with new images")
     compose_run(compose, "up", "-d", "--force-recreate", cwd=install_dir)
     info("Update complete.")
+
+
+# =============================================================================
+# DEBUG URL
+# Fetch a subscription URL with the Clash User-Agent and inspect the response.
+# Replaces the standalone getapiconfig.py utility.
+# =============================================================================
+def do_debug():
+    import urllib.request
+    import urllib.error
+
+    banner("pimiproxy debug", C.CYAN)
+    print("  Fetches a subscription URL using the Clash-Verge User-Agent and")
+    print("  shows exactly what your provider returns.")
+    print()
+
+    # Accept URL as optional CLI argument for non-interactive use
+    if len(sys.argv) > 2:
+        url = sys.argv[2].strip()
+        info(f"URL: {url}")
+    else:
+        url = input("  Paste your provider URL: ").strip()
+
+    if not url:
+        die("No URL provided.")
+
+    step("Sending request")
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "Clash-Verge/1.0 (clash-verge-rev; mihomo)"})
+        with Spinner("Waiting for response"):
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                status       = resp.status
+                content_type = resp.headers.get("Content-Type", "(none)")
+                content      = resp.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as e:
+        die(f"HTTP {e.code}: {e.reason}")
+    except urllib.error.URLError as e:
+        die(f"Request failed: {e.reason}")
+    except Exception as e:
+        die(f"Request failed: {e}")
+
+    info(f"Status       : {status}")
+    info(f"Content-Type : {content_type}")
+    info(f"Response size: {len(content):,} bytes / {len(content.splitlines())} lines")
+
+    # Parse the response and report what was found
+    print()
+    blocks = extract_yaml_blocks(content)
+    if blocks:
+        if "proxies" in blocks:
+            count = blocks["proxies"].count("- name:")
+            info(f"Proxies      : {count}")
+        else:
+            warn("No 'proxies:' block found — provider may require a different URL or token.")
+        if "proxy-groups" in blocks:
+            groups = blocks["proxy-groups"].count("- name:")
+            info(f"Proxy groups : {groups}")
+        if "rules" in blocks:
+            rules = blocks["rules"].count("    - ")
+            info(f"Rules        : {rules}")
+        if blocks:
+            info("Response looks like a valid Clash/Mihomo config.")
+    else:
+        warn("Response does not appear to contain valid Clash/Mihomo YAML.")
+        warn("Check the URL and confirm your provider supports Clash/Mihomo clients.")
+
+    # Save full response for manual inspection
+    out_path = Path("raw_debug_output.yaml")
+    out_path.write_text(content, encoding="utf-8")
+    info(f"Full response saved to: {out_path.resolve()}")
+
+    print()
+    print(f"  {C.BOLD}── First 20 lines ──────────────────────────{C.NC}")
+    for line in content.splitlines()[:20]:
+        print(f"  {line}")
+    print()
 
 
 # =============================================================================
@@ -1225,7 +1356,8 @@ def do_install():
     # ── hostname ──────────────────────────────────────────────────────────────
     step("Hostname")
 
-    if hostname_new == current_hostname():
+    _hostname_changed = hostname_new != current_hostname()
+    if not _hostname_changed:
         info(f"Hostname unchanged: {hostname_new}")
     else:
         set_hostname(hostname_new)
@@ -1233,19 +1365,22 @@ def do_install():
     # ── packages ──────────────────────────────────────────────────────────────
     step("Packages")
 
-    run(["apt-get", "update", "-qq"])
+    with Spinner("Updating package lists"):
+        run(["apt-get", "update", "-qq"], silent=True)
+    info("Package lists updated.")
 
     apt_install("avahi-daemon", "libnss-mdns")
-    run(["systemctl", "enable", "--now", "avahi-daemon"], silent=True)
+    with Spinner("Enabling avahi-daemon"):
+        run(["systemctl", "enable", "--now", "avahi-daemon"], silent=True)
     info("avahi-daemon ready.")
 
     if not shutil.which("docker"):
-        info("Installing docker.io...")
         apt_install("docker.io")
     else:
         v = run(["docker", "--version"], capture=True).stdout.strip()
         info(f"Docker already present: {v}")
-    run(["systemctl", "enable", "--now", "docker"], silent=True)
+    with Spinner("Enabling Docker"):
+        run(["systemctl", "enable", "--now", "docker"], silent=True)
 
     compose = find_compose()
     if compose is None:
@@ -1397,9 +1532,16 @@ def do_install():
     print("  Add or change proxy groups and rules:")
     print(f"    sudo python3 /opt/pimiproxy/pimiproxy-core.py configure")
     print()
-    warn(f"{hostname_new}.lan resolves via your router's DNS once the Pi "
-         "renews its DHCP lease (usually within seconds).")
-    warn(f"{hostname_new}.local also works on devices that support mDNS.")
+    if _hostname_changed:
+        warn(f"{hostname_new}.lan won't resolve until the Pi renews its DHCP "
+             "lease — a reboot is the easiest way to trigger this.")
+        warn(f"{hostname_new}.local is available immediately via mDNS.")
+        if confirm("Reboot now so the router picks up the new hostname?",
+                   default=False):
+            run(["reboot"])
+    else:
+        warn(f"{hostname_new}.local is available via mDNS.")
+        warn(f"{hostname_new}.lan resolves via your router's DNS.")
     print()
 
 
@@ -1537,9 +1679,9 @@ def do_uninstall():
     if confirm(
             "Remove avahi-daemon? Only if nothing else on this Pi needs mDNS."
     ):
-        run(["apt-get", "remove", "-y", "avahi-daemon", "libnss-mdns"],
-            silent=True,
-            check=False)
+        with Spinner("Removing avahi-daemon"):
+            run(["apt-get", "remove", "-y", "avahi-daemon", "libnss-mdns"],
+                silent=True, check=False)
         info("avahi-daemon removed.")
 
     print(f"\n{C.BOLD}{C.GREEN}Uninstall complete.{C.NC}\n")
@@ -1558,10 +1700,11 @@ COMMANDS = {
     "restart":   do_restart,
     "update":    do_update,
     "hostname":  do_set_hostname,
+    "debug":     do_debug,
 }
 
 # Commands that accept an optional second argument
-_TAKES_ARG = {"hostname", "logs", "restart"}
+_TAKES_ARG = {"hostname", "logs", "restart", "debug"}
 
 
 def main():
@@ -1572,6 +1715,7 @@ def main():
         print( "       sudo python3 pimiproxy-core.py logs     [mihomo|dashboard]")
         print( "       sudo python3 pimiproxy-core.py restart  [mihomo|dashboard]")
         print( "       sudo python3 pimiproxy-core.py hostname <new-hostname>")
+        print( "       sudo python3 pimiproxy-core.py debug    [url]")
         sys.exit(1)
     try:
         COMMANDS[cmd]()

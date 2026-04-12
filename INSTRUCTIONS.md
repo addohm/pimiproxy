@@ -10,7 +10,7 @@
 4. [Installer prompts explained](#4-installer-prompts-explained)
 5. [Connecting devices to the proxy](#5-connecting-devices-to-the-proxy)
 6. [Accessing the dashboard](#6-accessing-the-dashboard)
-7. [Configuring an upstream proxy or VPN](#7-configuring-an-upstream-proxy-or-vpn)
+7. [Configuring proxy groups and rules](#7-configuring-proxy-groups-and-rules)
 8. [Routing the Pi's own traffic through the proxy](#8-routing-the-pis-own-traffic-through-the-proxy)
 9. [Day-to-day management](#9-day-to-day-management)
 10. [Uninstalling](#10-uninstalling)
@@ -115,9 +115,21 @@ sudo python3 pimiproxy-core.py uninstall
 Where all pimiproxy files live — the Docker Compose file, Mihomo config, and install metadata. Leave this as the default unless you have a specific reason to change it.
 
 ### Hostname
-**Default: `pimiproxy`**
+**Default: `pimiproxy` (or the current hostname if the device has already been renamed)**
 
-Sets the Pi's system hostname. After install the Pi will be reachable as `pimiproxy.lan` on routers that assign `.lan` hostnames via DHCP/DNS, and as `pimiproxy.local` via mDNS on devices that support it.
+Sets the Pi's system hostname. After install the Pi will be reachable as `<hostname>.lan` on routers that assign `.lan` hostnames via DHCP/DNS, and as `<hostname>.local` via mDNS on devices that support it.
+
+If the device's hostname is already something other than a generic default (`raspberrypi`, `localhost`, `debian`, `ubuntu`, `alarm`), the installer will pre-fill the prompt with the existing name — press Enter to keep it unchanged.
+
+If the hostname is changed during install, you will be asked at the end whether you want to reboot. A reboot is the easiest way to ensure the router registers the new hostname via DHCP. The `.local` mDNS name is available immediately without a reboot.
+
+You can also change the hostname at any time after install:
+
+```bash
+sudo python3 pimiproxy-core.py hostname <new-hostname>
+```
+
+This updates the system hostname, automatically restarts avahi-daemon so `.local` takes effect immediately, and prompts you to reboot for the `.lan` name to propagate.
 
 ### Dashboard port
 **Default: `8080`**
@@ -156,7 +168,7 @@ If you provide a URL, the installer will generate a complete working config with
 - LAN and private IP bypass rules so local traffic never goes through the proxy
 - Daily automatic refresh of the server list from your provider
 
-If you leave it blank, the proxy will still run but will pass all traffic through directly (no upstream provider). You can add a subscription later by editing `/opt/pimiproxy/config/config.yaml`.
+If you leave it blank, the proxy will still run but will pass all traffic through directly (no upstream provider). You can add a subscription later by running `sudo python3 pimiproxy-core.py configure`.
 
 ### Dashboard choice
 **Default: `1` (Metacubexd)**
@@ -168,7 +180,7 @@ Two dashboard options are available:
 | **Metacubexd** | Clean, standard dashboard. Good for most users. |
 | **Zashboard** | More detailed, power-user focused. More controls and stats. |
 
-Both connect to the same Mihomo instance. This is cosmetic — you can switch later by re-running the installer.
+Both connect to the same Mihomo instance. You can switch between them at any time without reinstalling — use option 8 in the `configure` menu.
 
 ---
 
@@ -255,7 +267,7 @@ The dashboard shows live connections, traffic speed, active rules, and lets you 
 
 ## 7. Configuring proxy groups and rules
 
-Out of the box, pimiproxy passes all traffic through directly if no subscription URL was provided at install. Use the interactive configurator to set up your provider and routing:
+Use the interactive configurator to manage your subscription URL, proxy groups, rules, ports, API secret, and dashboard choice:
 
 ```bash
 sudo python3 pimiproxy-core.py configure
@@ -270,8 +282,11 @@ sudo python3 pimiproxy-core.py configure
 | 3) Manage rules | Add, remove, or reorder routing rules |
 | 4) Show current config | Print the live config.yaml to screen |
 | 5) Refresh subscription now | Re-fetch server list and restart Mihomo |
-| 6) Save and apply | Write changes and optionally restart Mihomo |
-| 7) Exit without saving | Discard all changes |
+| 6) Change API secret | Update the dashboard API password |
+| 7) Change ports | Change dashboard port, API port, or proxy port |
+| 8) Switch dashboard | Swap between Metacubexd and Zashboard |
+| 9) Save and apply | Write changes and optionally restart containers |
+| 10) Exit without saving | Discard all changes |
 
 **Proxy groups** — add groups that control how traffic is routed:
 
@@ -288,15 +303,20 @@ sudo python3 pimiproxy-core.py configure
 |---------|---------|
 | `DOMAIN-SUFFIX,google.com,Proxy` | Send Google traffic via Proxy group |
 | `IP-CIDR,192.168.0.0/16,DIRECT` | Keep LAN traffic direct |
-| `GEOIP,CN,DIRECT` | Send China-IP traffic direct |
 | `MATCH,Proxy` | Send everything else via Proxy (catch-all) |
 
-**Presets** — common rule sets available in one step: LAN bypass, local hostname bypass, China mainland DIRECT, and catch-all options.
+**Presets** — common rule sets available in one step: LAN bypass, local hostname bypass, and catch-all options.
 
-After making changes, configure mode will ask if you want to restart Mihomo immediately to apply them. You can also restart manually:
+**Port changes** — changing the dashboard port rebuilds `docker-compose.yml` and recreates the dashboard container on save. Changing the API or proxy port rebuilds `config.yaml` and restarts Mihomo.
+
+**Dashboard switch** — pulls or loads the new dashboard image and rebuilds `docker-compose.yml`. The container is recreated on save.
+
+After making changes, option 9 will ask whether to restart the affected containers immediately.
+
+To restart Mihomo manually after editing `/opt/pimiproxy/config/config.yaml` directly:
 
 ```bash
-cd /opt/pimiproxy && docker compose restart mihomo
+sudo python3 pimiproxy-core.py restart mihomo
 ```
 
 ---
@@ -335,38 +355,38 @@ sudo clash-system restart
 
 ## 9. Day-to-day management
 
-### Start / stop / restart containers
+### Check status
 
 ```bash
-cd /opt/pimiproxy
-
-docker compose start        # start stopped containers
-docker compose stop         # stop without removing
-docker compose restart      # restart all
-docker compose restart mihomo   # restart only the engine
+sudo python3 pimiproxy-core.py status
 ```
+
+Shows container health, subscription info (URL and number of proxies loaded), clash-system routing state, and runs a live HTTP and HTTPS connectivity test through the proxy with latency results.
 
 ### View logs
 
 ```bash
-cd /opt/pimiproxy
-docker compose logs -f mihomo       # live Mihomo logs
-docker compose logs -f dashboard    # dashboard logs
+sudo python3 pimiproxy-core.py logs              # Mihomo logs (default)
+sudo python3 pimiproxy-core.py logs dashboard    # Dashboard logs
 ```
 
-### Check container status
+Press Ctrl-C to stop the log stream.
+
+### Restart containers
 
 ```bash
-docker compose ps
+sudo python3 pimiproxy-core.py restart           # Restart all containers
+sudo python3 pimiproxy-core.py restart mihomo    # Restart Mihomo only
+sudo python3 pimiproxy-core.py restart dashboard # Restart dashboard only
 ```
 
-### Update images
+### Update to latest images
 
 ```bash
-cd /opt/pimiproxy
-docker compose pull
-docker compose up -d
+sudo python3 pimiproxy-core.py update
 ```
+
+Pulls the latest Docker images for all containers and recreates them. Safe to run at any time.
 
 ### Refresh subscription (manual)
 
@@ -376,11 +396,19 @@ The installer creates a daily cron job (`/etc/cron.daily/pimiproxy-refresh`) tha
 sudo python3 pimiproxy-core.py refresh
 ```
 
-### Edit config
+### Change hostname
+
+```bash
+sudo python3 pimiproxy-core.py hostname <new-hostname>
+```
+
+Updates the system hostname, automatically restarts avahi-daemon so `.local` resolves immediately, and prompts you to reboot so the router registers the new `.lan` name via DHCP.
+
+### Edit config directly
 
 ```bash
 sudo nano /opt/pimiproxy/config/config.yaml
-cd /opt/pimiproxy && docker compose restart mihomo
+sudo python3 pimiproxy-core.py restart mihomo
 ```
 
 ---
@@ -406,31 +434,40 @@ The uninstaller will:
 
 ## 11. Troubleshooting
 
+### Check if everything is working
+
+```bash
+sudo python3 pimiproxy-core.py status
+```
+
+This is the first thing to run — it shows container state, tests the proxy with a real HTTP and HTTPS request, and prints all endpoint URLs in one place.
+
 ### Dashboard won't load
 
-- Confirm the containers are running: `cd /opt/pimiproxy && docker compose ps`
+- Confirm the containers are running: `sudo python3 pimiproxy-core.py status`
 - Try the IP address instead of the hostname: `http://10.0.0.240:8080`
 - Check firewall rules aren't blocking the port
 
 ### Hostname doesn't resolve
 
-- **`.lan`** resolves via your router's DNS once the Pi renews its DHCP lease — this usually happens within seconds of boot. Check your router's device list to confirm the hostname was registered.
+- **`.lan`** resolves via your router's DNS once the Pi renews its DHCP lease. The fastest way to trigger this is to reboot (`sudo reboot`) or run `sudo python3 pimiproxy-core.py hostname <current-hostname>` which will prompt you to reboot.
 - **`.local`** resolves via mDNS (avahi). It can take up to 30 seconds to propagate after first boot. Some Android versions don't support `.local` — use `.lan` or the IP address instead.
 - Confirm avahi-daemon is running: `systemctl status avahi-daemon`
 - If neither resolves, use the IP address directly.
 
 ### Proxy not working on a device
 
+- Run `sudo python3 pimiproxy-core.py status` — the proxy test will show exactly where it fails
 - Confirm you set proxy settings, not network/WiFi settings
 - Confirm the port is `7890`, not `9090` (that's the API, not the proxy)
 - Test from the Pi itself: `curl -x http://localhost:7890 https://example.com`
-- Check Mihomo logs: `cd /opt/pimiproxy && docker compose logs -f mihomo`
+- Check Mihomo logs: `sudo python3 pimiproxy-core.py logs`
 
 ### `clash-system on` has no effect
 
-- Confirm the mihomo container is running: `docker ps | grep mihomo`
+- Confirm the mihomo container is running: `sudo python3 pimiproxy-core.py status`
 - Confirm the TUN interface exists: `ip link show mihomo`
-- If the interface is missing, the container may not have started with the TUN device — check logs
+- If the interface is missing, the container may not have started with the TUN device — check logs: `sudo python3 pimiproxy-core.py logs`
 
 ### Install fails with a Docker error
 
@@ -440,10 +477,25 @@ The uninstaller will:
 
 ### Subscription URL returns no proxies
 
-Some provider APIs only respond correctly when the client sends a Clash-compatible `User-Agent` header. Use `getapiconfig.py` to debug the raw response:
+Some provider APIs only respond correctly when the client sends a Clash-compatible `User-Agent` header. Use the built-in `debug` subcommand to inspect the raw response:
 
 ```bash
-python3 getapiconfig.py
+sudo python3 pimiproxy-core.py debug
 ```
 
-Paste your provider URL when prompted. The script sends a request with `User-Agent: Clash-Verge/1.0` and saves the full response to `raw_debug_output.yaml`. Check that file to confirm valid Clash/Mihomo YAML is being returned before re-running the installer.
+Paste your provider URL when prompted (or pass it directly as an argument). The command sends a request with `User-Agent: Clash-Verge/1.0 (clash-verge-rev; mihomo)`, reports the status code, content type, and how many proxies/groups/rules were found in the response, then saves the full response to `raw_debug_output.yaml` in the current directory.
+
+If the response contains proxies, re-run the installer or use option 1 → option 5 in `configure` to refresh. If it doesn't, the URL or token is wrong for Clash clients — check with your provider.
+
+### Changing ports or API secret after install
+
+Use the configure menu — no need to reinstall:
+
+```bash
+sudo python3 pimiproxy-core.py configure
+```
+
+- Option 6 to change the API secret
+- Option 7 to change any port
+- Option 8 to switch dashboard
+- Option 9 to save and apply

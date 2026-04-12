@@ -1,3 +1,13 @@
+## [4.4.0] — 2026-04-12
+
+### Added
+- **`debug [url]` subcommand** — fetches a subscription URL with the Clash-Verge User-Agent and reports status code, content type, response size, and parsed proxy/group/rule counts. Saves the full response to `raw_debug_output.yaml`. Replaces the standalone `getapiconfig.py` utility. URL can be passed as an argument for non-interactive use.
+
+### Changed
+- **`getapiconfig.py` superseded** — its functionality is now built into `pimiproxy-core.py debug`. The standalone script is no longer needed.
+
+---
+
 ## [4.3.0] — 2026-04-12
 
 ### Added

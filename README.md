@@ -41,7 +41,7 @@ Once installed, any device on your network can route its traffic through the Pi 
 | File | Purpose |
 |------|---------|
 | `pimiproxy.sh` | One-command bootstrap — detects distro, installs all prerequisites, then launches `pimiproxy-core.py` |
-| `pimiproxy-core.py` | Main installer: `install`, `uninstall`, `configure`, `refresh` subcommands |
+| `pimiproxy-core.py` | Main installer and management tool — see subcommands below |
 | `mihomo.tar.gz` | *(optional)* Pre-pulled Mihomo image for offline install |
 | `metacubexd.tar.gz` | *(optional)* Pre-pulled Metacubexd image for offline install |
 | `zashboard.tar.gz` | *(optional)* Pre-pulled Zashboard image for offline install |
@@ -75,7 +75,7 @@ Press Enter through all prompts to accept defaults. See [INSTRUCTIONS.md](INSTRU
 | Setting | Default |
 |---------|---------|
 | Install directory | `/opt/pimiproxy` |
-| Hostname | `pimiproxy` |
+| Hostname | `pimiproxy` (or current hostname if already customised) |
 | Dashboard port | `8080` |
 | Mihomo API port | `9090` |
 | Mixed proxy port | `7890` |
@@ -123,6 +123,113 @@ The API secret (default: `pimiproxy`) may be required on first load depending on
 
 ---
 
+## Subcommands
+
+All management is done through `pimiproxy-core.py`:
+
+```bash
+sudo python3 pimiproxy-core.py <subcommand>
+```
+
+| Subcommand | Description |
+|---|---|
+| `install` | Run the installer |
+| `uninstall` | Stop containers, remove images, delete all files |
+| `configure` | Interactive menu: subscription, proxy groups, rules, ports, secret, dashboard |
+| `refresh` | Re-fetch subscription URL and restart Mihomo |
+| `status` | Show container health, subscription info, and run a live proxy connectivity test |
+| `logs [mihomo\|dashboard]` | Tail live container logs (default: mihomo) |
+| `restart [mihomo\|dashboard]` | Restart one container or all |
+| `update` | Pull latest Docker images and recreate containers |
+| `hostname <name>` | Change the system hostname, restart avahi-daemon, and optionally reboot |
+| `debug [url]` | Fetch a subscription URL with the Clash User-Agent and inspect the response |
+
+---
+
+## Status and connectivity test
+
+```bash
+sudo python3 pimiproxy-core.py status
+```
+
+Shows:
+- Container up/down state
+- `clash-system` routing state
+- Subscription URL and number of proxies loaded
+- Live HTTP and HTTPS connectivity test through the proxy, with latency
+- Dashboard, API, and proxy endpoint URLs
+
+---
+
+## Subscription management
+
+If you provided a Clash/Mihomo-compatible subscription URL at install time, pimiproxy fetches it during install and extracts the proxy list, proxy groups, and routing rules directly from the provider's config. The result is written into `config.yaml` — no separate provider fetch happens at Mihomo startup.
+
+The subscription is refreshed automatically each night via a cron job. To refresh manually:
+
+```bash
+sudo python3 pimiproxy-core.py refresh
+```
+
+This re-fetches the URL, rebuilds `config.yaml`, and restarts Mihomo.
+
+---
+
+## Configuring proxy groups and rules
+
+Run the interactive configurator:
+
+```bash
+sudo python3 pimiproxy-core.py configure
+```
+
+| Option | Description |
+|---|---|
+| 1) Manage subscription URL | Add or change your Clash/Mihomo API URL |
+| 2) Manage proxy groups | Add or remove proxy groups |
+| 3) Manage rules | Add, remove, or reorder routing rules |
+| 4) Show current config | Print the live config.yaml to screen |
+| 5) Refresh subscription now | Re-fetch server list and restart Mihomo |
+| 6) Change API secret | Update the dashboard API password |
+| 7) Change ports | Change dashboard, API, or proxy port |
+| 8) Switch dashboard | Swap between Metacubexd and Zashboard |
+| 9) Save and apply | Write changes and optionally restart containers |
+| 10) Exit without saving | Discard all changes |
+
+---
+
+## Day-to-day management
+
+```bash
+# Check status and test the proxy
+sudo python3 pimiproxy-core.py status
+
+# View logs
+sudo python3 pimiproxy-core.py logs              # Mihomo logs
+sudo python3 pimiproxy-core.py logs dashboard    # Dashboard logs
+
+# Restart containers
+sudo python3 pimiproxy-core.py restart           # All containers
+sudo python3 pimiproxy-core.py restart mihomo    # Mihomo only
+
+# Update to latest images
+sudo python3 pimiproxy-core.py update
+
+# Change hostname
+sudo python3 pimiproxy-core.py hostname newname
+
+# Debug a subscription URL
+sudo python3 pimiproxy-core.py debug
+sudo python3 pimiproxy-core.py debug https://provider.example.com/api?token=abc123
+
+# Pi system proxy
+sudo clash-system on       # Route Pi's own traffic through the proxy
+sudo clash-system off      # Revert to direct
+sudo clash-system status
+```
+
+---
+
 ## Uninstalling
 
 ```bash
@@ -133,39 +240,6 @@ This stops containers, removes images, deletes all installed files, clears routi
 
 ---
 
-## Subscription management
-
-If you provided a Clash/Mihomo-compatible subscription URL at install time, pimiproxy fetches it during install and extracts the proxy list, proxy groups, and routing rules directly from the provider's config. The result is written into `config.yaml` — no separate provider fetch happens at Mihomo startup.
-
-The subscription is refreshed automatically each night via a cron job. To refresh manually at any time:
-
-```bash
-sudo python3 /opt/pimiproxy/pimiproxy-core.py refresh
-```
-
-This re-fetches the URL, rebuilds `config.yaml`, and restarts Mihomo.
-
----
-
-## Configuring proxy groups and rules
-
-Run the interactive configurator to manage your subscription URL, proxy groups, and routing rules:
-
-```bash
-sudo python3 pimiproxy-core.py configure
-```
-
-From there you can:
-- Add or change your Clash API subscription URL
-- Refresh the subscription immediately
-- Add proxy groups (select, url-test, fallback, load-balance)
-- Add, remove, and reorder rules
-- Apply common rule presets (LAN bypass, catch-all)
-- Preview the generated config before saving
-- Restart Mihomo automatically after saving
-
----
-
 ## After install: next steps
 
 If you provided a subscription URL at install time, your proxy groups and rules are already configured — open the dashboard and select a server in the proxy group.
@@ -173,16 +247,10 @@ If you provided a subscription URL at install time, your proxy groups and rules 
 If you skipped the subscription prompt, the default config passes all traffic through directly (`MATCH,DIRECT`). Add a subscription later:
 
 ```bash
-sudo python3 /opt/pimiproxy/pimiproxy-core.py configure
+sudo python3 pimiproxy-core.py configure
 ```
 
 Choose option 1 to set the URL, then option 5 to fetch it immediately.
-
-To restart Mihomo manually after editing `/opt/pimiproxy/config/config.yaml`:
-
-```bash
-cd /opt/pimiproxy && docker compose restart mihomo
-```
 
 See the [Mihomo documentation](https://wiki.metacubex.one) for config reference.
 
