@@ -147,16 +147,15 @@ def config_view(request):
     raw_rules = cfg.get("rules", [])
     user_rules = [_parse_rule(r) for r in raw_rules]
 
-    PREVIEW_LIMIT = 20
     return ok({
-        "user_groups":       cfg.get("proxy_groups", []),
-        "user_rules":        user_rules,
-        "sub_group_names":   sub_group_names,
+        "user_groups":        cfg.get("proxy_groups", []),
+        "user_rules":         user_rules,
+        "sub_group_names":    sub_group_names,
         "system_group_names": ["🧭 Meta Quest"],
-        "sub_rule_count":    len(sub_rule_lines),
-        "sub_rules_preview": sub_rule_lines[:PREVIEW_LIMIT],
-        "proxy_names":       proxy_names,
-        "provider_url":      cfg.get("subscription_url", ""),
+        "sub_rule_count":     len(sub_rule_lines),
+        "sub_rules":          sub_rule_lines,
+        "proxy_names":        proxy_names,
+        "provider_url":       cfg.get("subscription_url", ""),
     })
 
 

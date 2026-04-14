@@ -165,8 +165,13 @@ export default function Rules({ onUnauthorized }) {
     }
   }
 
-  const userRules = config?.user_rules ?? []
-  const subRules  = config?.sub_rules_preview ?? []
+  const [subSearch, setSubSearch] = useState('')
+
+  const userRules  = config?.user_rules ?? []
+  const allSubRules = config?.sub_rules ?? []
+  const subRules   = subSearch.trim()
+    ? allSubRules.filter(r => r.toLowerCase().includes(subSearch.toLowerCase()))
+    : allSubRules
   const allGroups = [
     ...(config?.sub_group_names ?? []),
     ...(config?.user_groups ?? []).map(g => g.name),
@@ -195,25 +200,39 @@ export default function Rules({ onUnauthorized }) {
         onReorder={handleReorder}
       />
 
-      {/* Provider rules — read-only preview */}
+      {/* Provider rules — searchable */}
       <div className="section-header" style={{ marginTop: 32 }}>
         <span className="section-label">Provider</span>
-        <span className="section-badge">{config?.sub_rule_count ?? 0} rules</span>
+        <span className="section-badge">
+          {subSearch.trim()
+            ? `${subRules.length} / ${config?.sub_rule_count ?? 0}`
+            : `${config?.sub_rule_count ?? 0}`}
+        </span>
       </div>
+      <input
+        type="search"
+        placeholder="Search provider rules…"
+        value={subSearch}
+        onChange={e => setSubSearch(e.target.value)}
+        style={{
+          width: '100%', boxSizing: 'border-box',
+          marginBottom: 10, padding: '7px 12px',
+          background: 'var(--bg)', border: '1px solid var(--border-strong)',
+          borderRadius: 8, color: 'var(--light)', fontSize: 13,
+          outline: 'none',
+        }}
+      />
       <div className="card-list">
-        {subRules.length === 0
+        {allSubRules.length === 0
           ? <div style={{ color: 'var(--dim)', fontSize: 13, padding: '8px 0' }}>No provider rules</div>
-          : subRules.map((r, i) => (
-            <div key={i} className="card-row readonly">
-              <span className="card-name" style={{ fontSize: 13, fontFamily: 'monospace' }}>{r}</span>
-            </div>
-          ))
+          : subRules.length === 0
+            ? <div style={{ color: 'var(--dim)', fontSize: 13, padding: '8px 0' }}>No rules match</div>
+            : subRules.map((r, i) => (
+              <div key={i} className="card-row readonly">
+                <span className="card-name" style={{ fontSize: 13, fontFamily: 'monospace' }}>{r}</span>
+              </div>
+            ))
         }
-        {(config?.sub_rule_count ?? 0) > subRules.length && (
-          <div style={{ color: 'var(--meta-text)', fontSize: 12, padding: '8px 16px' }}>
-            … and {config.sub_rule_count - subRules.length} more
-          </div>
-        )}
       </div>
 
       {showAdd && (
