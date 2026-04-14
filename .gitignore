@@ -7,3 +7,8 @@ CLAUDE.md
 *.yaml.old
 
 getapiconfig.py
+
+docker-images/*.tar.gz
+
+pimiproxy-ui/node_modules/
+pimiproxy-ui/dist/

@@ -1,3 +1,27 @@
+## [5.0.0] — 2026-04-14
+
+### Added
+- **Web management UI** — two new Docker containers: `pimiproxy-api` (Django REST API) and `pimiproxy-ui` (React + Nginx). Accessible on port 8888 by default. Login uses the same API secret as the Mihomo dashboard.
+- **Two-layer config model** — user-defined proxy groups and rules are now always applied on top of the provider subscription. User rules are prepended first (highest priority); user groups are appended after provider groups. Previously, user groups and rules were silently ignored when a subscription was present.
+- **Provider groups and rules visible in UI** — the management UI displays provider subscription groups (read-only) alongside user groups (CRUD). Provider rules are shown as a read-only preview below user rules.
+- **Drag-to-reorder rules** — user rules can be reordered in the UI by dragging. No external dependencies; uses native HTML5 drag.
+- **Light/dark mode toggle** — UI defaults to dark (addohmnet color scheme). Toggle persists in `localStorage`.
+- **Offline font bundling** — Space Grotesk and Syne fonts are bundled at build time via `@fontsource` npm packages. No CDN calls required at runtime; works in China and air-gapped environments.
+- **`ui_port` in configure** — change the management UI port via configure option 7 (alongside dashboard, API, and proxy ports).
+- **`ui-secret.txt`** — Django `SECRET_KEY` generated at install time and written to `/opt/pimiproxy/ui-secret.txt`. Removed by the uninstaller.
+- **Image build at install** — installer builds `pimiproxy-api` and `pimiproxy-ui` images from source, or loads them from `docker-images/pimiproxy-api.tar.gz` / `pimiproxy-ui.tar.gz` if present.
+- **`docker-images/` directory** — offline `.tar.gz` archives for all five containers (mihomo, metacubexd, zashboard, pimiproxy-api, pimiproxy-ui) go here. Archives are gitignored; directory is tracked via `.gitkeep`.
+
+### Changed
+- **"Wannaflix" → "Provider"** — all user-facing references to "Wannaflix" in `build_config()`, the configure menu, and the login banner updated to the generic term "Provider". The internal JSON field `subscription_url` is unchanged for backwards compatibility.
+- **Subscription prompt renamed** — "Clash API subscription URL" → "Provider URL" throughout the install wizard and configure menu.
+- **`build_banner()`** — UI URL line (`http://<hostname>.lan:<ui_port>`) added to the login banner.
+- **`do_status()`** — UI port shown in endpoint list; provider terminology updated.
+- **`do_logs()`** — now accepts `pimiproxy-api` and `pimiproxy-ui` as service names.
+- **Repo structure** — moved docs to `docs/`, moved offline archives to `docker-images/`, added `pimiproxy-api/` and `pimiproxy-ui/` directories.
+
+---
+
 ## [4.7.0] — 2026-04-12
 
 ### Added

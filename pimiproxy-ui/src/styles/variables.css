@@ -1,0 +1,54 @@
+/* ── Dark theme (default) — addohmnet color scheme ── */
+:root {
+  --bg:      #060608;
+  --surface: #0e0e12;
+  --teal:    #5cf0c8;
+  --cyan:    #00f2ff;
+  --purple:  #7c6af0;
+  --warm:    #f0c86a;
+  --light:   #f0eff8;
+  --dim:     rgba(240, 239, 248, 0.55);
+
+  --nav-bg:          rgba(14, 14, 18, 0.88);
+  --nav-border:      rgba(240, 239, 248, 0.08);
+  --nav-text:        rgba(240, 239, 248, 0.5);
+  --nav-text-active: #f0eff8;
+  --nav-active-bg:   rgba(240, 239, 248, 0.1);
+  --nav-hover-bg:    rgba(240, 239, 248, 0.06);
+
+  --card-border:       rgba(240, 239, 248, 0.06);
+  --card-border-hover: rgba(240, 239, 248, 0.18);
+
+  --meta-text:   rgba(240, 239, 248, 0.3);
+  --muted-text:  rgba(240, 239, 248, 0.18);
+  --border:      rgba(240, 239, 248, 0.08);
+  --border-strong: rgba(240, 239, 248, 0.15);
+  --surface-inset: rgba(240, 239, 248, 0.04);
+
+  --display: 'Syne', system-ui, sans-serif;
+  --sans:    'Space Grotesk', system-ui, sans-serif;
+}
+
+/* ── Light theme ── */
+[data-theme="light"] {
+  --bg:      #f3f2ee;
+  --surface: #eae9e4;
+  --light:   #18181c;
+  --dim:     rgba(18, 18, 28, 0.65);
+
+  --nav-bg:          rgba(243, 242, 238, 0.92);
+  --nav-border:      rgba(18, 18, 28, 0.1);
+  --nav-text:        rgba(18, 18, 28, 0.5);
+  --nav-text-active: #18181c;
+  --nav-active-bg:   rgba(18, 18, 28, 0.08);
+  --nav-hover-bg:    rgba(18, 18, 28, 0.04);
+
+  --card-border:       rgba(18, 18, 28, 0.08);
+  --card-border-hover: rgba(18, 18, 28, 0.2);
+
+  --meta-text:   rgba(18, 18, 28, 0.38);
+  --muted-text:  rgba(18, 18, 28, 0.2);
+  --border:      rgba(18, 18, 28, 0.09);
+  --border-strong: rgba(18, 18, 28, 0.18);
+  --surface-inset: rgba(18, 18, 28, 0.04);
+}

@@ -1,0 +1,112 @@
+import { useState, useEffect, useCallback } from 'react'
+import { api } from './api'
+import Sidebar from './components/Sidebar'
+import Overview from './components/Overview'
+import Groups from './components/Groups'
+import Rules from './components/Rules'
+import Settings from './components/Settings'
+
+function LoginPage({ onLogin }) {
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    setLoading(true)
+    setError('')
+    try {
+      await api.login(password)
+      onLogin()
+    } catch (err) {
+      setError('Invalid password')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="login-page">
+      <div className="login-card">
+        <div className="login-title">pimiproxy</div>
+        <div className="login-sub">Enter your API secret to continue</div>
+        <form onSubmit={handleSubmit}>
+          <div className="field">
+            <label>Password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              autoFocus
+              placeholder="API secret"
+            />
+          </div>
+          <button className="btn btn-primary" style={{ width: '100%' }} disabled={loading}>
+            {loading ? 'Signing in…' : 'Sign in'}
+          </button>
+          {error && <div className="login-error">{error}</div>}
+        </form>
+      </div>
+    </div>
+  )
+}
+
+export default function App() {
+  const [authed, setAuthed] = useState(null) // null = checking, false = logged out, true = logged in
+  const [tab, setTab] = useState('overview')
+  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark')
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme === 'light' ? 'light' : '')
+    localStorage.setItem('theme', theme)
+  }, [theme])
+
+  // Check if already authenticated on mount
+  useEffect(() => {
+    api.status()
+      .then(() => setAuthed(true))
+      .catch(err => {
+        if (err.status === 401) setAuthed(false)
+        else setAuthed(false) // treat errors as logged out
+      })
+  }, [])
+
+  const handleLogout = useCallback(async () => {
+    try { await api.logout() } catch (_) {}
+    setAuthed(false)
+  }, [])
+
+  const handleUnauthorized = useCallback(() => {
+    setAuthed(false)
+  }, [])
+
+  if (authed === null) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <span style={{ color: 'var(--dim)', fontSize: 14 }}>Loading…</span>
+      </div>
+    )
+  }
+
+  if (!authed) {
+    return <LoginPage onLogin={() => setAuthed(true)} />
+  }
+
+  const pages = { overview: Overview, groups: Groups, rules: Rules, settings: Settings }
+  const Page = pages[tab] || Overview
+
+  return (
+    <div className="app-shell">
+      <Sidebar
+        tab={tab}
+        onTab={setTab}
+        theme={theme}
+        onTheme={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
+        onLogout={handleLogout}
+      />
+      <main className="main-content">
+        <Page onUnauthorized={handleUnauthorized} />
+      </main>
+    </div>
+  )
+}

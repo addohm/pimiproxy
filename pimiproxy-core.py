@@ -525,18 +525,24 @@ def load_image(archive: str, fallback: str, arch: str) -> str:
     """
     Load a Docker image from a local .tar.gz archive if present,
     otherwise pull from the registry. Returns the image tag.
+
+    Archives are looked up in docker-images/ relative to this script,
+    then falling back to the current working directory for compatibility.
     """
-    p = Path(archive)
+    script_dir = Path(__file__).parent
+    p = script_dir / "docker-images" / archive
+    if not p.exists():
+        p = Path(archive)  # cwd fallback
     if p.exists():
-        with Spinner(f"Loading {archive} from disk"):
-            result = run(f"gunzip -c {archive} | docker load", capture=True)
+        with Spinner(f"Loading {p.name} from disk"):
+            result = run(f"gunzip -c {p} | docker load", capture=True)
         output = result.stdout + result.stderr
         for line in output.splitlines():
             if "Loaded image:" in line:
                 tag = line.split("Loaded image:")[-1].strip()
                 info(f"Loaded: {tag}")
                 return tag
-        warn(f"Could not parse image tag from {archive} — will pull instead.")
+        warn(f"Could not parse image tag from {p.name} — will pull instead.")
 
     # docker pull shows its own layer progress — don't silence it
     info(f"Pulling {fallback} ({arch})...")
@@ -690,39 +696,59 @@ def build_config(cfg: dict) -> str:
     L()
 
     # ── proxies / proxy-groups / rules ────────────────────────────────────────
-    # Strategy:
-    #   - If the subscription provided these blocks (fetched by save_subscription),
-    #     inject them verbatim — the provider's config is authoritative.
-    #   - If only proxies were fetched (no groups/rules from provider), fall back
-    #     to pimiproxy-generated simple groups and rules.
-    #   - If no subscription at all, use MATCH,DIRECT pass-through.
-    #   - User-added proxy_groups / rules (from configure mode) are used only
-    #     when no subscription blocks are present.
+    # Two-layer merge strategy:
+    #   Layer 1 (provider): subscription_proxies/groups/rules_yaml — verbatim
+    #                       from the provider, refreshed daily.
+    #   Layer 2 (user):     proxy_groups / rules from .pimiproxy-config.json —
+    #                       always applied on top regardless of subscription state.
+    #
+    # Groups: provider groups first, then user groups appended.
+    # Rules:  user rules first (highest priority), then provider rules.
 
     sub_proxies = cfg.get("subscription_proxies_yaml", "")
-    sub_groups = cfg.get("subscription_groups_yaml", "")
-    sub_rules = cfg.get("subscription_rules_yaml", "")
+    sub_groups  = cfg.get("subscription_groups_yaml", "")
+    sub_rules   = cfg.get("subscription_rules_yaml", "")
+    user_groups = cfg.get("proxy_groups", [])
+    user_rules  = cfg.get("rules", [])
 
+    # ── proxies ───────────────────────────────────────────────────────────────
     if sub_proxies:
-        # Inline proxies from provider — inject verbatim
         L()
         for line in sub_proxies.splitlines():
             L(line)
         L()
     elif subscription_url:
-        # URL set but subscription not yet fetched; placeholder so config is valid
         L()
         L("proxies: []")
         L()
 
-    # Individual proxy server names — used in Quest group so the user can
-    # pick any specific server directly, same as every other proxy group.
+    # Individual proxy server names for the Quest group proxy list
     _sub_proxy_names = re.findall(
         r'^\s*-\s*name:\s*["\']?([^"\'\n]+?)["\']?\s*$', sub_proxies,
         re.MULTILINE) if sub_proxies else []
 
+    # ── proxy-groups ──────────────────────────────────────────────────────────
+    # Helper: write a single group dict as YAML lines
+    def _write_group(g: dict):
+        L(f'  - name: "{g["name"]}"')
+        L(f'    type: {g["type"]}')
+        if "use" in g:
+            L("    use:")
+            for u in g["use"]:
+                L(f"      - {u}")
+        if "proxies" in g:
+            L("    proxies:")
+            for p in g["proxies"]:
+                L(f"      - {p}")
+        if "url" in g:
+            L(f'    url: {g["url"]}')
+        if "interval" in g:
+            L(f'    interval: {g["interval"]}')
+        if "tolerance" in g:
+            L(f'    tolerance: {g["tolerance"]}')
+
     if sub_groups:
-        # Proxy groups from provider — inject verbatim, then append Quest group
+        # Provider groups verbatim, Quest group appended, then user groups
         L()
         for line in sub_groups.splitlines():
             L(line)
@@ -730,48 +756,28 @@ def build_config(cfg: dict) -> str:
         L('    type: select')
         L('    proxies:')
         L('      - "DIRECT"')
-        L('      - "Wannaflix"')
+        L('      - "Provider"')
         for name in _sub_proxy_names:
             L(f'      - {yaml_quote(name)}')
+        for g in user_groups:
+            _write_group(g)
         L()
     else:
-        # Fall back: user-configured groups or simple generated defaults
-        proxy_groups = cfg.get("proxy_groups", [])
-        if subscription_url and not proxy_groups:
-            proxy_groups = [
-                {
-                    "name": "Proxy",
-                    "type": "select",
-                    "proxies": ["DIRECT"]
-                },
-            ]
+        # No provider groups — use user groups + Quest fallback
+        if subscription_url and not user_groups:
+            user_groups = [{"name": "Proxy", "type": "select", "proxies": ["DIRECT"]}]
         L("proxy-groups:")
-        for g in proxy_groups:
-            L(f'  - name: "{g["name"]}"')
-            L(f'    type: {g["type"]}')
-            if "use" in g:
-                L("    use:")
-                for u in g["use"]:
-                    L(f"      - {u}")
-            if "proxies" in g:
-                L("    proxies:")
-                for p in g["proxies"]:
-                    L(f"      - {p}")
-            if "url" in g:
-                L(f'    url: {g["url"]}')
-            if "interval" in g:
-                L(f'    interval: {g["interval"]}')
-            if "tolerance" in g:
-                L(f'    tolerance: {g["tolerance"]}')
-        L('  - name: "Quest"')
+        for g in user_groups:
+            _write_group(g)
+        L('  - name: "🧭 Meta Quest"')
         L('    type: select')
         L('    proxies:')
         L('      - "DIRECT"')
-        L('      - "Wannaflix"')
+        L('      - "Provider"')
         L()
 
-    # Quest domain rules — always prepended before the subscription catch-all
-    # so traffic for these domains actually reaches the Quest group.
+    # ── rules ─────────────────────────────────────────────────────────────────
+    # Quest domain rules — always injected before provider/user catch-alls
     _quest_rules = [
         "DOMAIN-SUFFIX,meta.com,🧭 Meta Quest",
         "DOMAIN-SUFFIX,oculus.com,🧭 Meta Quest",
@@ -795,9 +801,7 @@ def build_config(cfg: dict) -> str:
     ]
 
     if sub_rules:
-        # Write rules: header ourselves, inject Quest rules first,
-        # then write subscription rules skipping their own rules: header.
-        # Detect the indentation the subscription uses so Quest rules match.
+        # Detect provider indentation so injected rules match
         rule_indent = "  "
         for line in sub_rules.splitlines():
             s = line.strip()
@@ -806,7 +810,10 @@ def build_config(cfg: dict) -> str:
                 break
         L()
         L("rules:")
+        # Order: Quest rules → user rules → provider rules
         for r in _quest_rules:
+            L(f"{rule_indent}- {r}")
+        for r in user_rules:
             L(f"{rule_indent}- {r}")
         for line in sub_rules.splitlines():
             if line.strip() == "rules:":
@@ -814,11 +821,10 @@ def build_config(cfg: dict) -> str:
             L(line)
         L()
     else:
-        # Fall back: user-configured rules or minimal defaults
-        rules = cfg.get("rules", [])
-        if not rules:
-            if subscription_url or cfg.get("proxy_groups"):
-                rules = [
+        # No provider rules — use user rules or minimal defaults
+        if not user_rules:
+            if subscription_url or user_groups:
+                user_rules = [
                     "DOMAIN-SUFFIX,lan,DIRECT",
                     "DOMAIN-SUFFIX,local,DIRECT",
                     "IP-CIDR,192.168.0.0/16,DIRECT",
@@ -827,11 +833,11 @@ def build_config(cfg: dict) -> str:
                     "MATCH,Proxy",
                 ]
             else:
-                rules = ["MATCH,DIRECT"]
+                user_rules = ["MATCH,DIRECT"]
         L("rules:")
         for r in _quest_rules:
             L(f"  - {r}")
-        for r in rules:
+        for r in user_rules:
             L(f"  - {r}")
         L()
 
@@ -843,6 +849,8 @@ def build_compose(cfg: dict) -> str:
     dashboard = cfg["dashboard_image"]
     dash_name = cfg["dash_name"]
     dash_port = cfg["dashboard_port"]
+    ui_port   = cfg.get("ui_port", "8888")
+    install_dir = cfg.get("install_dir", "/opt/pimiproxy")
 
     lines = []
 
@@ -866,6 +874,23 @@ def build_compose(cfg: dict) -> str:
     L("    restart: unless-stopped")
     L("    ports:")
     L(f'      - "{dash_port}:80"')
+    L()
+    L("  pimiproxy-api:")
+    L("    image: pimiproxy-api:latest")
+    L("    container_name: pimiproxy-api")
+    L("    restart: unless-stopped")
+    L("    volumes:")
+    L(f"      - {install_dir}:/pimiproxy")
+    L("      - /var/run/docker.sock:/var/run/docker.sock")
+    L()
+    L("  pimiproxy-ui:")
+    L("    image: pimiproxy-ui:latest")
+    L("    container_name: pimiproxy-ui")
+    L("    restart: unless-stopped")
+    L("    ports:")
+    L(f'      - "{ui_port}:80"')
+    L("    depends_on:")
+    L("      - pimiproxy-api")
     L()
 
     return "\n".join(lines)
@@ -993,6 +1018,7 @@ def build_banner(cfg: dict, meta: dict) -> str:
     dash_port = cfg.get("dashboard_port", meta.get("dashboard_port", "8080"))
     api_port = cfg.get("api_port", meta.get("api_port", "9090"))
     mixed_port = cfg.get("mixed_port", meta.get("mixed_port", "7890"))
+    ui_port = cfg.get("ui_port", meta.get("ui_port", "8888"))
     cfg_file = f"{meta.get('install_dir', '/opt/pimiproxy')}/config/config.yaml"
     aes_ok = has_aes_hardware()
 
@@ -1050,6 +1076,7 @@ def build_banner(cfg: dict, meta: dict) -> str:
     L()
     L('printf "%s\\n" "$_S"')
     L(f'printf "  Dashboard  →  %s\\n" "http://{hostname}.lan:{dash_port}"')
+    L(f'printf "  UI         →  %s\\n" "http://{hostname}.lan:{ui_port}"')
     L(f'printf "  API        →  %s\\n" "http://{hostname}.lan:{api_port}"')
     L(f'printf "  Proxy      →  %s\\n" "{hostname}.lan:{mixed_port}  (HTTP/SOCKS5)"'
       )
@@ -1098,8 +1125,8 @@ def do_status():
     else:
         warn("clash-system not installed.")
 
-    # ── subscription ──────────────────────────────────────────────────────────
-    step("Subscription")
+    # ── provider ──────────────────────────────────────────────────────────────
+    step("Provider")
     ext_cfg_path = install_dir / ".pimiproxy-config.json"
     if ext_cfg_path.exists():
         cfg = json.loads(ext_cfg_path.read_text())
@@ -1109,7 +1136,7 @@ def do_status():
             count = cfg.get("subscription_proxies_yaml", "").count("- name:")
             info(f"Proxies loaded: {count}")
         else:
-            info("No subscription URL configured.")
+            info("No provider URL configured.")
     else:
         warn("Config not found — is pimiproxy installed?")
 
@@ -1155,8 +1182,10 @@ def do_status():
              "high-speed connections.")
 
     # ── endpoints ─────────────────────────────────────────────────────────────
+    ui_port = meta.get("ui_port", "8888")
     print()
     print(f"  Dashboard  ->  http://{hostname}.lan:{dash_port}")
+    print(f"  UI         ->  http://{hostname}.lan:{ui_port}")
     print(f"  API        ->  http://{hostname}.lan:{api_port}")
     print(f"  Proxy      ->  0.0.0.0:{mixed_port}  (HTTP/SOCKS5)")
     print()
@@ -1171,8 +1200,8 @@ def do_logs():
     compose = (meta["compose_bin"], meta["compose_sub"])
 
     service = sys.argv[2] if len(sys.argv) > 2 else "mihomo"
-    if service not in {"mihomo", "dashboard"}:
-        die(f"Unknown service '{service}'. Use: mihomo  or  dashboard")
+    if service not in {"mihomo", "dashboard", "pimiproxy-api", "pimiproxy-ui"}:
+        die(f"Unknown service '{service}'. Use: mihomo, dashboard, pimiproxy-api, pimiproxy-ui")
 
     step(f"Logs: {service}  (Ctrl-C to stop)")
     try:
@@ -1192,8 +1221,8 @@ def do_restart():
     compose = (meta["compose_bin"], meta["compose_sub"])
 
     service = sys.argv[2] if len(sys.argv) > 2 else None
-    if service and service not in {"mihomo", "dashboard"}:
-        die(f"Unknown service '{service}'. Use: mihomo, dashboard, or omit for all"
+    if service and service not in {"mihomo", "dashboard", "pimiproxy-api", "pimiproxy-ui"}:
+        die(f"Unknown service '{service}'. Use: mihomo, dashboard, pimiproxy-api, pimiproxy-ui, or omit for all"
             )
 
     if service:
@@ -1346,11 +1375,11 @@ def do_configure():
 
     while True:
         print(f"\n{C.BOLD}── Configure pimiproxy ─────────────────────{C.NC}")
-        print("  1) Manage subscription URL")
+        print("  1) Manage provider URL")
         print("  2) Manage proxy groups")
         print("  3) Manage rules")
         print("  4) Show current config")
-        print("  5) Refresh subscription now")
+        print("  5) Refresh provider now")
         print("  6) Change API secret")
         print("  7) Change ports")
         print("  8) Switch dashboard")
@@ -1359,22 +1388,22 @@ def do_configure():
         print()
         choice = input("  Selection [1-10]: ").strip()
 
-        # ── subscription URL ─────────────────────────────────────────────────
+        # ── provider URL ─────────────────────────────────────────────────────
         if choice == "1":
             current = cfg.get("subscription_url", "")
-            print(f"\n  Current subscription URL: {current or '(none)'}")
+            print(f"\n  Current provider URL: {current or '(none)'}")
             print()
             print("  Your provider must give you a Clash/Mihomo API URL.")
             print("  It typically looks like:")
             print("    https://provider.example.com/api?token=abc123")
             print("  Leave blank to clear.")
             print()
-            url = input("  Clash API URL: ").strip()
+            url = input("  Provider URL: ").strip()
             cfg["subscription_url"] = url
             if url:
-                info(f"Subscription URL set.")
+                info(f"Provider URL set.")
             else:
-                info("Subscription URL cleared.")
+                info("Provider URL cleared.")
             changed = True
 
         # ── proxy groups ─────────────────────────────────────────────────────
@@ -1434,7 +1463,7 @@ def do_configure():
                             ]
                         if not providers:
                             warn(
-                                "No providers configured. Add a subscription URL first."
+                                "No providers configured. Add a provider URL first (option 1)."
                             )
                             continue
                         print("  Available providers:")
@@ -1618,11 +1647,11 @@ def do_configure():
             print()
             print(build_config(cfg))
 
-        # ── refresh subscription ─────────────────────────────────────────────
+        # ── refresh provider ─────────────────────────────────────────────────
         elif choice == "5":
             url = cfg.get("subscription_url", "")
             if not url:
-                warn("No subscription URL configured (option 1).")
+                warn("No provider URL configured (option 1).")
             else:
                 if save_subscription(install_dir, url):
                     # Reload cfg with fresh subscription blocks and rebuild config
@@ -1653,18 +1682,24 @@ def do_configure():
         elif choice == "7":
             cur_dash = cfg.get("dashboard_port",
                                meta.get("dashboard_port", "8080"))
+            cur_ui   = cfg.get("ui_port", meta.get("ui_port", "8888"))
             cur_api = cfg.get("api_port", meta.get("api_port", "9090"))
             cur_mixed = cfg.get("mixed_port", meta.get("mixed_port", "7890"))
             print(f"\n  {C.BOLD}Current ports:{C.NC}")
-            print(f"    Dashboard  port : {cur_dash}")
-            print(f"    Mihomo API port : {cur_api}")
-            print(f"    Mixed proxy port: {cur_mixed}")
+            print(f"    Dashboard      port : {cur_dash}")
+            print(f"    Management UI  port : {cur_ui}")
+            print(f"    Mihomo API     port : {cur_api}")
+            print(f"    Mixed proxy    port : {cur_mixed}")
             print()
-            new_dash = ask("Dashboard port", cur_dash)
-            new_api = ask("Mihomo API port", cur_api)
+            new_dash  = ask("Dashboard port", cur_dash)
+            new_ui    = ask("Management UI port", cur_ui)
+            new_api   = ask("Mihomo API port", cur_api)
             new_mixed = ask("Mixed proxy port", cur_mixed)
             if new_dash != cur_dash:
                 cfg["dashboard_port"] = new_dash
+                compose_changed = True
+            if new_ui != cur_ui:
+                cfg["ui_port"] = new_ui
                 compose_changed = True
             if new_api != cur_api:
                 cfg["api_port"] = new_api
@@ -1713,7 +1748,7 @@ def do_configure():
 
             # Persist port / secret changes back to meta so future subcommands
             # (status, logs, restart) read the right values
-            for key in ("dashboard_port", "api_port", "mixed_port",
+            for key in ("dashboard_port", "ui_port", "api_port", "mixed_port",
                         "api_secret"):
                 if key in cfg:
                     meta[key] = cfg[key]
@@ -1770,6 +1805,7 @@ def do_install(china_mirrors: bool = False):
     dashboard_port = "8080"
     api_port = "9090"
     mixed_port = "7890"
+    ui_port = "8888"
     api_secret = "pimiproxy"
     arch = "linux/arm64"
     dash_choice = 1
@@ -1779,7 +1815,7 @@ def do_install(china_mirrors: bool = False):
     print()
     print("  Express install uses all defaults — only asks for hostname and")
     print(
-        "  your Clash API subscription URL. Everything else is pre-configured."
+        "  your provider URL. Everything else is pre-configured."
     )
     print()
     print("  Advanced install walks through every option.")
@@ -1799,22 +1835,24 @@ def do_install(china_mirrors: bool = False):
         install_dir = ask("Install directory", install_dir)
         hostname_new = ask("Hostname", hostname_new)
         dashboard_port = ask("Dashboard port", dashboard_port)
+        ui_port = ask("Management UI port", ui_port)
         api_port = ask("Mihomo API port", api_port)
         mixed_port = ask("Mixed proxy port", mixed_port)
         api_secret = ask_secret("API secret", api_secret)
 
     print()
-    print("  ── Clash API Subscription URL " + "─" * 12)
+    print("  ── Provider URL " + "─" * 26)
     print("  If your proxy provider gave you a Clash/Mihomo API URL, enter")
     print("  it here. It typically looks like:")
     print("    https://provider.example.com/api?token=abc123")
     print()
     print("  This must be a Clash API URL — not a regular VPN config file,")
     print("  not an app download link. If unsure, leave blank. You can add")
-    print("  it later by running:  sudo python3 pimiproxy-core.py configure")
+    print("  it later via the web UI or by running:")
+    print("    sudo python3 pimiproxy-core.py configure")
     print("  " + "─" * 42)
     print()
-    subscription_url = input("  Clash API URL [leave blank to skip]: ").strip()
+    subscription_url = input("  Provider URL [leave blank to skip]: ").strip()
 
     if not express:
         print()
@@ -1893,12 +1931,55 @@ def do_install(china_mirrors: bool = False):
         dash_name = "metacubexd"
     info(f"Dashboard image: {dashboard} ({dash_name})")
 
+    # ── pimiproxy-api and pimiproxy-ui images ─────────────────────────────────
+    _script_dir = Path(__file__).resolve().parent
+    _api_archive = _script_dir / "docker-images" / "pimiproxy-api.tar.gz"
+    _ui_archive  = _script_dir / "docker-images" / "pimiproxy-ui.tar.gz"
+    _api_src     = _script_dir / "pimiproxy-api"
+    _ui_src      = _script_dir / "pimiproxy-ui"
+
+    step("pimiproxy-api image")
+    if _api_archive.exists():
+        with Spinner("Loading pimiproxy-api from archive"):
+            run(["docker", "load", "-i", str(_api_archive)], silent=True)
+        info("pimiproxy-api image loaded from archive.")
+    elif _api_src.exists():
+        info("Building pimiproxy-api from source (this may take a minute)…")
+        run(["docker", "build", "-t", "pimiproxy-api:latest", str(_api_src)], silent=False)
+        info("pimiproxy-api image built.")
+    else:
+        warn("pimiproxy-api source not found — skipping. Web UI will not work.")
+
+    step("pimiproxy-ui image")
+    if _ui_archive.exists():
+        with Spinner("Loading pimiproxy-ui from archive"):
+            run(["docker", "load", "-i", str(_ui_archive)], silent=True)
+        info("pimiproxy-ui image loaded from archive.")
+    elif _ui_src.exists():
+        info("Building pimiproxy-ui from source (this may take a minute)…")
+        run(["docker", "build", "-t", "pimiproxy-ui:latest", str(_ui_src)], silent=False)
+        info("pimiproxy-ui image built.")
+    else:
+        warn("pimiproxy-ui source not found — skipping. Web UI will not work.")
+
     # ── directories ───────────────────────────────────────────────────────────
     step("Directories")
 
     install_path = Path(install_dir)
     (install_path / "config" / "providers").mkdir(parents=True, exist_ok=True)
     info(f"Created {install_dir}")
+
+    # ── UI secret key ─────────────────────────────────────────────────────────
+    step("UI secret key")
+
+    import secrets as _secrets
+    ui_secret_path = install_path / "ui-secret.txt"
+    if not ui_secret_path.exists():
+        ui_secret_path.write_text(_secrets.token_hex(32))
+        ui_secret_path.chmod(0o600)
+        info(f"Generated UI secret key: {ui_secret_path}")
+    else:
+        info(f"UI secret key already exists: {ui_secret_path}")
 
     # ── config ────────────────────────────────────────────────────────────────
     step("Mihomo config")
@@ -1919,6 +2000,7 @@ def do_install(china_mirrors: bool = False):
         "dashboard_image": dashboard,
         "dash_name": dash_name,
         "dashboard_port": dashboard_port,
+        "ui_port": ui_port,
     }
 
     # ── subscription pre-fetch ────────────────────────────────────────────────
@@ -1988,6 +2070,7 @@ def do_install(china_mirrors: bool = False):
         "install_dir": install_dir,
         "hostname": hostname_new,
         "dashboard_port": dashboard_port,
+        "ui_port": ui_port,
         "api_port": api_port,
         "mixed_port": mixed_port,
         "api_secret": api_secret,
@@ -2031,6 +2114,7 @@ def do_install(china_mirrors: bool = False):
     print(f"  Dashboard    ->  http://{hostname_new}.lan:{dashboard_port}")
     print(
         f"               ->  http://{lan_ip}:{dashboard_port}  (IP fallback)")
+    print(f"  Management UI->  http://{hostname_new}.lan:{ui_port}")
     print(f"  Mihomo API   ->  http://{hostname_new}.lan:{api_port}")
     print(f"  Proxy        ->  {lan_ip}:{mixed_port}  (HTTP/SOCKS5)")
     print()
@@ -2080,13 +2164,13 @@ def do_refresh():
     url = cfg.get("subscription_url", "")
 
     if not url:
-        info("No subscription URL configured — nothing to refresh.")
+        info("No provider URL configured — nothing to refresh.")
         return
 
-    step("Refreshing subscription")
+    step("Refreshing provider")
     # save_subscription updates .pimiproxy-config.json with new blocks
     if not save_subscription(install_dir, url):
-        die("Subscription refresh failed.")
+        die("Provider refresh failed.")
 
     # Reload cfg after save_subscription updated it, rebuild config.yaml
     cfg = json.loads(ext_cfg_path.read_text())
@@ -2132,12 +2216,12 @@ def do_uninstall():
             info("Containers stopped.")
         else:
             warn("No compose binary found — stopping containers by name.")
-            for name in ["mihomo", "metacubexd", "zashboard"]:
+            for name in ["mihomo", "metacubexd", "zashboard", "pimiproxy-api", "pimiproxy-ui"]:
                 run(["docker", "stop", name], check=False, silent=True)
                 run(["docker", "rm", name], check=False, silent=True)
     else:
         warn("No docker-compose.yml found — stopping containers by name.")
-        for name in ["mihomo", "metacubexd", "zashboard"]:
+        for name in ["mihomo", "metacubexd", "zashboard", "pimiproxy-api", "pimiproxy-ui"]:
             run(["docker", "stop", name], check=False, silent=True)
             run(["docker", "rm", name], check=False, silent=True)
 
@@ -2148,6 +2232,8 @@ def do_uninstall():
             "ghcr.io/metacubex/mihomo:latest",
             "ghcr.io/metacubex/metacubexd:latest",
             "ghcr.io/zephyruso/zashboard:latest",
+            "pimiproxy-api:latest",
+            "pimiproxy-ui:latest",
     ]:
         result = run(["docker", "image", "inspect", img],
                      check=False,
@@ -2169,6 +2255,11 @@ def do_uninstall():
 
     # ── files ─────────────────────────────────────────────────────────────────
     step("Removing files")
+
+    ui_secret = install_dir / "ui-secret.txt"
+    if ui_secret.exists():
+        ui_secret.unlink()
+        info("Removed ui-secret.txt")
 
     if install_dir.exists():
         shutil.rmtree(install_dir)
