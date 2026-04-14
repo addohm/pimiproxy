@@ -31,9 +31,6 @@ export default function Overview({ onUnauthorized }) {
   const proxyCount    = config?.proxy_names?.length ?? '—'
   const providerUrl   = config?.provider_url || 'Not set'
   const subRules      = config?.sub_rule_count ?? '—'
-  const dashPort      = status?.dashboard_port ?? '8080'
-  const dashName      = status?.dashboard ?? 'metacubexd'
-  const dashUrl       = `http://${window.location.hostname}:${dashPort}`
 
   return (
     <>
@@ -81,27 +78,6 @@ export default function Overview({ onUnauthorized }) {
         </div>
       )}
 
-      <div className="overview-card" style={{ marginTop: 8 }}>
-        <div className="overview-card-label">Dashboard</div>
-        <div style={{ marginTop: 8 }}>
-          <a
-            href={dashUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              fontSize: 13, color: 'var(--teal)', textDecoration: 'none',
-            }}
-          >
-            {dashName} — {dashUrl}
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-              <polyline points="15 3 21 3 21 9" />
-              <line x1="10" y1="14" x2="21" y2="3" />
-            </svg>
-          </a>
-        </div>
-      </div>
     </>
   )
 }

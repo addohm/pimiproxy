@@ -5,6 +5,7 @@ import Overview from './components/Overview'
 import Groups from './components/Groups'
 import Rules from './components/Rules'
 import Settings from './components/Settings'
+import Check from './components/Check'
 
 function LoginPage({ onLogin }) {
   const [password, setPassword] = useState('')
@@ -55,20 +56,22 @@ export default function App() {
   const [authed, setAuthed] = useState(null) // null = checking, false = logged out, true = logged in
   const [tab, setTab] = useState('overview')
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark')
+  const [dashUrl, setDashUrl] = useState('')
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme === 'light' ? 'light' : '')
     localStorage.setItem('theme', theme)
   }, [theme])
 
-  // Check if already authenticated on mount
+  // Check if already authenticated on mount; also grab dashboard URL
   useEffect(() => {
     api.status()
-      .then(() => setAuthed(true))
-      .catch(err => {
-        if (err.status === 401) setAuthed(false)
-        else setAuthed(false) // treat errors as logged out
+      .then(s => {
+        setAuthed(true)
+        const port = s.dashboard_port ?? '8080'
+        setDashUrl(`http://${window.location.hostname}:${port}`)
       })
+      .catch(() => setAuthed(false))
   }, [])
 
   const handleLogout = useCallback(async () => {
@@ -92,7 +95,7 @@ export default function App() {
     return <LoginPage onLogin={() => setAuthed(true)} />
   }
 
-  const pages = { overview: Overview, groups: Groups, rules: Rules, settings: Settings }
+  const pages = { overview: Overview, groups: Groups, rules: Rules, check: Check, settings: Settings }
   const Page = pages[tab] || Overview
 
   return (
@@ -103,6 +106,7 @@ export default function App() {
         theme={theme}
         onTheme={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
         onLogout={handleLogout}
+        dashUrl={dashUrl}
       />
       <main className="main-content">
         <Page onUnauthorized={handleUnauthorized} />

@@ -1,8 +1,10 @@
+import ipaddress
 import json
 import re
 import subprocess
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlparse
 
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -333,3 +335,114 @@ def refresh_settings_view(request):
 
     _write_cfg(cfg)
     return ok()
+
+
+# ── Check URL ─────────────────────────────────────────────────────────────────
+
+def _rule_matches(rule: dict, domain: str) -> bool:
+    rt  = rule["rule_type"].upper()
+    val = rule.get("value", "").lower()
+    if rt == "DOMAIN":
+        return domain == val
+    if rt == "DOMAIN-SUFFIX":
+        return domain == val or domain.endswith("." + val)
+    if rt == "DOMAIN-KEYWORD":
+        return bool(val) and val in domain
+    if rt == "MATCH":
+        return True
+    if rt in ("IP-CIDR", "IP-CIDR6"):
+        try:
+            return ipaddress.ip_address(domain) in ipaddress.ip_network(val, strict=False)
+        except ValueError:
+            return False
+    # GEOIP, GEOSITE, RULE-SET, PROCESS-NAME, PROCESS-PATH — evaluated by Mihomo
+    return False
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def check_view(request):
+    body = _json_body(request)
+    input_str = body.get("url", "").strip()
+    if not input_str:
+        return err("url is required")
+
+    try:
+        parsed = urlparse(input_str if "://" in input_str else f"http://{input_str}")
+        domain = (parsed.hostname or input_str).lower()
+    except Exception:
+        domain = input_str.lower()
+
+    cfg = _read_cfg()
+
+    def _parse_rule(r):
+        if isinstance(r, dict):
+            return r
+        parts = r.split(",", 2)
+        if len(parts) == 3:
+            return {"rule_type": parts[0], "value": parts[1], "target": parts[2]}
+        if len(parts) == 2:
+            return {"rule_type": parts[0], "value": "", "target": parts[1]}
+        return {"rule_type": r, "value": "", "target": ""}
+
+    user_rules = [_parse_rule(r) for r in cfg.get("rules", [])]
+
+    sub_rules = []
+    for line in cfg.get("subscription_rules_yaml", "").splitlines():
+        line = line.strip().lstrip("- ")
+        if line and line != "rules:":
+            sub_rules.append(_parse_rule(line))
+
+    matched = source = None
+    for rule in user_rules:
+        if _rule_matches(rule, domain):
+            matched, source = rule, "user"
+            break
+    if not matched:
+        for rule in sub_rules:
+            if _rule_matches(rule, domain):
+                matched, source = rule, "provider"
+                break
+
+    if matched:
+        rule_str = (
+            f"{matched['rule_type']},{matched['value']},{matched['target']}"
+            if matched["value"]
+            else f"{matched['rule_type']},{matched['target']}"
+        )
+        response = {
+            "matched": True,
+            "domain": domain,
+            "rule": rule_str,
+            "rule_type": matched["rule_type"],
+            "value": matched["value"],
+            "target": matched["target"],
+            "source": source,
+        }
+    else:
+        response = {
+            "matched": False,
+            "domain": domain,
+            "note": "No rule matched — GEOIP/GEOSITE/RULE-SET rules are evaluated by Mihomo at runtime",
+        }
+
+    # Test connectivity through Mihomo
+    mixed_port = cfg.get("mixed_port", "7890")
+    proxy_url  = f"http://mihomo:{mixed_port}"
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url})
+    )
+    try:
+        req = urllib.request.Request(f"http://{domain}", method="HEAD")
+        req.add_header("User-Agent", "pimiproxy-check/1.0")
+        with opener.open(req, timeout=8) as resp:
+            response["connection_ok"]     = True
+            response["connection_status"] = f"HTTP {resp.status}"
+    except urllib.error.HTTPError as e:
+        response["connection_ok"]     = True   # got a response = proxy connected
+        response["connection_status"] = f"HTTP {e.code}"
+    except Exception as e:
+        response["connection_ok"]    = False
+        response["connection_error"] = str(e)[:120]
+
+    return ok(response)

@@ -28,4 +28,5 @@ export const api = {
   setProvider:        (url)      => req("POST",   "provider",          { url }),
   refresh:            ()         => req("POST",   "refresh"),
   setRefreshSettings: (settings) => req("POST",   "refresh-settings",  settings),
+  check:              (url)      => req("POST",   "check",             { url }),
 }

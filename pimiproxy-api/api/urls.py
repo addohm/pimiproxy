@@ -14,4 +14,5 @@ urlpatterns = [
     path("provider",         views.provider_view),
     path("refresh",          views.refresh_view),
     path("refresh-settings", views.refresh_settings_view),
+    path("check",            views.check_view),
 ]

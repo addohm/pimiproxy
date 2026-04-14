@@ -65,6 +65,28 @@ body {
 
 .nav-spacer { flex: 1; }
 
+/* XD dashboard link */
+.xd-link {
+  width: 40px; height: 40px;
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  text-decoration: none;
+  font-family: var(--display);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  transition: background 0.15s;
+  gap: 0;
+}
+.xd-link:hover { background: var(--nav-hover-bg); }
+.xd-paren { color: oklch(77.383% .043 245.096); }
+.xd-text {
+  color: oklch(74.703% .158 39.947);
+  display: inline-block;
+  transition: transform 0.3s ease;
+}
+.xd-link:hover .xd-text { transform: scale(1.25) rotate(90deg); }
+
 .main-content {
   margin-left: 64px;
   flex: 1;
