@@ -1121,9 +1121,9 @@ def build_clash_system() -> str:
     L("    ;;")
     L("  *)")
     L("    echo 'Usage: clash-system [on|off|status|restart]'")
-    L("    echo '  off  — Pi uses direct internet (default); gateway clients still proxied'"
+    L("    echo '  off  — device uses direct internet (default); gateway clients still proxied'"
       )
-    L("    echo '  on   — Pi traffic also routes through Mihomo'")
+    L("    echo '  on   — device traffic also routes through Mihomo'")
     L("    exit 1")
     L("    ;;")
     L("esac")
@@ -1141,7 +1141,7 @@ def build_bypass_service() -> str:
         lines.append(s)
 
     L("[Unit]")
-    L("Description=pimiproxy — restore Pi traffic bypass after network is up")
+    L("Description=pimiproxy — restore device traffic bypass after network is up")
     L("Documentation=https://github.com/your-repo/pimiproxy")
     L("After=network.target")
     L()
@@ -1226,12 +1226,12 @@ def build_banner(cfg: dict, meta: dict) -> str:
     L('_IFACE=$(ip route 2>/dev/null | awk \'/^default/{print $5; exit}\')')
     L('_CIDR=$(ip -4 addr show "$_IFACE" 2>/dev/null | awk \'/inet /{split($2,a,"/"); print a[2]; exit}\')')
     L('printf "  ${_Y}Tip:${_N} Some apps (Unity VR games etc.) bypass the system proxy.\\n"')
-    L('printf "  Route all device traffic through this Pi instead:\\n"')
+    L('printf "  Route all device traffic through this device instead:\\n"')
     L('printf "  Set the device WiFi to ${_B}static${_N} with these values:\\n"')
     L('printf "    IP address  →  pick any unused IP on your subnet\\n"')
     L('printf "    Subnet      →  /%s\\n" "${_CIDR:-24}"')
-    L('printf "    Gateway     →  %s  ${_D}(this Pi)${_N}\\n" "${_PI_IP:-<pi-ip>}"')
-    L('printf "    DNS 1       →  %s  ${_D}(this Pi)${_N}\\n" "${_PI_IP:-<pi-ip>}"')
+    L('printf "    Gateway     →  %s  ${_D}(this device)${_N}\\n" "${_PI_IP:-<device-ip>}"')
+    L('printf "    DNS 1       →  %s  ${_D}(this device)${_N}\\n" "${_PI_IP:-<device-ip>}"')
     L('printf "    DNS 2       →  %s  ${_D}(your router, fallback)${_N}\\n" "${_GW:-<router-ip>}"')
     L()
     # ── Endpoints ─────────────────────────────────────────────────────────────
@@ -2519,12 +2519,12 @@ def do_install():
     print(f"{B}{G}  pimiproxy — installation complete{N}")
     print(SEP)
     print(f"  {Y}Tip:{N} Some apps (Unity VR games etc.) bypass the system proxy.")
-    print(f"  Route all device traffic through this Pi instead:")
+    print(f"  Route all device traffic through this device instead:")
     print(f"  Set the device WiFi to {B}static{N} with these values:")
     print(f"    IP address  →  pick any unused IP on your subnet")
     print(f"    Subnet      →  /{_cidr}")
-    print(f"    Gateway     →  {lan_ip}  {D}(this Pi){N}")
-    print(f"    DNS 1       →  {lan_ip}  {D}(this Pi){N}")
+    print(f"    Gateway     →  {lan_ip}  {D}(this device){N}")
+    print(f"    DNS 1       →  {lan_ip}  {D}(this device){N}")
     print(f"    DNS 2       →  {_gw or '<router-ip>'}  {D}(your router, fallback){N}")
     print(SEP)
     print(f"  {C2}Dashboard{N}  →  http://{hostname_new}.lan:{dashboard_port}")
@@ -2831,7 +2831,7 @@ def do_uninstall():
     step("Optional package removal")
 
     if confirm(
-            "Remove avahi-daemon? Only if nothing else on this Pi needs mDNS."
+            "Remove avahi-daemon? Only if nothing else on this device needs mDNS."
     ):
         distro = detect_distro()
         _mdns_pkgs = {
