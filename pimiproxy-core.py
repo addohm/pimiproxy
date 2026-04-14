@@ -608,7 +608,7 @@ def build_config(cfg: dict) -> str:
         lines.append(s)
 
     L("# Mihomo config — managed by pimiproxy")
-    L(f"# Edit here or run:  sudo python3 pimiproxy.py configure")
+    L("# Edit via the pimiproxy web UI or run:  sudo python3 pimiproxy-core.py configure")
     L()
     L(f"external-controller: 0.0.0.0:{api_port}")
     L(f'secret: "{api_secret}"')

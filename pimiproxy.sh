@@ -1,19 +1,21 @@
 #!/usr/bin/env bash
 # =============================================================================
 # pimiproxy bootstrap
-# Detects the platform, installs all prerequisites, then launches pimiproxy.py
+# Detects the platform, installs all prerequisites, then launches
+# pimiproxy-core.py to perform the requested action.
 #
-# Usage:  curl -fsSL https://your-host/pimiproxy-bootstrap.sh | sudo bash
-#   or:   sudo bash pimiproxy-bootstrap.sh [install|uninstall|configure]
-# =============================================================================
-# PREPARATION (Run on machine with proxy/internet):
+# Usage:
+#   sudo bash pimiproxy.sh [install|uninstall|configure] [--china-mirrors]
+#
+# Offline image preparation (run on a machine with internet + Docker):
 #   docker pull --platform linux/arm64 ghcr.io/metacubex/metacubexd:latest
 #   docker pull --platform linux/arm64 ghcr.io/zephyruso/zashboard:latest
-#   docker pull --platform linux/arm64 metacubex/mihomo:latest
-#   docker save ghcr.io/metacubex/metacubexd | gzip > metacubexd.tar.gz
-#   docker save ghcr.io/zephyruso/zashboard | gzip > zashboard.tar.gz
-#   docker save metacubex/mihomo | gzip > mihomo.tar.gz
-#   rsync -avz *.tar.gz install.sh pi@10.0.0.X:~/pi-proxy/
+#   docker pull --platform linux/arm64 ghcr.io/metacubex/mihomo:latest
+#   docker save ghcr.io/metacubex/metacubexd | gzip > docker-images/metacubexd.tar.gz
+#   docker save ghcr.io/zephyruso/zashboard  | gzip > docker-images/zashboard.tar.gz
+#   docker save ghcr.io/metacubex/mihomo     | gzip > docker-images/mihomo.tar.gz
+#   # pimiproxy-api and pimiproxy-ui are built locally from source at install time
+# =============================================================================
 
 set -euo pipefail
 
@@ -25,7 +27,7 @@ step() { echo -e "\n${CYAN}${BOLD}▸ $*${NC}"; }
 warn() { echo -e "${YELLOW}  ⚠${NC}  $*"; }
 die()  { echo -e "${RED}  ✖  $*${NC}" >&2; exit 1; }
 
-[[ $EUID -eq 0 ]] || die "Run as root:  sudo bash $0 [install|uninstall|configure]"
+[[ $EUID -eq 0 ]] || die "Run as root:  sudo bash $0 [install|uninstall|configure] [--china-mirrors]"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_SCRIPT="${SCRIPT_DIR}/pimiproxy-core.py"
@@ -43,7 +45,7 @@ done
 PIMIPROXY_CMD="${PIMIPROXY_CMD:-install}"
 
 CHINA_MIRRORS=false
-for _flag in "${PIMIPROXY_FLAGS[@]:-}"; do
+for _flag in "${PIMIPROXY_FLAGS[@]+"${PIMIPROXY_FLAGS[@]}"}"; do
     [[ "$_flag" == "--china-mirrors" ]] && CHINA_MIRRORS=true
 done
 
@@ -91,7 +93,7 @@ case "$OS_ID" in
         if echo "$OS_LIKE" | grep -q "debian"; then PKG_MGR="apt"
             elif echo "$OS_LIKE" | grep -q "fedora\|rhel"; then PKG_MGR="dnf"
             elif echo "$OS_LIKE" | grep -q "arch"; then PKG_MGR="pacman"
-        else die "Unsupported distribution: $OS_ID. Install Python 3, Docker, and avahi-daemon manually, then run: sudo python3 pimiproxy.py $PIMIPROXY_CMD"
+        else die "Unsupported distribution: $OS_ID. Install Python 3, Docker, and avahi-daemon manually, then run: sudo python3 pimiproxy-core.py $PIMIPROXY_CMD"
         fi
     ;;
 esac
@@ -250,12 +252,12 @@ if [[ "$IS_RASPI" == "true" ]] && ! command -v raspi-config &>/dev/null; then
 fi
 
 # =============================================================================
-# 7. ENSURE PIMIPROXY.PY IS PRESENT
+# 7. ENSURE PIMIPROXY-CORE.PY IS PRESENT
 # =============================================================================
-step "pimiproxy.py"
+step "pimiproxy-core.py"
 
 if [[ ! -f "$PYTHON_SCRIPT" ]]; then
-    die "pimiproxy.py not found at ${PYTHON_SCRIPT}.\nPlace pimiproxy.py in the same directory as this bootstrap script."
+    die "pimiproxy-core.py not found at ${PYTHON_SCRIPT}.\nPlace pimiproxy-core.py in the same directory as this bootstrap script."
 fi
 
 info "Found: $PYTHON_SCRIPT"
@@ -263,5 +265,5 @@ info "Found: $PYTHON_SCRIPT"
 # =============================================================================
 # 8. HAND OFF TO PYTHON
 # =============================================================================
-echo -e "\n${CYAN}${BOLD}▸ Launching pimiproxy.py ${PIMIPROXY_CMD}...${NC}\n"
-exec python3 "$PYTHON_SCRIPT" "$PIMIPROXY_CMD" "${PIMIPROXY_FLAGS[@]}"
+echo -e "\n${CYAN}${BOLD}▸ Launching pimiproxy-core.py ${PIMIPROXY_CMD}...${NC}\n"
+exec python3 "$PYTHON_SCRIPT" "$PIMIPROXY_CMD" "${PIMIPROXY_FLAGS[@]+"${PIMIPROXY_FLAGS[@]}"}"
