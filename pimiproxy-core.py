@@ -2245,6 +2245,32 @@ def do_install():
     with Spinner("Enabling Docker"):
         run(["systemctl", "enable", "--now", "docker"], silent=True)
 
+    # ── iptables: required by clash-system on distros that don't bundle it ──────
+    if not shutil.which("iptables"):
+        _ipt_pkg = {
+            "fedora": "iptables",
+            "arch":   "iptables",
+            "suse":   "iptables",
+        }.get(distro)
+        if _ipt_pkg:
+            with Spinner("Installing iptables"):
+                pkg_install(distro, _ipt_pkg)
+            info("iptables installed.")
+
+    # ── firewalld: trust docker0 so containers can reach the network ──────────
+    # firewalld is the default on Fedora/RHEL and is sometimes present on other
+    # distros (openSUSE, Arch with firewalld installed). Handle it wherever it
+    # is active, not just on Fedora.
+    if shutil.which("firewall-cmd") and run_ok(
+            ["systemctl", "is-active", "--quiet", "firewalld"]):
+        with Spinner("Configuring firewalld for Docker"):
+            run(["firewall-cmd", "--permanent", "--zone=trusted",
+                 "--add-interface=docker0"], silent=True, check=False)
+            run(["firewall-cmd", "--permanent", "--zone=trusted",
+                 "--add-masquerade"], silent=True, check=False)
+            run(["firewall-cmd", "--reload"], silent=True, check=False)
+        info("firewalld: docker0 added to trusted zone.")
+
     compose = find_compose()
     if compose is None:
         info("Installing docker-compose-plugin...")
@@ -2341,6 +2367,12 @@ def do_install():
     install_path = Path(install_dir)
     (install_path / "config" / "providers").mkdir(parents=True, exist_ok=True)
     info(f"Created {install_dir}")
+
+    # Set SELinux context on install dir so containers can access the volume
+    # (belt-and-suspenders alongside the :z flag in docker-compose.yml)
+    if shutil.which("chcon"):
+        run(["chcon", "-R", "-t", "container_file_t", str(install_path)],
+            silent=True, check=False)
 
     # Copy bundled geodata files so Mihomo doesn't try to download them
     _script_dir = Path(__file__).resolve().parent
