@@ -23,6 +23,16 @@ export default function Sidebar({ tab, onTab, theme, onTheme, onLogout, dashUrl 
         </button>
       ))}
 
+      <button
+        className={`nav-item${tab === 'settings' ? ' active' : ''}`}
+        onClick={() => onTab('settings')}
+        title="Settings"
+      >
+        <IconSettings size={18} />
+      </button>
+
+      <div className="nav-spacer" />
+
       {/* Metacubexd dashboard link */}
       <a
         href={dashUrl || '#'}
@@ -35,16 +45,6 @@ export default function Sidebar({ tab, onTab, theme, onTheme, onLogout, dashUrl 
         <span className="xd-text">xd</span>
         <span className="xd-paren">)</span>
       </a>
-
-      <button
-        className={`nav-item${tab === 'settings' ? ' active' : ''}`}
-        onClick={() => onTab('settings')}
-        title="Settings"
-      >
-        <IconSettings size={18} />
-      </button>
-
-      <div className="nav-spacer" />
 
       <button className="nav-item" onClick={onTheme} title={theme === 'dark' ? 'Light mode' : 'Dark mode'}>
         {theme === 'dark' ? <IconSun size={16} /> : <IconMoon size={16} />}
