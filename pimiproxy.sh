@@ -5,7 +5,7 @@
 # pimiproxy-core.py to perform the requested action.
 #
 # Usage:
-#   sudo bash pimiproxy.sh [install|uninstall|configure] [--china-mirrors]
+#   sudo bash pimiproxy.sh [install|uninstall|configure]
 #
 # Offline image preparation (run on a machine with internet + Docker):
 #   docker pull --platform linux/arm64 ghcr.io/metacubex/metacubexd:latest
@@ -27,27 +27,12 @@ step() { echo -e "\n${CYAN}${BOLD}▸ $*${NC}"; }
 warn() { echo -e "${YELLOW}  ⚠${NC}  $*"; }
 die()  { echo -e "${RED}  ✖  $*${NC}" >&2; exit 1; }
 
-[[ $EUID -eq 0 ]] || die "Run as root:  sudo bash $0 [install|uninstall|configure] [--china-mirrors]"
+[[ $EUID -eq 0 ]] || die "Run as root:  sudo bash $0 [install|uninstall|configure]"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_SCRIPT="${SCRIPT_DIR}/pimiproxy-core.py"
 
-# Separate command from flags (--china-mirrors, etc.)
-PIMIPROXY_CMD=""
-PIMIPROXY_FLAGS=()
-for _arg in "$@"; do
-    if [[ "$_arg" == --* ]]; then
-        PIMIPROXY_FLAGS+=("$_arg")
-    elif [[ -z "$PIMIPROXY_CMD" ]]; then
-        PIMIPROXY_CMD="$_arg"
-    fi
-done
-PIMIPROXY_CMD="${PIMIPROXY_CMD:-install}"
-
-CHINA_MIRRORS=false
-for _flag in "${PIMIPROXY_FLAGS[@]+"${PIMIPROXY_FLAGS[@]}"}"; do
-    [[ "$_flag" == "--china-mirrors" ]] && CHINA_MIRRORS=true
-done
+PIMIPROXY_CMD="${1:-install}"
 
 echo -e "\n${CYAN}${BOLD}══════════════════════════════════════════"
 echo -e "  pimiproxy bootstrap"
@@ -184,7 +169,7 @@ https://mirrors.aliyun.com/docker-ce/linux/debian ${CODENAME} stable" \
                     dnf install -y -q docker-ce docker-ce-cli containerd.io docker-compose-plugin
                 ;;
                 *)
-                    warn "--china-mirrors is supported for apt/dnf only. Falling back to get.docker.com."
+                    warn "China mirror mode is supported for apt/dnf only. Falling back to get.docker.com."
                     curl -fsSL https://get.docker.com | sh
                 ;;
             esac
@@ -266,4 +251,4 @@ info "Found: $PYTHON_SCRIPT"
 # 8. HAND OFF TO PYTHON
 # =============================================================================
 echo -e "\n${CYAN}${BOLD}▸ Launching pimiproxy-core.py ${PIMIPROXY_CMD}...${NC}\n"
-exec python3 "$PYTHON_SCRIPT" "$PIMIPROXY_CMD" "${PIMIPROXY_FLAGS[@]+"${PIMIPROXY_FLAGS[@]}"}"
+exec python3 "$PYTHON_SCRIPT" "$PIMIPROXY_CMD"

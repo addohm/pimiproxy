@@ -1877,10 +1877,8 @@ def do_configure():
 # =============================================================================
 # INSTALL
 # =============================================================================
-def do_install(china_mirrors: bool = False):
+def do_install():
     banner("pimiproxy installer", C.CYAN)
-    if china_mirrors:
-        info("China mirror mode enabled — Docker CE will be fetched via Aliyun.")
 
     # ── defaults ──────────────────────────────────────────────────────────────
     install_dir = "/opt/pimiproxy"
@@ -1910,6 +1908,15 @@ def do_install(china_mirrors: bool = False):
         "Advanced (configure all options)",
     ])
     express = (mode == 1)
+
+    # ── China mirrors ─────────────────────────────────────────────────────────
+    print()
+    china_mirrors = confirm(
+        "Is this device located in China? (uses Aliyun mirrors for Docker CE)",
+        default=False,
+    )
+    if china_mirrors:
+        info("China mirror mode enabled — Docker CE will be fetched via Aliyun.")
 
     # ── prompts ───────────────────────────────────────────────────────────────
     step("Configuration")
@@ -2445,8 +2452,6 @@ _TAKES_ARG = {"hostname", "logs", "restart", "debug"}
 
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    flags = {a for a in sys.argv[1:] if a.startswith("--")}
-    china_mirrors = "--china-mirrors" in flags
 
     cmd = args[0] if args else "install"
     if cmd not in COMMANDS:
@@ -2460,13 +2465,10 @@ def main():
         )
         print("       sudo python3 pimiproxy-core.py hostname <new-hostname>")
         print("       sudo python3 pimiproxy-core.py debug    [url]")
-        print()
-        print("Flags (install only):")
-        print("       --china-mirrors   Use Aliyun mirrors for Docker CE")
         sys.exit(1)
     try:
         if cmd == "install":
-            do_install(china_mirrors=china_mirrors)
+            do_install()
         else:
             COMMANDS[cmd]()
     except KeyboardInterrupt:
