@@ -653,6 +653,7 @@ def build_config(cfg: dict) -> str:
     L("mode: rule")
     L("log-level: info")
     L("ipv6: false")
+    L("geo-auto-update: false")
     L()
     L("tun:")
     L("  enable: true")
@@ -2092,6 +2093,16 @@ def do_install():
     install_path = Path(install_dir)
     (install_path / "config" / "providers").mkdir(parents=True, exist_ok=True)
     info(f"Created {install_dir}")
+
+    # Copy bundled geodata files so Mihomo doesn't try to download them
+    _script_dir = Path(__file__).resolve().parent
+    _geo_files = ["geoip.metadb", "geosite.dat", "country.mmdb"]
+    for _gf in _geo_files:
+        _src = _script_dir / "docker-images" / _gf
+        _dst = install_path / "config" / _gf
+        if _src.exists() and not _dst.exists():
+            shutil.copy2(_src, _dst)
+            info(f"Copied {_gf} to config directory")
 
     # ── UI secret key ─────────────────────────────────────────────────────────
     step("UI secret key")

@@ -36,6 +36,7 @@ def build_config(cfg: dict) -> str:
     L("mode: rule")
     L("log-level: info")
     L("ipv6: false")
+    L("geo-auto-update: false")
     L()
     L("tun:")
     L("  enable: true")
