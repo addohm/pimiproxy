@@ -1,7 +1,10 @@
 import ipaddress
 import json
 import re
+import socket
 import subprocess
+import threading
+import time
 import urllib.request
 from pathlib import Path
 from urllib.parse import urlparse
@@ -339,6 +342,21 @@ def refresh_settings_view(request):
 
 # ── Check URL ─────────────────────────────────────────────────────────────────
 
+def _get_gateway() -> str:
+    """Return the Docker bridge gateway IP so the API container can reach
+    host-network services (Mihomo) that are not on the Docker bridge."""
+    try:
+        with open('/proc/net/route') as fh:
+            for line in fh:
+                fields = line.strip().split()
+                if len(fields) >= 3 and fields[1] == '00000000':
+                    gw_int = int(fields[2], 16)
+                    return socket.inet_ntoa(gw_int.to_bytes(4, 'little'))
+    except Exception:
+        pass
+    return '172.17.0.1'
+
+
 def _rule_matches(rule: dict, domain: str) -> bool:
     rt  = rule["rule_type"].upper()
     val = rule.get("value", "").lower()
@@ -355,7 +373,6 @@ def _rule_matches(rule: dict, domain: str) -> bool:
             return ipaddress.ip_address(domain) in ipaddress.ip_network(val, strict=False)
         except ValueError:
             return False
-    # GEOIP, GEOSITE, RULE-SET, PROCESS-NAME, PROCESS-PATH — evaluated by Mihomo
     return False
 
 
@@ -374,75 +391,136 @@ def check_view(request):
         domain = input_str.lower()
 
     cfg = _read_cfg()
+    gateway    = _get_gateway()
+    mixed_port = cfg.get("mixed_port", "7890")
+    api_port   = cfg.get("api_port",   "9090")
+    api_secret = cfg.get("api_secret", "")
 
-    def _parse_rule(r):
-        if isinstance(r, dict):
-            return r
-        parts = r.split(",", 2)
-        if len(parts) == 3:
-            return {"rule_type": parts[0], "value": parts[1], "target": parts[2]}
-        if len(parts) == 2:
-            return {"rule_type": parts[0], "value": "", "target": parts[1]}
-        return {"rule_type": r, "value": "", "target": ""}
+    # ── Probe through Mihomo in a background thread ───────────────────────────
+    probe_result = {}
 
-    user_rules = [_parse_rule(r) for r in cfg.get("rules", [])]
-
-    sub_rules = []
-    for line in cfg.get("subscription_rules_yaml", "").splitlines():
-        line = line.strip().lstrip("- ")
-        if line and line != "rules:":
-            sub_rules.append(_parse_rule(line))
-
-    matched = source = None
-    for rule in user_rules:
-        if _rule_matches(rule, domain):
-            matched, source = rule, "user"
-            break
-    if not matched:
-        for rule in sub_rules:
-            if _rule_matches(rule, domain):
-                matched, source = rule, "provider"
-                break
-
-    if matched:
-        rule_str = (
-            f"{matched['rule_type']},{matched['value']},{matched['target']}"
-            if matched["value"]
-            else f"{matched['rule_type']},{matched['target']}"
+    def _probe():
+        proxy_url = f"http://{gateway}:{mixed_port}"
+        opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url})
         )
-        response = {
-            "matched": True,
-            "domain": domain,
-            "rule": rule_str,
-            "rule_type": matched["rule_type"],
-            "value": matched["value"],
-            "target": matched["target"],
-            "source": source,
+        try:
+            req = urllib.request.Request(f"http://{domain}", method="HEAD")
+            req.add_header("User-Agent", "pimiproxy-check/1.0")
+            with opener.open(req, timeout=10) as resp:
+                probe_result["ok"]     = True
+                probe_result["status"] = f"HTTP {resp.status}"
+        except urllib.error.HTTPError as e:
+            probe_result["ok"]     = True
+            probe_result["status"] = f"HTTP {e.code}"
+        except Exception as e:
+            probe_result["ok"]    = False
+            probe_result["error"] = str(e)[:120]
+
+    t = threading.Thread(target=_probe, daemon=True)
+    t.start()
+
+    # ── While probe is in-flight, query Mihomo /connections ──────────────────
+    # Give Mihomo ~400 ms to register the TCP connection before we poll.
+    time.sleep(0.4)
+    mihomo_conn = {}
+    try:
+        mreq = urllib.request.Request(
+            f"http://{gateway}:{api_port}/connections",
+            headers={"Authorization": f"Bearer {api_secret}"},
+        )
+        with urllib.request.urlopen(mreq, timeout=3) as resp:
+            data = json.loads(resp.read())
+        for conn in reversed(data.get("connections", [])):
+            host = conn.get("metadata", {}).get("host", "")
+            if domain in host or host.endswith(domain):
+                mihomo_conn = {
+                    "rule":        conn.get("rule", ""),
+                    "payload":     conn.get("rulePayload", ""),
+                    "chains":      conn.get("chains", []),
+                }
+                break
+    except Exception:
+        pass
+
+    t.join(timeout=12)
+
+    # ── Build rule-match response ─────────────────────────────────────────────
+    if mihomo_conn.get("rule"):
+        # Mihomo told us exactly what matched
+        rule_type = mihomo_conn["rule"]
+        payload   = mihomo_conn["payload"]
+        chains    = mihomo_conn["chains"]          # e.g. ["🌐 Google/Youtube", "[REALITY]..."]
+        target    = chains[0] if chains else ""
+        rule_str  = f"{rule_type},{payload},{target}" if payload else f"{rule_type},{target}"
+        response  = {
+            "matched":    True,
+            "domain":     domain,
+            "rule":       rule_str,
+            "rule_type":  rule_type,
+            "value":      payload,
+            "target":     target,
+            "chains":     chains,
+            "source":     "mihomo",
         }
     else:
-        response = {
-            "matched": False,
-            "domain": domain,
-            "note": "No rule matched — GEOIP/GEOSITE/RULE-SET rules are evaluated by Mihomo at runtime",
-        }
+        # Fall back to static rule parsing (covers DOMAIN/DOMAIN-SUFFIX/KEYWORD/MATCH)
+        def _parse_rule(r):
+            if isinstance(r, dict):
+                return r
+            parts = r.split(",", 2)
+            if len(parts) == 3:
+                return {"rule_type": parts[0], "value": parts[1], "target": parts[2]}
+            if len(parts) == 2:
+                return {"rule_type": parts[0], "value": "", "target": parts[1]}
+            return {"rule_type": r, "value": "", "target": ""}
 
-    # Test connectivity through Mihomo
-    mixed_port = cfg.get("mixed_port", "7890")
-    proxy_url  = f"http://mihomo:{mixed_port}"
-    opener = urllib.request.build_opener(
-        urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url})
-    )
-    try:
-        req = urllib.request.Request(f"http://{domain}", method="HEAD")
-        req.add_header("User-Agent", "pimiproxy-check/1.0")
-        with opener.open(req, timeout=8) as resp:
-            response["connection_ok"]     = True
-            response["connection_status"] = f"HTTP {resp.status}"
-    except urllib.error.HTTPError as e:
-        response["connection_ok"]     = True   # got a response = proxy connected
-        response["connection_status"] = f"HTTP {e.code}"
-    except Exception as e:
+        user_rules = [_parse_rule(r) for r in cfg.get("rules", [])]
+        sub_rules  = []
+        for line in cfg.get("subscription_rules_yaml", "").splitlines():
+            line = line.strip().lstrip("- ")
+            if line and line != "rules:":
+                sub_rules.append(_parse_rule(line))
+
+        matched = source = None
+        for rule in user_rules:
+            if _rule_matches(rule, domain):
+                matched, source = rule, "user"
+                break
+        if not matched:
+            for rule in sub_rules:
+                if _rule_matches(rule, domain):
+                    matched, source = rule, "provider"
+                    break
+
+        if matched:
+            rule_str = (
+                f"{matched['rule_type']},{matched['value']},{matched['target']}"
+                if matched["value"] else f"{matched['rule_type']},{matched['target']}"
+            )
+            response = {
+                "matched":   True,
+                "domain":    domain,
+                "rule":      rule_str,
+                "rule_type": matched["rule_type"],
+                "value":     matched["value"],
+                "target":    matched["target"],
+                "chains":    [],
+                "source":    source,
+            }
+        else:
+            response = {
+                "matched": False,
+                "domain":  domain,
+                "note":    "No static rule matched. GEOIP/GEOSITE rules require a live connection through Mihomo.",
+            }
+
+    # ── Attach connection test result ─────────────────────────────────────────
+    if probe_result.get("ok"):
+        response["connection_ok"]     = True
+        response["connection_status"] = probe_result.get("status", "OK")
+    elif "ok" in probe_result:
         response["connection_ok"]    = False
-        response["connection_error"] = str(e)[:120]
+        response["connection_error"] = probe_result.get("error", "Failed")
 
     return ok(response)

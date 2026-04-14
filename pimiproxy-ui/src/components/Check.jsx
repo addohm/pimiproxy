@@ -62,13 +62,27 @@ export default function Check({ onUnauthorized }) {
                 <div className="card-row">
                   <span className="card-meta">Source</span>
                   <span className="card-name" style={{ textAlign: 'right' }}>
-                    {result.source === 'user' ? 'Your rules' : 'Provider rules'}
+                    {result.source === 'user'   ? 'Your rules'
+                   : result.source === 'mihomo' ? 'Mihomo (live)'
+                   : 'Provider rules'}
                   </span>
                 </div>
                 <div className="card-row">
                   <span className="card-meta">Routes to</span>
                   <span className="card-name" style={{ textAlign: 'right' }}>{result.target}</span>
                 </div>
+
+                {/* Full proxy chain from Mihomo — shown when source === 'mihomo' */}
+                {result.chains && result.chains.length > 1 && (
+                  <div className="card-row">
+                    <span className="card-meta">Via</span>
+                    <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                      {result.chains.slice(1).map((c, i) => (
+                        <span key={i} className="card-type" style={{ fontFamily: 'monospace', fontSize: 11 }}>{c}</span>
+                      ))}
+                    </span>
+                  </div>
+                )}
               </>
             ) : (
               <div className="card-row">
