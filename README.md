@@ -42,8 +42,8 @@ Once installed, any device on your network can route its traffic through the SBC
 | Platform | Status |
 |----------|--------|
 | Raspberry Pi OS (64-bit) | ✅ Working |
-| Ubuntu (x86_64) | ✅ Working |
-| Fedora | ⬜ Untested |
+| Ubuntu (x86_64) | 🔄 In progress |
+| Fedora | 🔄 In progress |
 | Arch Linux | ⬜ Untested |
 
 ---
