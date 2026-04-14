@@ -25,6 +25,7 @@ export const api = {
   addRule:       (rule)          => req("POST",   "rules",           rule),
   deleteRule:    (index)         => req("DELETE", `rules/${index}`),
   reorderRules:  (order)         => req("PUT",    "rules/reorder",   { order }),
-  setProvider:   (url)           => req("POST",   "provider",        { url }),
-  refresh:       ()              => req("POST",   "refresh"),
+  setProvider:        (url)      => req("POST",   "provider",          { url }),
+  refresh:            ()         => req("POST",   "refresh"),
+  setRefreshSettings: (settings) => req("POST",   "refresh-settings",  settings),
 }

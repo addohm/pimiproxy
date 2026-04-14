@@ -11,6 +11,7 @@ urlpatterns = [
     path("rules",           views.rules_view),
     path("rules/reorder",   views.rules_reorder_view),
     path("rules/<int:index>", views.rule_detail_view),
-    path("provider",        views.provider_view),
-    path("refresh",         views.refresh_view),
+    path("provider",         views.provider_view),
+    path("refresh",          views.refresh_view),
+    path("refresh-settings", views.refresh_settings_view),
 ]

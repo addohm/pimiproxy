@@ -148,14 +148,16 @@ def config_view(request):
     user_rules = [_parse_rule(r) for r in raw_rules]
 
     return ok({
-        "user_groups":        cfg.get("proxy_groups", []),
-        "user_rules":         user_rules,
-        "sub_group_names":    sub_group_names,
-        "system_group_names": ["🧭 Meta Quest"],
-        "sub_rule_count":     len(sub_rule_lines),
-        "sub_rules":          sub_rule_lines,
-        "proxy_names":        proxy_names,
-        "provider_url":       cfg.get("subscription_url", ""),
+        "user_groups":           cfg.get("proxy_groups", []),
+        "user_rules":            user_rules,
+        "sub_group_names":       sub_group_names,
+        "system_group_names":    ["🧭 Meta Quest"],
+        "sub_rule_count":        len(sub_rule_lines),
+        "sub_rules":             sub_rule_lines,
+        "proxy_names":           proxy_names,
+        "provider_url":          cfg.get("subscription_url", ""),
+        "auto_refresh_enabled":  cfg.get("auto_refresh_enabled", True),
+        "refresh_interval_days": cfg.get("refresh_interval_days", 1),
     })
 
 
@@ -307,3 +309,27 @@ def refresh_view(request):
     _write_cfg(cfg)
     _rebuild_and_restart(cfg)
     return ok({"proxy_count": content.count("- name:")})
+
+
+# ── Refresh Settings ──────────────────────────────────────────────────────────
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def refresh_settings_view(request):
+    body = _json_body(request)
+    cfg = _read_cfg()
+
+    if "auto_refresh_enabled" in body:
+        cfg["auto_refresh_enabled"] = bool(body["auto_refresh_enabled"])
+
+    if "refresh_interval_days" in body:
+        try:
+            days = int(body["refresh_interval_days"])
+            if days < 1:
+                return err("refresh_interval_days must be at least 1")
+            cfg["refresh_interval_days"] = days
+        except (TypeError, ValueError):
+            return err("refresh_interval_days must be an integer")
+
+    _write_cfg(cfg)
+    return ok()

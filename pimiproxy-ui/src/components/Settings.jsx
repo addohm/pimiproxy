@@ -6,6 +6,9 @@ export default function Settings({ onUnauthorized }) {
   const [providerUrl, setProviderUrl] = useState('')
   const [saveStatus, setSaveStatus]   = useState('')   // '', 'saving', 'saved', 'error'
   const [refreshStatus, setRefreshStatus] = useState('') // '', 'refreshing', 'done', 'error'
+  const [autoRefresh, setAutoRefresh]       = useState(true)
+  const [intervalDays, setIntervalDays]     = useState(1)
+  const [schedSaveStatus, setSchedSaveStatus] = useState('') // '', 'saving', 'saved', 'error'
   const [error, setError]             = useState('')
 
   async function load() {
@@ -13,6 +16,8 @@ export default function Settings({ onUnauthorized }) {
       const c = await api.config()
       setConfig(c)
       setProviderUrl(c.provider_url || '')
+      setAutoRefresh(c.auto_refresh_enabled ?? true)
+      setIntervalDays(c.refresh_interval_days ?? 1)
     } catch (err) {
       if (err.status === 401) { onUnauthorized(); return }
       setError(err.message)
@@ -49,8 +54,25 @@ export default function Settings({ onUnauthorized }) {
     }
   }
 
+  async function saveSchedule(e) {
+    e.preventDefault()
+    const days = parseInt(intervalDays, 10)
+    if (!days || days < 1) { setError('Interval must be at least 1 day'); return }
+    setSchedSaveStatus('saving')
+    try {
+      await api.setRefreshSettings({ auto_refresh_enabled: autoRefresh, refresh_interval_days: days })
+      setSchedSaveStatus('saved')
+      setTimeout(() => setSchedSaveStatus(''), 2000)
+    } catch (err) {
+      if (err.status === 401) { onUnauthorized(); return }
+      setSchedSaveStatus('error')
+      setError(err.message)
+    }
+  }
+
   const saveLabel = { '': 'Save', saving: 'Saving…', saved: 'Saved', error: 'Error' }[saveStatus]
   const refreshLabel = { '': 'Refresh Now', refreshing: 'Refreshing…', done: 'Done', error: 'Error' }[refreshStatus]
+  const schedSaveLabel = { '': 'Save', saving: 'Saving…', saved: 'Saved', error: 'Error' }[schedSaveStatus]
 
   return (
     <>
@@ -91,6 +113,56 @@ export default function Settings({ onUnauthorized }) {
           {refreshStatus === 'done' && (
             <p style={{ color: 'var(--teal)', fontSize: 12, marginTop: 10 }}>
               Provider refreshed — Mihomo restarted
+            </p>
+          )}
+        </form>
+      </div>
+
+      {/* Auto-refresh schedule */}
+      <div style={{ marginBottom: 40 }}>
+        <div className="section-label" style={{ marginBottom: 16 }}>Auto Refresh</div>
+        <form onSubmit={saveSchedule}>
+          <div className="field" style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <label style={{ marginBottom: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={autoRefresh}
+                onChange={e => setAutoRefresh(e.target.checked)}
+                style={{ accentColor: 'var(--teal)', width: 16, height: 16 }}
+              />
+              Enable automatic refresh
+            </label>
+          </div>
+          {autoRefresh && (
+            <div className="field" style={{ marginTop: 14 }}>
+              <label>Refresh interval (days)</label>
+              <input
+                type="number"
+                min="1"
+                max="365"
+                value={intervalDays}
+                onChange={e => setIntervalDays(e.target.value)}
+                style={{ width: 100 }}
+              />
+            </div>
+          )}
+          <div style={{ marginTop: 14 }}>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={schedSaveStatus === 'saving'}
+            >
+              {schedSaveLabel}
+            </button>
+          </div>
+          {!autoRefresh && (
+            <p style={{ color: 'var(--dim)', fontSize: 12, marginTop: 10 }}>
+              Auto refresh is off — provider data will only update when you click Refresh Now.
+            </p>
+          )}
+          {autoRefresh && (
+            <p style={{ color: 'var(--dim)', fontSize: 12, marginTop: 10 }}>
+              Provider is refreshed automatically every {intervalDays} day{intervalDays == 1 ? '' : 's'}.
             </p>
           )}
         </form>
