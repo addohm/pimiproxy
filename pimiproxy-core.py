@@ -795,8 +795,8 @@ def build_config(cfg: dict) -> str:
         L('    type: select')
         L('    proxies:')
         L('      - "DIRECT"')
-        for name in _sub_group_names:
-            L(f'      - {yaml_quote(name)}')
+        if _sub_group_names:
+            L(f'      - {yaml_quote(_sub_group_names[0])}')
         for name in _sub_proxy_names:
             L(f'      - {yaml_quote(name)}')
         for g in user_groups:

@@ -97,6 +97,11 @@ def build_config(cfg: dict) -> str:
         sub_proxies, re.MULTILINE,
     ) if sub_proxies else []
 
+    _sub_group_names = re.findall(
+        r'^\s*-\s*name:\s*["\']?([^"\'\n]+?)["\']?\s*$',
+        sub_groups, re.MULTILINE,
+    ) if sub_groups else []
+
     # Helper: write a group dict as YAML
     def _write_group(g: dict):
         L(f'  - name: "{g["name"]}"')
@@ -122,7 +127,8 @@ def build_config(cfg: dict) -> str:
         L('    type: select')
         L('    proxies:')
         L('      - "DIRECT"')
-        L('      - "Provider"')
+        if _sub_group_names:
+            L(f'      - {yaml_quote(_sub_group_names[0])}')
         for name in _sub_proxy_names:
             L(f'      - {yaml_quote(name)}')
         for g in user_groups:
