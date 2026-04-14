@@ -14,6 +14,7 @@ from api.config_builder import build_config
 PIMIPROXY_DIR  = Path("/pimiproxy")
 CONFIG_JSON    = PIMIPROXY_DIR / ".pimiproxy-config.json"
 CONFIG_YAML    = PIMIPROXY_DIR / "config" / "config.yaml"
+META_JSON      = PIMIPROXY_DIR / ".pimiproxy-meta.json"
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -90,10 +91,19 @@ def status_view(request):
     sub_proxies = cfg.get("subscription_proxies_yaml", "")
     proxy_count = sub_proxies.count("- name:") if sub_proxies else 0
 
+    meta = {}
+    if META_JSON.exists():
+        try:
+            meta = json.loads(META_JSON.read_text())
+        except Exception:
+            pass
+
     return ok({
-        "state":       "running" if running else "stopped",
-        "proxy_count": proxy_count,
-        "provider_url": cfg.get("subscription_url", ""),
+        "state":          "running" if running else "stopped",
+        "proxy_count":    proxy_count,
+        "provider_url":   cfg.get("subscription_url", ""),
+        "dashboard_port": meta.get("dashboard_port", "8080"),
+        "dashboard":      meta.get("dashboard", "metacubexd"),
     })
 
 
