@@ -241,7 +241,7 @@ def do_set_hostname():
     else:
         warn("avahi-daemon not running — .local won't update until it starts.")
 
-    warn(f"{name}.lan won't resolve until the SBC renews its DHCP lease."))
+    warn(f"{name}.lan won't resolve until the SBC renews its DHCP lease.")
     if confirm("Reboot now so the router picks up the new hostname?",
                default=False):
         run(["reboot"])
