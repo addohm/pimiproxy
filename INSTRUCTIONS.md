@@ -95,15 +95,27 @@ To uninstall later:
 sudo python3 pimiproxy-core.py uninstall
 ```
 
+### Installing from mainland China
+
+Docker's package servers (`download.docker.com`) are frequently blocked or unreachable from mainland China. Pass `--china-mirrors` to the install command to use Aliyun's mirror of Docker CE instead:
+
+```bash
+sudo python3 pimiproxy-core.py install --china-mirrors
+```
+
+This flag only affects how Docker CE is downloaded during install. Everything else — image pulls, subscription fetches, runtime traffic — is unaffected and routes through whatever proxy you configure.
+
 ### Supported platforms
 
-| Distro family | Package manager | Notes |
+| Distro family | Package manager | Docker package |
 |---|---|---|
-| Debian / Raspberry Pi OS / Ubuntu / Mint | apt | Fully tested baseline |
-| Fedora / RHEL / CentOS / Rocky / Alma | dnf | Docker installed via get.docker.com |
-| Arch / Manjaro / EndeavourOS | pacman | Docker installed via get.docker.com |
-| openSUSE | zypper | Docker installed via get.docker.com |
-| Alpine | apk | Docker installed via get.docker.com |
+| Debian / Raspberry Pi OS / Ubuntu / Mint | apt | `docker.io` (distro repo) or Docker CE via official repo |
+| Fedora / RHEL / CentOS / Rocky / Alma | dnf | `docker-ce` via Docker CE repo |
+| Arch / Manjaro / EndeavourOS | pacman | `docker-ce` via Docker CE repo |
+| openSUSE | zypper | `docker-ce` via Docker CE repo |
+| Alpine | apk | `docker-ce` via Docker CE repo |
+
+The installer detects your distro automatically from `/etc/os-release` and selects the correct package manager and package names. No manual configuration is required.
 
 ---
 

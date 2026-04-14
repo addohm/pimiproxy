@@ -27,9 +27,25 @@ die()  { echo -e "${RED}  ✖  $*${NC}" >&2; exit 1; }
 
 [[ $EUID -eq 0 ]] || die "Run as root:  sudo bash $0 [install|uninstall|configure]"
 
-PIMIPROXY_CMD="${1:-install}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_SCRIPT="${SCRIPT_DIR}/pimiproxy-core.py"
+
+# Separate command from flags (--china-mirrors, etc.)
+PIMIPROXY_CMD=""
+PIMIPROXY_FLAGS=()
+for _arg in "$@"; do
+    if [[ "$_arg" == --* ]]; then
+        PIMIPROXY_FLAGS+=("$_arg")
+    elif [[ -z "$PIMIPROXY_CMD" ]]; then
+        PIMIPROXY_CMD="$_arg"
+    fi
+done
+PIMIPROXY_CMD="${PIMIPROXY_CMD:-install}"
+
+CHINA_MIRRORS=false
+for _flag in "${PIMIPROXY_FLAGS[@]:-}"; do
+    [[ "$_flag" == "--china-mirrors" ]] && CHINA_MIRRORS=true
+done
 
 echo -e "\n${CYAN}${BOLD}══════════════════════════════════════════"
 echo -e "  pimiproxy bootstrap"
@@ -141,22 +157,46 @@ else
         esac
     fi
     
-    # If still missing, use the official Docker install script
+    # If still missing, install Docker
     if ! command -v docker &>/dev/null || ! docker compose version &>/dev/null 2>&1; then
-        info "Installing Docker via official install script (get.docker.com)..."
-        if command -v curl &>/dev/null; then
-            curl -fsSL https://get.docker.com | sh
-            elif command -v wget &>/dev/null; then
-            wget -qO- https://get.docker.com | sh
-        else
-            # Last resort: install curl first
+        if [[ "$CHINA_MIRRORS" == "true" ]]; then
+            info "Installing Docker CE via Aliyun mirror (China mode)..."
             case "$PKG_MGR" in
-                apt)    apt-get install -y -qq curl >/dev/null ;;
-                dnf)    dnf install -y -q curl ;;
-                pacman) pacman -S --noconfirm curl >/dev/null ;;
-                zypper) zypper install -y -q curl ;;
-                apk)    apk add -q curl ;;
+                apt)
+                    apt-get install -y -qq ca-certificates curl gnupg >/dev/null
+                    install -m 0755 -d /etc/apt/keyrings
+                    curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/debian/gpg \
+                        | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+                    chmod a+r /etc/apt/keyrings/docker.gpg
+                    CODENAME="$(. /etc/os-release && echo "$VERSION_CODENAME")"
+                    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+https://mirrors.aliyun.com/docker-ce/linux/debian ${CODENAME} stable" \
+                        > /etc/apt/sources.list.d/docker.list
+                    apt-get update -qq
+                    apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin >/dev/null
+                ;;
+                dnf)
+                    dnf install -y -q dnf-plugins-core
+                    dnf config-manager --add-repo \
+                        https://mirrors.aliyun.com/docker-ce/linux/fedora/docker-ce.repo
+                    dnf install -y -q docker-ce docker-ce-cli containerd.io docker-compose-plugin
+                ;;
+                *)
+                    warn "--china-mirrors is supported for apt/dnf only. Falling back to get.docker.com."
+                    curl -fsSL https://get.docker.com | sh
+                ;;
             esac
+        else
+            info "Installing Docker via official install script (get.docker.com)..."
+            if ! command -v curl &>/dev/null; then
+                case "$PKG_MGR" in
+                    apt)    apt-get install -y -qq curl >/dev/null ;;
+                    dnf)    dnf install -y -q curl ;;
+                    pacman) pacman -S --noconfirm curl >/dev/null ;;
+                    zypper) zypper install -y -q curl ;;
+                    apk)    apk add -q curl ;;
+                esac
+            fi
             curl -fsSL https://get.docker.com | sh
         fi
         info "Docker installed."
@@ -224,4 +264,4 @@ info "Found: $PYTHON_SCRIPT"
 # 8. HAND OFF TO PYTHON
 # =============================================================================
 echo -e "\n${CYAN}${BOLD}▸ Launching pimiproxy.py ${PIMIPROXY_CMD}...${NC}\n"
-exec python3 "$PYTHON_SCRIPT" "$PIMIPROXY_CMD"
+exec python3 "$PYTHON_SCRIPT" "$PIMIPROXY_CMD" "${PIMIPROXY_FLAGS[@]}"

@@ -69,6 +69,12 @@ sudo python3 pimiproxy-core.py install
 
 Press Enter through all prompts to accept defaults. See [INSTRUCTIONS.md](INSTRUCTIONS.md) for the full walkthrough.
 
+**Installing from mainland China?** Docker's package servers are often blocked or very slow. Pass `--china-mirrors` to route the Docker CE installation through Aliyun's mirror instead:
+
+```bash
+sudo python3 pimiproxy-core.py install --china-mirrors
+```
+
 ---
 
 ## Default settings
@@ -132,7 +138,7 @@ All management is done through `pimiproxy-core.py`:
 sudo python3 pimiproxy-core.py <subcommand>
 ```
 
-| Subcommand | Description |
+| Subcommand / Flag | Description |
 |---|---|
 | `install` | Run the installer |
 | `uninstall` | Stop containers, remove images, delete all files |
@@ -144,6 +150,7 @@ sudo python3 pimiproxy-core.py <subcommand>
 | `update` | Pull latest Docker images and recreate containers |
 | `hostname <name>` | Change the system hostname, restart avahi-daemon, and optionally reboot |
 | `debug [url]` | Fetch a subscription URL with the Clash User-Agent and inspect the response |
+| `install --china-mirrors` | Install using Aliyun mirrors for Docker CE (use in mainland China) |
 
 ---
 
