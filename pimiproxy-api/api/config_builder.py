@@ -108,7 +108,7 @@ def build_config(cfg: dict) -> str:
         if "proxies" in g:
             L("    proxies:")
             for p in g["proxies"]:
-                L(f"      - {p}")
+                L(f"      - {yaml_quote(p)}")
         if "url"       in g: L(f'    url: {g["url"]}')
         if "interval"  in g: L(f'    interval: {g["interval"]}')
         if "tolerance" in g: L(f'    tolerance: {g["tolerance"]}')
