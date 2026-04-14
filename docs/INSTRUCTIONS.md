@@ -10,11 +10,12 @@
 4. [Installer prompts explained](#4-installer-prompts-explained)
 5. [Connecting devices to the proxy](#5-connecting-devices-to-the-proxy)
 6. [Accessing the dashboard](#6-accessing-the-dashboard)
-7. [Configuring proxy groups and rules](#7-configuring-proxy-groups-and-rules)
-8. [Routing the Pi's own traffic through the proxy](#8-routing-the-pis-own-traffic-through-the-proxy)
-9. [Day-to-day management](#9-day-to-day-management)
-10. [Uninstalling](#10-uninstalling)
-11. [Troubleshooting](#11-troubleshooting)
+7. [Web management UI](#7-web-management-ui)
+8. [Configuring proxy groups and rules](#8-configuring-proxy-groups-and-rules)
+9. [Routing the Pi's own traffic through the proxy](#9-routing-the-pis-own-traffic-through-the-proxy)
+10. [Day-to-day management](#10-day-to-day-management)
+11. [Uninstalling](#11-uninstalling)
+12. [Troubleshooting](#12-troubleshooting)
 
 ---
 
@@ -33,9 +34,11 @@
 
 ## 2. Preparing offline image archives (optional)
 
-If your Pi has limited or no internet access, you can pre-pull the Docker images on another machine (must be Linux/macOS with Docker installed and able to pull `linux/arm64` images) and transfer them to the Pi.
+If your Pi has limited or no internet access, you can pre-build or pre-pull the Docker images on another machine and transfer them to the Pi.
 
-Run the following on your other machine:
+### Third-party images (pulled from registries)
+
+Run the following on your other machine (must have Docker installed and QEMU binfmt set up for arm64 cross-builds):
 
 ```bash
 # Pull for arm64
@@ -43,19 +46,36 @@ docker pull --platform linux/arm64 ghcr.io/metacubex/mihomo:latest
 docker pull --platform linux/arm64 ghcr.io/metacubex/metacubexd:latest
 docker pull --platform linux/arm64 ghcr.io/zephyruso/zashboard:latest
 
-# Save to compressed archives
-docker save ghcr.io/metacubex/mihomo:latest      | gzip > mihomo.tar.gz
-docker save ghcr.io/metacubex/metacubexd:latest   | gzip > metacubexd.tar.gz
-docker save ghcr.io/zephyruso/zashboard:latest    | gzip > zashboard.tar.gz
+# Save to compressed archives in the docker-images/ directory
+docker save ghcr.io/metacubex/mihomo:latest     | gzip > docker-images/mihomo.tar.gz
+docker save ghcr.io/metacubex/metacubexd:latest  | gzip > docker-images/metacubexd.tar.gz
+docker save ghcr.io/zephyruso/zashboard:latest   | gzip > docker-images/zashboard.tar.gz
 ```
 
-Then copy the `.tar.gz` files to the Pi into the same directory as `pimiproxy-core.py`:
+### pimiproxy-api and pimiproxy-ui (built from source)
+
+These two images are built locally from the `pimiproxy-api/` and `pimiproxy-ui/` source directories. If the Pi cannot run `docker build` (e.g. no internet access for base image pulls), build them on your other machine and save the result:
 
 ```bash
-scp mihomo.tar.gz metacubexd.tar.gz zashboard.tar.gz user@pimiproxy.lan:~/pimiproxy/
+# Enable arm64 cross-build support (one-time setup)
+docker run --privileged --rm tonistiigi/binfmt --install arm64
+
+# Build for arm64
+docker build --platform linux/arm64 -t pimiproxy-api:latest ./pimiproxy-api/
+docker build --platform linux/arm64 -t pimiproxy-ui:latest  ./pimiproxy-ui/
+
+# Save to compressed archives
+docker save pimiproxy-api:latest | gzip > docker-images/pimiproxy-api.tar.gz
+docker save pimiproxy-ui:latest  | gzip > docker-images/pimiproxy-ui.tar.gz
 ```
 
-If the archives are present in the same directory as the script when you run it, they will be loaded from disk instead of pulled from the internet.
+### Transfer to the Pi
+
+```bash
+rsync -avz docker-images/ user@pimiproxy.lan:~/pimiproxy/docker-images/
+```
+
+Place all `.tar.gz` archives in the `docker-images/` subdirectory alongside `pimiproxy-core.py`. If archives are present when the installer runs, they will be loaded from disk instead of pulled or built from source.
 
 ---
 
@@ -97,13 +117,13 @@ sudo python3 pimiproxy-core.py uninstall
 
 ### Installing from mainland China
 
-Docker's package servers (`download.docker.com`) are frequently blocked or unreachable from mainland China. Pass `--china-mirrors` to the install command to use Aliyun's mirror of Docker CE instead:
+Docker's package servers (`download.docker.com`) are frequently blocked or unreachable from mainland China. If `pimiproxy.sh` needs to install Docker CE, it will ask:
 
-```bash
-sudo python3 pimiproxy-core.py install --china-mirrors
+```
+  Is this device located in China? (use Aliyun mirrors for Docker CE) [y/N]:
 ```
 
-This flag only affects how Docker CE is downloaded during install. Everything else — image pulls, subscription fetches, runtime traffic — is unaffected and routes through whatever proxy you configure.
+Answer **y** to route the Docker CE installation through Aliyun's mirror instead. This question only appears if Docker is not already installed. Everything else — image pulls, subscription fetches, runtime traffic — is unaffected and routes through whatever proxy you configure.
 
 ### Supported platforms
 
@@ -163,7 +183,7 @@ The port other devices use to connect to the proxy. This is the port you enter i
 
 A password used by the dashboard to authenticate with the Mihomo API. You will be prompted to enter this in the dashboard on first load. Change it to something stronger if the Pi is accessible outside your home network.
 
-### Clash API subscription URL
+### Provider URL
 **Default: none (optional)**
 
 If you have a proxy provider service, paste your Clash-compatible API URL here. This must be a **Clash/Mihomo API URL** — the kind your provider gives you specifically for use with Clash, Mihomo, or compatible clients. It is not a regular VPN config file, an app download link, or a WireGuard/OpenVPN config.
@@ -277,7 +297,24 @@ The dashboard shows live connections, traffic speed, active rules, and lets you 
 
 ---
 
-## 7. Configuring proxy groups and rules
+## 7. Web management UI
+
+pimiproxy includes a browser-based management UI for managing proxy groups, rules, and the provider URL — no SSH required.
+
+**Default URL:** `http://pimiproxy.lan:8585`
+
+Log in with your API secret (default: `pimiproxy`).
+
+The UI is served by two Docker containers (`pimiproxy-api` and `pimiproxy-ui`) that are built and started as part of the install. If they are not running, use option 11 in the `configure` menu to build or rebuild them:
+
+```bash
+sudo python3 pimiproxy-core.py configure
+# choose option 11
+```
+
+---
+
+## 8. Configuring proxy groups and rules
 
 Use the interactive configurator to manage your subscription URL, proxy groups, rules, ports, API secret, and dashboard choice:
 
@@ -289,16 +326,17 @@ sudo python3 pimiproxy-core.py configure
 
 | Option | Description |
 |--------|-------------|
-| 1) Manage subscription URL | Add or change your Clash/Mihomo API URL |
+| 1) Manage provider URL | Add or change your Clash/Mihomo API URL |
 | 2) Manage proxy groups | Add or remove proxy groups |
 | 3) Manage rules | Add, remove, or reorder routing rules |
 | 4) Show current config | Print the live config.yaml to screen |
-| 5) Refresh subscription now | Re-fetch server list and restart Mihomo |
+| 5) Refresh provider now | Re-fetch server list and restart Mihomo |
 | 6) Change API secret | Update the dashboard API password |
-| 7) Change ports | Change dashboard port, API port, or proxy port |
+| 7) Change ports | Change dashboard, API, proxy, or UI ports |
 | 8) Switch dashboard | Swap between Metacubexd and Zashboard |
 | 9) Save and apply | Write changes and optionally restart containers |
 | 10) Exit without saving | Discard all changes |
+| 11) Enable / rebuild web management UI | Build or reload the pimiproxy-api and pimiproxy-ui containers |
 
 **Proxy groups** — add groups that control how traffic is routed:
 
@@ -333,7 +371,7 @@ sudo python3 pimiproxy-core.py restart mihomo
 
 ---
 
-## 8. Routing the Pi's own traffic through the proxy
+## 9. Routing the Pi's own traffic through the proxy
 
 By default, only devices that have manually configured their proxy settings use pimiproxy. The Pi itself sends its own traffic directly to the internet, bypassing Mihomo entirely.
 
@@ -365,7 +403,7 @@ sudo clash-system restart
 
 ---
 
-## 9. Day-to-day management
+## 10. Day-to-day management
 
 ### Login banner
 
@@ -380,6 +418,7 @@ A status banner is displayed automatically on every interactive SSH or terminal 
   AES hardware    ●  available
   ──────────────────────────────────────────
   Dashboard  →  http://pimiproxy.lan:8080
+  UI         →  http://pimiproxy.lan:8585
   API        →  http://pimiproxy.lan:9090
   Proxy      →  pimiproxy.lan:7890  (HTTP/SOCKS5)
   ──────────────────────────────────────────
@@ -403,8 +442,10 @@ Shows container health, subscription info (URL and number of proxies loaded), cl
 ### View logs
 
 ```bash
-sudo python3 pimiproxy-core.py logs              # Mihomo logs (default)
-sudo python3 pimiproxy-core.py logs dashboard    # Dashboard logs
+sudo python3 pimiproxy-core.py logs                   # Mihomo logs (default)
+sudo python3 pimiproxy-core.py logs dashboard         # Dashboard logs
+sudo python3 pimiproxy-core.py logs pimiproxy-api     # API container logs
+sudo python3 pimiproxy-core.py logs pimiproxy-ui      # UI container logs
 ```
 
 Press Ctrl-C to stop the log stream.
@@ -412,9 +453,11 @@ Press Ctrl-C to stop the log stream.
 ### Restart containers
 
 ```bash
-sudo python3 pimiproxy-core.py restart           # Restart all containers
-sudo python3 pimiproxy-core.py restart mihomo    # Restart Mihomo only
-sudo python3 pimiproxy-core.py restart dashboard # Restart dashboard only
+sudo python3 pimiproxy-core.py restart                # Restart all containers
+sudo python3 pimiproxy-core.py restart mihomo         # Restart Mihomo only
+sudo python3 pimiproxy-core.py restart dashboard      # Restart dashboard only
+sudo python3 pimiproxy-core.py restart pimiproxy-api  # Restart API only
+sudo python3 pimiproxy-core.py restart pimiproxy-ui   # Restart UI only
 ```
 
 ### Update to latest images
@@ -450,7 +493,7 @@ sudo python3 pimiproxy-core.py restart mihomo
 
 ---
 
-## 10. Uninstalling
+## 11. Uninstalling
 
 ```bash
 sudo python3 pimiproxy-core.py uninstall
@@ -458,10 +501,10 @@ sudo python3 pimiproxy-core.py uninstall
 
 The uninstaller will:
 
-1. Stop and remove all containers
-2. Remove the Mihomo, Metacubexd, and Zashboard Docker images
+1. Stop and remove all containers (mihomo, dashboard, pimiproxy-api, pimiproxy-ui)
+2. Remove the associated Docker images
 3. Clear any active routing rules (`clash-system off`)
-4. Delete `/opt/pimiproxy` and all contents
+4. Delete `/opt/pimiproxy` and all contents (including `ui-secret.txt`)
 5. Remove `/usr/local/bin/clash-system`
 6. Remove the daily subscription refresh cron job (`/etc/cron.daily/pimiproxy-refresh`)
 7. Optionally reset the hostname back to `raspberrypi`
@@ -469,7 +512,7 @@ The uninstaller will:
 
 ---
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 ### Check if everything is working
 

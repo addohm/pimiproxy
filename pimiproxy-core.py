@@ -438,12 +438,11 @@ def pkg_remove(distro: str, *packages):
             run(["apk", "del", *packages], silent=True, check=False)
 
 
-def setup_docker_repo(distro: str, china_mirrors: bool):
+def setup_docker_repo(distro: str):
     """
-    Add Docker's official package repo if docker is not already installed.
-    When china_mirrors=True, uses Aliyun's mirror of Docker CE (accessible
-    from mainland China where hub.docker.com / download.docker.com may be
-    blocked or very slow).
+    Add Docker's official package repo if Docker is not already installed.
+    China mirror support is handled by pimiproxy.sh (the bootstrap wrapper),
+    which prompts the user and installs Docker CE before this script runs.
     """
     if shutil.which("docker"):
         return  # already present, nothing to configure
@@ -453,11 +452,7 @@ def setup_docker_repo(distro: str, china_mirrors: bool):
         result = run(["lsb_release", "-cs"], capture=True, check=False)
         codename = result.stdout.strip() if result and result.returncode == 0 else "bookworm"
 
-        if china_mirrors:
-            base = "https://mirrors.aliyun.com/docker-ce/linux/debian"
-            info("Using Aliyun mirror for Docker CE (China mode).")
-        else:
-            base = "https://download.docker.com/linux/debian"
+        base = "https://download.docker.com/linux/debian"
 
         # Install prerequisites for apt over HTTPS
         pkg_install(distro, "ca-certificates", "curl", "gnupg")
@@ -477,12 +472,7 @@ def setup_docker_repo(distro: str, china_mirrors: bool):
         info("Docker CE repo configured.")
 
     elif distro == "fedora":
-        if china_mirrors:
-            repo_url = "https://mirrors.aliyun.com/docker-ce/linux/fedora/docker-ce.repo"
-            info("Using Aliyun mirror for Docker CE (China mode).")
-        else:
-            repo_url = "https://download.docker.com/linux/fedora/docker-ce.repo"
-
+        repo_url = "https://download.docker.com/linux/fedora/docker-ce.repo"
         pkg_install(distro, "dnf-plugins-core")
         with Spinner("Adding Docker CE repo"):
             run(["dnf", "config-manager", "--add-repo", repo_url], silent=True)
@@ -727,6 +717,11 @@ def build_config(cfg: dict) -> str:
         r'^\s*-\s*name:\s*["\']?([^"\'\n]+?)["\']?\s*$', sub_proxies,
         re.MULTILINE) if sub_proxies else []
 
+    # Subscription group names for the Quest group proxy list
+    _sub_group_names = re.findall(
+        r'^\s*-\s*name:\s*["\']?([^"\'\n]+?)["\']?\s*$', sub_groups,
+        re.MULTILINE) if sub_groups else []
+
     # ── proxy-groups ──────────────────────────────────────────────────────────
     # Helper: write a single group dict as YAML lines
     def _write_group(g: dict):
@@ -756,7 +751,8 @@ def build_config(cfg: dict) -> str:
         L('    type: select')
         L('    proxies:')
         L('      - "DIRECT"')
-        L('      - "Provider"')
+        for name in _sub_group_names:
+            L(f'      - {yaml_quote(name)}')
         for name in _sub_proxy_names:
             L(f'      - {yaml_quote(name)}')
         for g in user_groups:
@@ -769,11 +765,12 @@ def build_config(cfg: dict) -> str:
         L("proxy-groups:")
         for g in user_groups:
             _write_group(g)
+        _quest_proxies = ["DIRECT"] + [g["name"] for g in user_groups]
         L('  - name: "🧭 Meta Quest"')
         L('    type: select')
         L('    proxies:')
-        L('      - "DIRECT"')
-        L('      - "Provider"')
+        for p in _quest_proxies:
+            L(f'      - {yaml_quote(p)}')
         L()
 
     # ── rules ─────────────────────────────────────────────────────────────────
@@ -1977,7 +1974,7 @@ def do_install():
     info("avahi-daemon ready.")
 
     # Docker — add repo first if needed, then install
-    setup_docker_repo(distro, False)
+    setup_docker_repo(distro)
     if not shutil.which("docker"):
         _docker_pkg = "docker-ce" if distro in ("fedora", "arch", "suse") else "docker.io"
         pkg_install(distro, _docker_pkg)
