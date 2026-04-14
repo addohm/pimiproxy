@@ -2,7 +2,13 @@ import { useState, useEffect } from 'react'
 import { api } from '../api'
 import { IconPlus, IconX } from './Icons'
 
-const GROUP_TYPES = ['select', 'url-test', 'fallback', 'load-balance', 'relay']
+const GROUP_TYPES = [
+  { value: 'select',       label: 'select — pick a server manually'          },
+  { value: 'url-test',     label: 'url-test — auto fastest server'            },
+  { value: 'fallback',     label: 'fallback — use first available'            },
+  { value: 'load-balance', label: 'load-balance — spread across servers'      },
+  { value: 'relay',        label: 'relay — chain proxies'                     },
+]
 
 function AddGroupModal({ proxies, onAdd, onClose }) {
   const [name, setName]       = useState('')
@@ -38,7 +44,7 @@ function AddGroupModal({ proxies, onAdd, onClose }) {
           <div className="field">
             <label>Type</label>
             <select value={type} onChange={e => setType(e.target.value)}>
-              {GROUP_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              {GROUP_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
           </div>
           <div className="field">

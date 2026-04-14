@@ -158,15 +158,23 @@ def groups_view(request):
     name = body.get("name", "").strip()
     if not name:
         return err("name is required")
-    gtype = body.get("type", "select")
+    gtype   = body.get("type", "select")
     proxies = body.get("proxies", ["DIRECT"])
+
+    group = {"name": name, "type": gtype, "proxies": proxies}
+    # url-test / fallback / load-balance require a health-check URL and interval
+    if gtype in ("url-test", "fallback", "load-balance"):
+        group["url"]      = "https://www.gstatic.com/generate_204"
+        group["interval"] = 300
+        if gtype == "url-test":
+            group["tolerance"] = 50
 
     cfg = _read_cfg()
     groups = cfg.get("proxy_groups", [])
     if any(g["name"] == name for g in groups):
         return err(f"Group '{name}' already exists")
 
-    groups.append({"name": name, "type": gtype, "proxies": proxies})
+    groups.append(group)
     cfg["proxy_groups"] = groups
     _write_cfg(cfg)
     _rebuild_and_restart(cfg)
