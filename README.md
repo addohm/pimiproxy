@@ -86,7 +86,7 @@ sudo python3 pimiproxy-core.py install --china-mirrors
 | Install directory | `/opt/pimiproxy` |
 | Hostname | `pimiproxy` (or current hostname if already customised) |
 | Dashboard port | `8080` |
-| Management UI port | `8888` |
+| Management UI port | `8585` |
 | Mihomo API port | `9090` |
 | Mixed proxy port | `7890` |
 | API secret | `pimiproxy` |
@@ -100,11 +100,11 @@ After install:
 
 | Interface | Default URL |
 |-----------|-------------|
-| Management UI | `http://pimiproxy.lan:8888` |
+| Management UI | `http://pimiproxy.lan:8585` |
 | Dashboard (Metacubexd) | `http://pimiproxy.lan:8080` |
 | Mihomo API | `http://pimiproxy.lan:9090` |
 
-If your router doesn't use `.lan`, try mDNS: `http://pimiproxy.local:8888`
+If your router doesn't use `.lan`, try mDNS: `http://pimiproxy.local:8585`
 
 **Management UI login:** use your API secret (default: `pimiproxy`).
 
@@ -227,7 +227,7 @@ This stops containers, removes images, deletes all installed files, clears routi
 
 If you provided a provider URL at install time, your proxy groups and rules are already configured — open the dashboard and select a server in the proxy group.
 
-If you skipped the provider prompt, the default config passes all traffic through directly (`MATCH,DIRECT`). Add a provider later via the management UI at `http://pimiproxy.lan:8888`, or via CLI:
+If you skipped the provider prompt, the default config passes all traffic through directly (`MATCH,DIRECT`). Add a provider later via the management UI at `http://pimiproxy.lan:8585`, or via CLI:
 
 ```bash
 sudo python3 pimiproxy-core.py configure

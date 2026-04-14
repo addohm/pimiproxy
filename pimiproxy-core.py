@@ -849,7 +849,7 @@ def build_compose(cfg: dict) -> str:
     dashboard = cfg["dashboard_image"]
     dash_name = cfg["dash_name"]
     dash_port = cfg["dashboard_port"]
-    ui_port   = cfg.get("ui_port", "8888")
+    ui_port   = cfg.get("ui_port", "8585")
     install_dir = cfg.get("install_dir", "/opt/pimiproxy")
 
     lines = []
@@ -1018,7 +1018,7 @@ def build_banner(cfg: dict, meta: dict) -> str:
     dash_port = cfg.get("dashboard_port", meta.get("dashboard_port", "8080"))
     api_port = cfg.get("api_port", meta.get("api_port", "9090"))
     mixed_port = cfg.get("mixed_port", meta.get("mixed_port", "7890"))
-    ui_port = cfg.get("ui_port", meta.get("ui_port", "8888"))
+    ui_port = cfg.get("ui_port", meta.get("ui_port", "8585"))
     cfg_file = f"{meta.get('install_dir', '/opt/pimiproxy')}/config/config.yaml"
     aes_ok = has_aes_hardware()
 
@@ -1182,7 +1182,7 @@ def do_status():
              "high-speed connections.")
 
     # ── endpoints ─────────────────────────────────────────────────────────────
-    ui_port = meta.get("ui_port", "8888")
+    ui_port = meta.get("ui_port", "8585")
     print()
     print(f"  Dashboard  ->  http://{hostname}.lan:{dash_port}")
     print(f"  UI         ->  http://{hostname}.lan:{ui_port}")
@@ -1690,7 +1690,7 @@ def do_configure():
         elif choice == "7":
             cur_dash = cfg.get("dashboard_port",
                                meta.get("dashboard_port", "8080"))
-            cur_ui   = cfg.get("ui_port", meta.get("ui_port", "8888"))
+            cur_ui   = cfg.get("ui_port", meta.get("ui_port", "8585"))
             cur_api = cfg.get("api_port", meta.get("api_port", "9090"))
             cur_mixed = cfg.get("mixed_port", meta.get("mixed_port", "7890"))
             print(f"\n  {C.BOLD}Current ports:{C.NC}")
@@ -1838,7 +1838,7 @@ def do_configure():
                 continue
 
             # Ensure ui_port is set in cfg and meta
-            cur_ui = cfg.get("ui_port", meta.get("ui_port", "8888"))
+            cur_ui = cfg.get("ui_port", meta.get("ui_port", "8585"))
             new_ui = ask("Management UI port", cur_ui)
             if new_ui != cur_ui:
                 cfg["ui_port"] = new_ui
@@ -1890,7 +1890,7 @@ def do_install(china_mirrors: bool = False):
     dashboard_port = "8080"
     api_port = "9090"
     mixed_port = "7890"
-    ui_port = "8888"
+    ui_port = "8585"
     api_secret = "pimiproxy"
     arch = "linux/arm64"
     dash_choice = 1

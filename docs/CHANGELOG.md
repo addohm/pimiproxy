@@ -1,7 +1,7 @@
 ## [5.0.0] — 2026-04-14
 
 ### Added
-- **Web management UI** — two new Docker containers: `pimiproxy-api` (Django REST API) and `pimiproxy-ui` (React + Nginx). Accessible on port 8888 by default. Login uses the same API secret as the Mihomo dashboard.
+- **Web management UI** — two new Docker containers: `pimiproxy-api` (Django REST API) and `pimiproxy-ui` (React + Nginx). Accessible on port 8585 by default. Login uses the same API secret as the Mihomo dashboard.
 - **Two-layer config model** — user-defined proxy groups and rules are now always applied on top of the provider subscription. User rules are prepended first (highest priority); user groups are appended after provider groups. Previously, user groups and rules were silently ignored when a subscription was present.
 - **Provider groups and rules visible in UI** — the management UI displays provider subscription groups (read-only) alongside user groups (CRUD). Provider rules are shown as a read-only preview below user rules.
 - **Drag-to-reorder rules** — user rules can be reordered in the UI by dragging. No external dependencies; uses native HTML5 drag.
