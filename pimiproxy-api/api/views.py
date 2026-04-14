@@ -19,6 +19,8 @@ CONFIG_YAML    = PIMIPROXY_DIR / "config" / "config.yaml"
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _read_cfg() -> dict:
+    if not CONFIG_JSON.exists():
+        return {}
     return json.loads(CONFIG_JSON.read_text())
 
 
@@ -28,6 +30,7 @@ def _write_cfg(cfg: dict):
 
 def _rebuild_and_restart(cfg: dict):
     """Rebuild config.yaml from cfg dict and restart the mihomo container."""
+    CONFIG_YAML.parent.mkdir(parents=True, exist_ok=True)
     CONFIG_YAML.write_text(build_config(cfg))
     subprocess.run(["docker", "restart", "mihomo"],
                    capture_output=True, timeout=30)

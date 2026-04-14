@@ -1374,6 +1374,13 @@ def do_configure():
     compose_changed = False
 
     while True:
+        # Detect whether web UI images are already present
+        _api_img_ok = run(["docker", "image", "inspect", "pimiproxy-api:latest"],
+                          check=False, silent=True).returncode == 0
+        _ui_img_ok  = run(["docker", "image", "inspect", "pimiproxy-ui:latest"],
+                          check=False, silent=True).returncode == 0
+        _ui_status  = "enabled" if (_api_img_ok and _ui_img_ok) else "not built"
+
         print(f"\n{C.BOLD}── Configure pimiproxy ─────────────────────{C.NC}")
         print("  1) Manage provider URL")
         print("  2) Manage proxy groups")
@@ -1385,8 +1392,9 @@ def do_configure():
         print("  8) Switch dashboard")
         print("  9) Save and apply")
         print(" 10) Exit without saving")
+        print(f" 11) Enable / rebuild web management UI  [{_ui_status}]")
         print()
-        choice = input("  Selection [1-10]: ").strip()
+        choice = input("  Selection [1-11]: ").strip()
 
         # ── provider URL ─────────────────────────────────────────────────────
         if choice == "1":
@@ -1735,6 +1743,14 @@ def do_configure():
                 info("No changes to save.")
                 break
 
+            # Warn if UI images are missing — compose will include them but
+            # docker compose up will fail for those services
+            if not _api_img_ok or not _ui_img_ok:
+                warn("Web UI images are not built yet.")
+                warn("Run option 11 first to build them, then save and apply.")
+                if not confirm("Continue saving anyway?", default=False):
+                    continue
+
             # Always write config.yaml (covers secret, api_port, mixed_port)
             cfg_path.write_text(build_config(cfg))
             ext_cfg_path.write_text(json.dumps(cfg, indent=2))
@@ -1784,6 +1800,75 @@ def do_configure():
         elif choice == "10":
             info("Exiting without saving.")
             break
+
+        # ── enable / rebuild web UI ───────────────────────────────────────────
+        elif choice == "11":
+            _script_dir = Path(__file__).resolve().parent
+            _api_archive = _script_dir / "docker-images" / "pimiproxy-api.tar.gz"
+            _ui_archive  = _script_dir / "docker-images" / "pimiproxy-ui.tar.gz"
+            _api_src     = _script_dir / "pimiproxy-api"
+            _ui_src      = _script_dir / "pimiproxy-ui"
+
+            step("pimiproxy-api image")
+            if _api_archive.exists():
+                with Spinner("Loading pimiproxy-api from archive"):
+                    run(["docker", "load", "-i", str(_api_archive)], silent=True)
+                info("pimiproxy-api image loaded from archive.")
+            elif _api_src.exists():
+                info("Building pimiproxy-api from source…")
+                run(["docker", "build", "-t", "pimiproxy-api:latest", str(_api_src)], silent=False)
+                info("pimiproxy-api image built.")
+            else:
+                warn(f"Neither archive nor source found at {_api_src}")
+                warn("Copy pimiproxy-api/ alongside this script and try again.")
+                continue
+
+            step("pimiproxy-ui image")
+            if _ui_archive.exists():
+                with Spinner("Loading pimiproxy-ui from archive"):
+                    run(["docker", "load", "-i", str(_ui_archive)], silent=True)
+                info("pimiproxy-ui image loaded from archive.")
+            elif _ui_src.exists():
+                info("Building pimiproxy-ui from source…")
+                run(["docker", "build", "-t", "pimiproxy-ui:latest", str(_ui_src)], silent=False)
+                info("pimiproxy-ui image built.")
+            else:
+                warn(f"Neither archive nor source found at {_ui_src}")
+                warn("Copy pimiproxy-ui/ alongside this script and try again.")
+                continue
+
+            # Ensure ui_port is set in cfg and meta
+            cur_ui = cfg.get("ui_port", meta.get("ui_port", "8888"))
+            new_ui = ask("Management UI port", cur_ui)
+            if new_ui != cur_ui:
+                cfg["ui_port"] = new_ui
+                meta["ui_port"] = new_ui
+            else:
+                cfg.setdefault("ui_port", cur_ui)
+                meta.setdefault("ui_port", cur_ui)
+
+            # Generate ui-secret.txt if missing
+            import secrets as _secrets
+            ui_secret_path = install_dir / "ui-secret.txt"
+            if not ui_secret_path.exists():
+                ui_secret_path.write_text(_secrets.token_hex(32))
+                ui_secret_path.chmod(0o600)
+                info(f"Generated UI secret key: {ui_secret_path}")
+
+            # Rebuild compose and restart
+            (install_dir / "docker-compose.yml").write_text(build_compose(cfg))
+            ext_cfg_path.write_text(json.dumps(cfg, indent=2))
+            write_meta(meta)
+            if BANNER_PATH.exists():
+                BANNER_PATH.write_text(build_banner(cfg, meta))
+            info("docker-compose.yml rebuilt with web UI services.")
+
+            if confirm("Start web UI containers now?", default=True):
+                compose_run(compose, "up", "-d", "--force-recreate", cwd=install_dir)
+                info("Containers started.")
+                ui_port = cfg["ui_port"]
+                hostname = meta.get("hostname", "pimiproxy")
+                info(f"Web UI available at: http://{hostname}.lan:{ui_port}")
 
         else:
             warn("Invalid selection.")
