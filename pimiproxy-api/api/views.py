@@ -408,10 +408,10 @@ def check_view(request):
             req = urllib.request.Request(f"http://{domain}", method="HEAD")
             req.add_header("User-Agent", "pimiproxy-check/1.0")
             with opener.open(req, timeout=10) as resp:
-                probe_result["ok"]     = True
+                probe_result["ok"]     = resp.status < 500
                 probe_result["status"] = f"HTTP {resp.status}"
         except urllib.error.HTTPError as e:
-            probe_result["ok"]     = True
+            probe_result["ok"]     = e.code < 500
             probe_result["status"] = f"HTTP {e.code}"
         except Exception as e:
             probe_result["ok"]    = False
@@ -420,28 +420,31 @@ def check_view(request):
     t = threading.Thread(target=_probe, daemon=True)
     t.start()
 
-    # ── While probe is in-flight, query Mihomo /connections ──────────────────
-    # Give Mihomo ~400 ms to register the TCP connection before we poll.
-    time.sleep(0.4)
+    # ── Poll Mihomo /connections every 100 ms while probe is in-flight ───────
     mihomo_conn = {}
-    try:
-        mreq = urllib.request.Request(
-            f"http://{gateway}:{api_port}/connections",
-            headers={"Authorization": f"Bearer {api_secret}"},
-        )
-        with urllib.request.urlopen(mreq, timeout=3) as resp:
-            data = json.loads(resp.read())
-        for conn in reversed(data.get("connections", [])):
-            host = conn.get("metadata", {}).get("host", "")
-            if domain in host or host.endswith(domain):
-                mihomo_conn = {
-                    "rule":        conn.get("rule", ""),
-                    "payload":     conn.get("rulePayload", ""),
-                    "chains":      conn.get("chains", []),
-                }
-                break
-    except Exception:
-        pass
+    deadline = time.time() + 4.0
+    while time.time() < deadline:
+        time.sleep(0.1)
+        try:
+            mreq = urllib.request.Request(
+                f"http://{gateway}:{api_port}/connections",
+                headers={"Authorization": f"Bearer {api_secret}"},
+            )
+            with urllib.request.urlopen(mreq, timeout=2) as resp:
+                data = json.loads(resp.read())
+            for conn in reversed(data.get("connections") or []):
+                host = conn.get("metadata", {}).get("host", "")
+                if domain in host or host.endswith(domain):
+                    mihomo_conn = {
+                        "rule":    conn.get("rule", ""),
+                        "payload": conn.get("rulePayload", ""),
+                        "chains":  conn.get("chains") or [],
+                    }
+                    break
+        except Exception:
+            pass
+        if mihomo_conn.get("rule"):
+            break
 
     t.join(timeout=12)
 
