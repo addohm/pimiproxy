@@ -49,6 +49,7 @@ body {
   margin-bottom: 24px;
   writing-mode: vertical-rl;
   transform: rotate(180deg);
+  text-shadow: var(--logo-glow);
 }
 
 .nav-item {
