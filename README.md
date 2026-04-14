@@ -37,6 +37,15 @@ Once installed, any device on your network can route its traffic through the SBC
 - Internet access (for pulling Docker images if not using offline archives)
 - Root / sudo access
 
+### Tested platforms
+
+| Platform | Status |
+|----------|--------|
+| Raspberry Pi OS (64-bit) | ✅ Working |
+| Ubuntu | 🔄 In progress |
+| Fedora | ⬜ Untested |
+| Arch Linux | ⬜ Untested |
+
 ---
 
 ## Project files

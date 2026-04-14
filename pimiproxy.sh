@@ -9,13 +9,14 @@
 #   sudo bash pimiproxy.sh [install|uninstall|configure]
 #
 # Offline image preparation (run on a machine with internet + Docker):
-#   docker pull --platform linux/arm64 ghcr.io/metacubex/metacubexd:latest
-#   docker pull --platform linux/arm64 ghcr.io/zephyruso/zashboard:latest
-#   docker pull --platform linux/arm64 ghcr.io/metacubex/mihomo:latest
-#   docker save ghcr.io/metacubex/metacubexd | gzip > docker-images/metacubexd.tar.gz
-#   docker save ghcr.io/zephyruso/zashboard  | gzip > docker-images/zashboard.tar.gz
-#   docker save ghcr.io/metacubex/mihomo     | gzip > docker-images/mihomo.tar.gz
-#   # pimiproxy-api and pimiproxy-ui are built locally from source at install time
+#   Use rebuild.sh --third-party to pull mihomo/metacubexd/zashboard for both
+#   arm64 and amd64 and save them as multi-arch tarballs. Archives contain both
+#   <image>:arm64 and <image>:amd64 tags; pimiproxy-core.py picks the right one.
+#
+#   ./rebuild.sh --third-party   # mihomo.tar.gz, metacubexd.tar.gz, zashboard.tar.gz
+#   ./rebuild.sh                 # pimiproxy-api.tar.gz, pimiproxy-ui.tar.gz
+#
+#   pimiproxy-api and pimiproxy-ui can also be built from source at install time.
 # =============================================================================
 
 set -euo pipefail
@@ -192,29 +193,67 @@ else
                 apt)
                     spin "Installing prerequisites"  apt-get install -y -qq ca-certificates curl gnupg
                     spin "Adding Aliyun Docker GPG key"  bash -c '
+                        DISTRO="$(. /etc/os-release && echo "$ID")"
                         install -m 0755 -d /etc/apt/keyrings
-                        curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/debian/gpg \
+                        curl -fsSL "https://mirrors.aliyun.com/docker-ce/linux/${DISTRO}/gpg" \
                             | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
                         chmod a+r /etc/apt/keyrings/docker.gpg'
                     spin "Adding Aliyun Docker repo"  bash -c '
+                        DISTRO="$(. /etc/os-release && echo "$ID")"
                         CODENAME="$(. /etc/os-release && echo "$VERSION_CODENAME")"
+                        # Fall back to latest known-supported codename if this one is not in the mirror yet
+                        if ! curl -fsI "https://mirrors.aliyun.com/docker-ce/linux/${DISTRO}/dists/${CODENAME}/Release" \
+                                -o /dev/null 2>/dev/null; then
+                            case "$DISTRO" in
+                                ubuntu) CODENAME="noble" ;;
+                                *)      CODENAME="bookworm" ;;
+                            esac
+                        fi
                         echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-https://mirrors.aliyun.com/docker-ce/linux/debian ${CODENAME} stable" \
+https://mirrors.aliyun.com/docker-ce/linux/${DISTRO} ${CODENAME} stable" \
                             > /etc/apt/sources.list.d/docker.list
                         apt-get update -qq'
                     timed_step "Installing Docker CE via Aliyun" \
                         apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin
                 ;;
                 dnf)
+                    spin "Installing prerequisites"  dnf install -y -q curl
                     spin "Adding Aliyun Docker repo"  bash -c '
-                        dnf install -y -q dnf-plugins-core
-                        dnf config-manager --add-repo \
-                            https://mirrors.aliyun.com/docker-ce/linux/fedora/docker-ce.repo'
+                        # Download repo file directly — avoids dnf4/dnf5 config-manager differences
+                        curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/fedora/docker-ce.repo \
+                            -o /etc/yum.repos.d/docker-ce.repo
+                        # Rewrite base URLs to Aliyun mirror
+                        sed -i "s|download.docker.com|mirrors.aliyun.com/docker-ce|g" \
+                            /etc/yum.repos.d/docker-ce.repo
+                        # If current Fedora version is not in the mirror yet, pin to previous
+                        RELEASEVER=$(rpm -E %fedora)
+                        ARCH=$(uname -m)
+                        if ! curl -fsI \
+                                "https://mirrors.aliyun.com/docker-ce/linux/fedora/${RELEASEVER}/${ARCH}/stable/repodata/repomd.xml" \
+                                -o /dev/null 2>/dev/null; then
+                            RELEASEVER=$((RELEASEVER - 1))
+                            sed -i "s|\$releasever|${RELEASEVER}|g" /etc/yum.repos.d/docker-ce.repo
+                        fi'
                     timed_step "Installing Docker CE via Aliyun" \
                         dnf install -y -q docker-ce docker-ce-cli containerd.io docker-compose-plugin
                 ;;
+                pacman)
+                    spin "Configuring TUNA Arch mirror"  bash -c '
+                        [[ -f /etc/pacman.d/mirrorlist ]] && \
+                            cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.bak
+                        echo "Server = https://mirrors.tuna.tsinghua.edu.cn/archlinux/\$repo/os/\$arch" \
+                            > /etc/pacman.d/mirrorlist
+                        pacman -Sy --noconfirm'
+                    timed_step "Installing Docker via pacman" \
+                        pacman -S --noconfirm docker docker-compose
+                    # Ensure docker compose plugin is wired up
+                    if ! docker compose version &>/dev/null 2>&1; then
+                        mkdir -p /usr/lib/docker/cli-plugins
+                        ln -sf /usr/bin/docker-compose /usr/lib/docker/cli-plugins/docker-compose
+                    fi
+                ;;
                 *)
-                    warn "China mirror mode is supported for apt/dnf only. Falling back to get.docker.com."
+                    warn "China mirror mode is not supported for this package manager. Falling back to get.docker.com."
                     timed_step "Installing Docker CE via get.docker.com" \
                         bash -c 'curl -fsSL https://get.docker.com | sh'
                 ;;

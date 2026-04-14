@@ -1,11 +1,13 @@
 ## mihomo v1.19.23
-
+docker.io/metacubex/mihomo:latest
 https://github.com/MetaCubeX/mihomo/releases/tag/v1.19.23
 
 ## metacubexd v1.244.2
+ghcr.io/metacubex/metacubexd:latest
 https://github.com/MetaCubeX/metacubexd/releases/tag/v1.244.2
 
 ## zashboard v3.3.0
+ghcr.io/zephyruso/zashboard:latest
 https://github.com/Zephyruso/zashboard/releases/tag/v3.3.0
 
 ## pimiproxy-api

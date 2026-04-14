@@ -13,6 +13,7 @@ import subprocess
 import textwrap
 import json
 import threading
+import platform
 import itertools
 from pathlib import Path
 
@@ -525,8 +526,9 @@ def setup_docker_repo(distro: str):
         keyring.chmod(0o644)
 
         sources = Path("/etc/apt/sources.list.d/docker.list")
+        deb_arch = {"aarch64": "arm64", "x86_64": "amd64"}.get(platform.machine(), platform.machine())
         sources.write_text(
-            f"deb [arch=arm64 signed-by={keyring}] {base} {codename} stable\n")
+            f"deb [arch={deb_arch} signed-by={keyring}] {base} {codename} stable\n")
         run(["apt-get", "update", "-qq"], silent=True)
         info("Docker CE repo configured.")
 
@@ -579,6 +581,16 @@ def _image_already_loaded(tag: str) -> bool:
     return r.returncode == 0
 
 
+def _host_arch() -> str:
+    """Return the Docker platform string for the current host CPU."""
+    return {
+        "aarch64": "linux/arm64",
+        "x86_64":  "linux/amd64",
+        "armv7l":  "linux/arm/v7",
+        "armv6l":  "linux/arm/v6",
+    }.get(platform.machine(), f"linux/{platform.machine()}")
+
+
 def _find_archive(archive: str) -> "Path | None":
     """
     Search for a .tar.gz archive in order:
@@ -609,25 +621,55 @@ def load_image(archive: str, fallback: str, arch: str) -> str:
 
     Returns the image tag.
     """
-    # 1 — already loaded
+    # 1 — already loaded (verify arch matches host before reusing)
     if _image_already_loaded(fallback):
-        info(f"Already loaded: {fallback}")
-        return fallback
+        r = run(["docker", "image", "inspect", fallback,
+                 "--format", "{{.Os}}/{{.Architecture}}"],
+                capture=True, check=False, silent=True)
+        img_platform = r.stdout.strip()
+        if not img_platform or img_platform == arch:
+            info(f"Already loaded: {fallback}")
+            return fallback
+        info(f"Cached {fallback} is {img_platform}, need {arch} — replacing.")
+        run(["docker", "rmi", fallback], silent=True, check=False)
 
     # 2 — local archive
     p = _find_archive(archive)
     if p:
         with Spinner(f"Loading {p.name} from disk"):
             result = run(f"gunzip -c {p} | docker load", capture=True)
-        output = result.stdout + result.stderr
-        for line in output.splitlines():
+        loaded_tags = []
+        for line in (result.stdout + result.stderr).splitlines():
             if "Loaded image:" in line:
-                tag = line.split("Loaded image:")[-1].strip()
-                info(f"Loaded: {tag}")
-                return tag
-        warn(
-            f"Could not parse image tag from {p.name} — will try pulling instead."
-        )
+                loaded_tags.append(line.split("Loaded image:")[-1].strip())
+
+        if loaded_tags:
+            # Multi-arch archives contain e.g. mihomo:arm64 + mihomo:amd64.
+            # Prefer the tag whose suffix matches the host arch; fall back to
+            # the only tag present (single-arch / legacy archive).
+            arch_suffix = {"linux/arm64": "arm64", "linux/amd64": "amd64"}.get(
+                arch, arch.split("/")[-1])
+            chosen = next(
+                (t for t in loaded_tags if t.endswith(f":{arch_suffix}")),
+                loaded_tags[0],
+            )
+            # Verify the chosen image actually matches the host arch
+            r = run(["docker", "image", "inspect", chosen,
+                     "--format", "{{.Os}}/{{.Architecture}}"],
+                    capture=True, check=False, silent=True)
+            img_platform = r.stdout.strip()
+            if img_platform and img_platform != arch:
+                warn(f"Archive {p.name} has no {arch} image (found {img_platform}) — pulling from registry.")
+                for t in loaded_tags:
+                    run(["docker", "rmi", t], silent=True, check=False)
+            else:
+                # Retag as the canonical fallback name if needed
+                if chosen != fallback:
+                    run(["docker", "tag", chosen, fallback], silent=True)
+                info(f"Loaded: {fallback}")
+                return fallback
+        else:
+            warn(f"Could not parse image tag from {p.name} — will try pulling instead.")
 
     # 3 — registry pull (may fail in China / air-gapped environments)
     warn(f"No local archive found for {archive}.")
@@ -650,7 +692,7 @@ META_PATH = Path("/opt/pimiproxy/.pimiproxy-meta.json")
 BANNER_PATH = Path("/etc/profile.d/pimiproxy-banner.sh")
 
 # Docker image references
-MIHOMO_IMAGE = "ghcr.io/metacubex/mihomo:latest"
+MIHOMO_IMAGE = "metacubex/mihomo:latest"
 METACUBEXD_IMAGE = "ghcr.io/metacubex/metacubexd:latest"
 ZASHBOARD_IMAGE = "ghcr.io/zephyruso/zashboard:latest"
 
@@ -984,7 +1026,7 @@ def build_compose(cfg: dict) -> str:
     L("    container_name: pimiproxy-api")
     L("    restart: unless-stopped")
     L("    volumes:")
-    L(f"      - {install_dir}:/pimiproxy")
+    L(f"      - {install_dir}:/pimiproxy:z")
     L("      - /var/run/docker.sock:/var/run/docker.sock")
     L()
     L("  pimiproxy-ui:")
@@ -1355,7 +1397,7 @@ def do_update():
     meta = read_meta()
     install_dir = Path(meta["install_dir"])
     compose = (meta["compose_bin"], meta["compose_sub"])
-    arch = meta.get("arch", "linux/arm64")
+    arch = meta.get("arch") or _host_arch()
     dash_type = meta.get("dashboard_type", "metacubexd")
 
     proxy_active = Path("/run/pimiproxy-proxy-on").exists()
@@ -1371,16 +1413,29 @@ def do_update():
     print()
 
     def _pull(image: str, archive_name: str, label: str):
-        """Load from archive if present, otherwise pull from registry."""
+        """Load from archive if present and arch matches, otherwise pull from registry."""
         _archive = _find_archive(archive_name)
+        needs_pull = True
         if _archive:
             with Spinner(f"Loading {label} from archive"):
                 result = run(f"gunzip -c {_archive} | docker load", capture=True)
+            tag = None
             for line in (result.stdout + result.stderr).splitlines():
                 if "Loaded image:" in line:
-                    info(f"Loaded: {line.split('Loaded image:')[-1].strip()}")
-        else:
-            info(f"No archive found — pulling {label} from registry...")
+                    tag = line.split("Loaded image:")[-1].strip()
+            if tag:
+                r = run(["docker", "image", "inspect", tag,
+                         "--format", "{{.Os}}/{{.Architecture}}"],
+                        capture=True, check=False, silent=True)
+                img_platform = r.stdout.strip()
+                if img_platform and img_platform != arch:
+                    warn(f"Archive {archive_name} is {img_platform} but this host is {arch} — pulling correct platform.")
+                    run(["docker", "rmi", tag], silent=True, check=False)
+                else:
+                    info(f"Loaded: {tag}")
+                    needs_pull = False
+        if needs_pull:
+            info(f"Pulling {label} from registry ({arch})...")
             result = run(["docker", "pull", "--platform", arch, image], check=False)
             if result.returncode != 0:
                 if proxy_active:
@@ -1905,7 +1960,7 @@ def do_configure():
             print(f"\n  Current dashboard: {cur_dash}")
             if confirm(f"Switch to {other}?"):
                 step(f"Loading {other} image")
-                arch = meta.get("arch", "linux/arm64")
+                arch = meta.get("arch") or _host_arch()
                 new_img = load_image(other_arc, other_img, arch)
                 cfg["dashboard_image"] = new_img
                 cfg["dash_name"] = other
@@ -2094,7 +2149,7 @@ def do_install():
     mixed_port = "7890"
     ui_port = "8585"
     api_secret = "pimiproxy"
-    arch = "linux/arm64"
+    arch = _host_arch()
     dash_choice = 1
 
     # ── express / advanced ────────────────────────────────────────────────────
@@ -2224,41 +2279,61 @@ def do_install():
     _api_src = _script_dir / "pimiproxy-api"
     _ui_src = _script_dir / "pimiproxy-ui"
 
-    step("pimiproxy-api image")
-    if _image_already_loaded("pimiproxy-api:latest"):
-        info("pimiproxy-api: already loaded — reusing existing image.")
-    elif _api_archive:
-        with Spinner("Loading pimiproxy-api from archive"):
-            run(["docker", "load", "-i", str(_api_archive)], silent=True)
-        info("pimiproxy-api image loaded from archive.")
-    elif _api_src.exists():
-        info("Building pimiproxy-api from source (this may take a minute)…")
-        run(["docker", "build", "-t", "pimiproxy-api:latest",
-             str(_api_src)],
-            silent=False)
-        info("pimiproxy-api image built.")
-    else:
-        warn(
-            "pimiproxy-api archive not found in any standard location — skipping. Web UI will not work."
-        )
+    arch_suffix = {"linux/arm64": "arm64", "linux/amd64": "amd64"}.get(
+        arch, arch.split("/")[-1])
 
-    step("pimiproxy-ui image")
-    if _image_already_loaded("pimiproxy-ui:latest"):
-        info("pimiproxy-ui: already loaded — reusing existing image.")
-    elif _ui_archive:
-        with Spinner("Loading pimiproxy-ui from archive"):
-            run(["docker", "load", "-i", str(_ui_archive)], silent=True)
-        info("pimiproxy-ui image loaded from archive.")
-    elif _ui_src.exists():
-        info("Building pimiproxy-ui from source (this may take a minute)…")
-        run(["docker", "build", "-t", "pimiproxy-ui:latest",
-             str(_ui_src)],
-            silent=False)
-        info("pimiproxy-ui image built.")
-    else:
-        warn(
-            "pimiproxy-ui archive not found in any standard location — skipping. Web UI will not work."
-        )
+    for _svc, _tag, _svc_archive, _svc_src in [
+        ("pimiproxy-api", "pimiproxy-api:latest", _api_archive, _api_src),
+        ("pimiproxy-ui",  "pimiproxy-ui:latest",  _ui_archive,  _ui_src),
+    ]:
+        step(f"{_svc} image")
+        _reuse = False
+        if _image_already_loaded(_tag):
+            r = run(["docker", "image", "inspect", _tag,
+                     "--format", "{{.Os}}/{{.Architecture}}"],
+                    capture=True, check=False, silent=True)
+            img_platform = r.stdout.strip()
+            if not img_platform or img_platform == arch:
+                info(f"{_svc}: already loaded — reusing existing image.")
+                _reuse = True
+            else:
+                info(f"Cached {_tag} is {img_platform}, need {arch} — replacing.")
+                run(["docker", "rmi", _tag], silent=True, check=False)
+        if _reuse:
+            pass
+        elif _svc_archive:
+            with Spinner(f"Loading {_svc} from archive"):
+                result = run(["docker", "load", "-i", str(_svc_archive)], capture=True)
+            loaded = [l.split("Loaded image:")[-1].strip()
+                      for l in (result.stdout + result.stderr).splitlines()
+                      if "Loaded image:" in l]
+            # Pick arch-specific tag from multi-arch archive, fall back to first
+            chosen = next((t for t in loaded if t.endswith(f":{arch_suffix}")),
+                          loaded[0] if loaded else None)
+            if chosen:
+                r = run(["docker", "image", "inspect", chosen,
+                         "--format", "{{.Os}}/{{.Architecture}}"],
+                        capture=True, check=False, silent=True)
+                img_platform = r.stdout.strip()
+                if img_platform and img_platform != arch:
+                    warn(f"Archive has no {arch} image for {_svc} — building from source.")
+                    for t in loaded:
+                        run(["docker", "rmi", t], silent=True, check=False)
+                    if _svc_src.exists():
+                        run(["docker", "build", "-t", _tag, str(_svc_src)], silent=False)
+                        info(f"{_svc} image built.")
+                    else:
+                        warn(f"No source found for {_svc} — Web UI will not work.")
+                else:
+                    if chosen != _tag:
+                        run(["docker", "tag", chosen, _tag], silent=True)
+                    info(f"{_svc} image loaded from archive.")
+        elif _svc_src.exists():
+            info(f"Building {_svc} from source (this may take a minute)…")
+            run(["docker", "build", "-t", _tag, str(_svc_src)], silent=False)
+            info(f"{_svc} image built.")
+        else:
+            warn(f"{_svc} archive not found in any standard location — skipping. Web UI will not work.")
 
     # ── directories ───────────────────────────────────────────────────────────
     step("Directories")
