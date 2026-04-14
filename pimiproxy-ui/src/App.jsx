@@ -63,7 +63,7 @@ export default function App() {
     localStorage.setItem('theme', theme)
   }, [theme])
 
-  // Check if already authenticated on mount; also grab dashboard URL
+  // Check if already authenticated on mount
   useEffect(() => {
     api.status()
       .then(s => {
@@ -73,6 +73,17 @@ export default function App() {
       })
       .catch(() => setAuthed(false))
   }, [])
+
+  // After login (authed flips true but dashUrl not yet set), fetch dashboard URL
+  useEffect(() => {
+    if (!authed || dashUrl) return
+    api.status()
+      .then(s => {
+        const port = s.dashboard_port ?? '8080'
+        setDashUrl(`http://${window.location.hostname}:${port}`)
+      })
+      .catch(() => {})
+  }, [authed])
 
   const handleLogout = useCallback(async () => {
     try { await api.logout() } catch (_) {}
