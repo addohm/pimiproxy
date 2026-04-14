@@ -1,6 +1,6 @@
 FROM python:3.12-alpine
 RUN apk add --no-cache docker-cli
-RUN pip install --no-cache-dir django gunicorn
+RUN pip install --no-cache-dir django gunicorn pyyaml
 COPY . /app
 WORKDIR /app
 EXPOSE 8000

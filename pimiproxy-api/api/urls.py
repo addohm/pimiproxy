@@ -15,6 +15,7 @@ urlpatterns = [
     path("refresh",          views.refresh_view),
     path("refresh-settings", views.refresh_settings_view),
     path("check",            views.check_view),
+    path("import/user-config",    views.import_user_config_view),
     path("export/user-config",    views.export_user_config_view),
     path("export/provider-yaml",  views.export_provider_yaml_view),
     path("export/final-config",   views.export_final_config_view),

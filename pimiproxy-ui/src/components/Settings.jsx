@@ -10,6 +10,7 @@ export default function Settings({ onUnauthorized }) {
   const [intervalDays, setIntervalDays]     = useState(1)
   const [schedSaveStatus, setSchedSaveStatus] = useState('') // '', 'saving', 'saved', 'error'
   const [exportStatus, setExportStatus] = useState({}) // { user: '', provider: '', config: '' }
+  const [importStatus, setImportStatus] = useState('') // '', 'importing', 'done', 'error'
   const [error, setError]             = useState('')
 
   async function load() {
@@ -67,6 +68,32 @@ export default function Settings({ onUnauthorized }) {
     } catch (err) {
       if (err.status === 401) { onUnauthorized(); return }
       setSchedSaveStatus('error')
+      setError(err.message)
+    }
+  }
+
+  async function handleImport(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    setImportStatus('importing')
+    try {
+      const text = await file.text()
+      const res = await fetch('/api/import/user-config', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/x-yaml' },
+        body: text,
+      })
+      if (res.status === 401) { onUnauthorized(); return }
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+      setImportStatus('done')
+      await load()
+      setTimeout(() => setImportStatus(''), 3000)
+    } catch (err) {
+      if (err.status === 401) { onUnauthorized(); return }
+      setImportStatus('error')
       setError(err.message)
     }
   }
@@ -189,8 +216,45 @@ export default function Settings({ onUnauthorized }) {
           Download your configuration files for backup or use with a standalone Mihomo instance.
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {/* User config row — has both import and export */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <div>
+              <div style={{ fontSize: 14 }}>Your groups &amp; rules</div>
+              <div style={{ fontSize: 12, color: 'var(--dim)' }}>pimiproxy-user-config.yaml</div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+              <label
+                className="btn btn-ghost"
+                style={{ cursor: 'pointer', margin: 0 }}
+                title="Import replaces your current groups and rules"
+              >
+                {importStatus === 'importing' ? 'Importing…'
+                  : importStatus === 'done'    ? 'Imported'
+                  : importStatus === 'error'   ? 'Error'
+                  : 'Import'}
+                <input
+                  type="file"
+                  accept=".yaml,.yml,.json"
+                  style={{ display: 'none' }}
+                  onChange={handleImport}
+                  disabled={importStatus === 'importing'}
+                />
+              </label>
+              <button
+                className="btn btn-ghost"
+                onClick={() => handleExport('user', api.exportUserConfig)}
+                disabled={exportStatus['user'] === 'downloading'}
+              >
+                {exportStatus['user'] === 'downloading' ? 'Downloading…'
+                  : exportStatus['user'] === 'done'      ? 'Done'
+                  : exportStatus['user'] === 'error'     ? 'Error'
+                  : 'Export'}
+              </button>
+            </div>
+          </div>
+
+          {/* Provider and final config — export only */}
           {[
-            { key: 'user',     label: 'Your groups & rules',  desc: 'pimiproxy-user-config.json', fn: api.exportUserConfig },
             { key: 'provider', label: 'Provider subscription', desc: 'pimiproxy-provider.yaml',    fn: api.exportProviderYaml },
             { key: 'config',   label: 'Final Mihomo config',   desc: 'pimiproxy-config.yaml',      fn: api.exportFinalConfig },
           ].map(({ key, label, desc, fn }) => (
@@ -208,7 +272,7 @@ export default function Settings({ onUnauthorized }) {
                 {exportStatus[key] === 'downloading' ? 'Downloading…'
                   : exportStatus[key] === 'done'      ? 'Done'
                   : exportStatus[key] === 'error'     ? 'Error'
-                  : 'Download'}
+                  : 'Export'}
               </button>
             </div>
           ))}

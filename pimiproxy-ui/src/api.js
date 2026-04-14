@@ -42,7 +42,7 @@ export const api = {
   refresh:            ()         => req("POST",   "refresh"),
   setRefreshSettings: (settings) => req("POST",   "refresh-settings",  settings),
   check:              (url)      => req("POST",   "check",             { url }),
-  exportUserConfig:   ()         => download("export/user-config",   "pimiproxy-user-config.json"),
+  exportUserConfig:   ()         => download("export/user-config",   "pimiproxy-user-config.yaml"),
   exportProviderYaml: ()         => download("export/provider-yaml", "pimiproxy-provider.yaml"),
   exportFinalConfig:  ()         => download("export/final-config",  "pimiproxy-config.yaml"),
 }

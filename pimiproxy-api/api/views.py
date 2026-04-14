@@ -9,6 +9,8 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import urlparse
 
+import yaml
+
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
@@ -528,6 +530,43 @@ def check_view(request):
 
     return ok(response)
 
+# ── Import ───────────────────────────────────────────────────────────────────
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def import_user_config_view(request):
+    content_type = request.content_type or ""
+    try:
+        if "application/json" in content_type:
+            data = json.loads(request.body)
+        else:
+            data = yaml.safe_load(request.body)
+    except Exception:
+        return err("Could not parse file — expected YAML or JSON")
+
+    if not isinstance(data, dict):
+        return err("File must be a YAML/JSON object with proxy_groups and/or rules keys")
+
+    proxy_groups = data.get("proxy_groups")
+    rules = data.get("rules")
+
+    if proxy_groups is None and rules is None:
+        return err("File must contain at least one of: proxy_groups, rules")
+    if proxy_groups is not None and not isinstance(proxy_groups, list):
+        return err("proxy_groups must be a list")
+    if rules is not None and not isinstance(rules, list):
+        return err("rules must be a list")
+
+    cfg = _read_cfg()
+    if proxy_groups is not None:
+        cfg["proxy_groups"] = proxy_groups
+    if rules is not None:
+        cfg["rules"] = rules
+    _write_cfg(cfg)
+    _rebuild_and_restart(cfg)
+    return ok({"imported_groups": len(proxy_groups or []), "imported_rules": len(rules or [])})
+
+
 # ── Export ────────────────────────────────────────────────────────────────────
 
 @require_http_methods(["GET"])
@@ -537,8 +576,9 @@ def export_user_config_view(request):
         "proxy_groups": cfg.get("proxy_groups", []),
         "rules":        cfg.get("rules", []),
     }
-    response = HttpResponse(json.dumps(data, indent=2), content_type="application/json")
-    response["Content-Disposition"] = 'attachment; filename="pimiproxy-user-config.json"'
+    content = yaml.dump(data, allow_unicode=True, default_flow_style=False, sort_keys=False)
+    response = HttpResponse(content, content_type="application/x-yaml")
+    response["Content-Disposition"] = 'attachment; filename="pimiproxy-user-config.yaml"'
     return response
 
 

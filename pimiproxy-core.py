@@ -1171,35 +1171,36 @@ def build_banner(cfg: dict, meta: dict) -> str:
     L("  printf '  Proxies loaded  %s\\n' \"${_D}${_COUNT}${_N}\"")
     L("fi")
     L()
+    L("# ── AES hardware acceleration (baked in at install time) ─────────────")
+    if aes_ok:
+        L("  printf '  AES hardware    %s\\n' \"${_G}●  available${_N}\"")
+    else:
+        L("  printf '  AES hardware    %s\\n' \"${_Y}○  software fallback — higher latency${_N}\"")
+    L()
+    # ── Tip (above endpoints) ─────────────────────────────────────────────────
     L('printf "%s\\n" "$_S"')
-    L(f'printf "  Dashboard  →  %s\\n" "http://{hostname}.lan:{dash_port}"')
-    L(f'printf "  UI         →  %s\\n" "http://{hostname}.lan:{ui_port}"')
-    L(f'printf "  API        →  %s\\n" "http://{hostname}.lan:{api_port}"')
-    L(f'printf "  Proxy      →  %s\\n" "{hostname}.lan:{mixed_port}  (HTTP/SOCKS5)"'
-      )
-    L('printf "%s\\n" "$_S"')
-    L('printf "  %s\\n" "${_D}clash-system [on|off|status|restart]${_N}"')
-    L('printf "  %s\\n" "${_D}pimiproxy-core.py [status|logs|configure|debug]${_N}"'
-      )
-    L('printf "%s\\n" "$_S"')
-    L('printf "  ${_Y}Tip:${_N} Some apps (Unity VR games etc.) bypass the system proxy.\\n"'
-      )
-    L('printf "  Route all device traffic through this Pi instead:\\n"')
-    L('printf "  Set the device WiFi to ${_B}static${_N} with these values:\\n"'
-      )
     L('_PI_IP=$(hostname -I 2>/dev/null | awk \'{print $1}\')')
     L('_GW=$(ip route 2>/dev/null | awk \'/^default/{print $3; exit}\')')
     L('_IFACE=$(ip route 2>/dev/null | awk \'/^default/{print $5; exit}\')')
-    L('_CIDR=$(ip -4 addr show "$_IFACE" 2>/dev/null | awk \'/inet /{split($2,a,"/"); print a[2]; exit}\')'
-      )
+    L('_CIDR=$(ip -4 addr show "$_IFACE" 2>/dev/null | awk \'/inet /{split($2,a,"/"); print a[2]; exit}\')')
+    L('printf "  ${_Y}Tip:${_N} Some apps (Unity VR games etc.) bypass the system proxy.\\n"')
+    L('printf "  Route all device traffic through this Pi instead:\\n"')
+    L('printf "  Set the device WiFi to ${_B}static${_N} with these values:\\n"')
     L('printf "    IP address  →  pick any unused IP on your subnet\\n"')
     L('printf "    Subnet      →  /%s\\n" "${_CIDR:-24}"')
-    L('printf "    Gateway     →  %s  ${_D}(this Pi)${_N}\\n" "${_PI_IP:-<pi-ip>}"'
-      )
-    L('printf "    DNS 1       →  %s  ${_D}(this Pi)${_N}\\n" "${_PI_IP:-<pi-ip>}"'
-      )
-    L('printf "    DNS 2       →  %s  ${_D}(your router, fallback)${_N}\\n" "${_GW:-<router-ip>}"'
-      )
+    L('printf "    Gateway     →  %s  ${_D}(this Pi)${_N}\\n" "${_PI_IP:-<pi-ip>}"')
+    L('printf "    DNS 1       →  %s  ${_D}(this Pi)${_N}\\n" "${_PI_IP:-<pi-ip>}"')
+    L('printf "    DNS 2       →  %s  ${_D}(your router, fallback)${_N}\\n" "${_GW:-<router-ip>}"')
+    L()
+    # ── Endpoints ─────────────────────────────────────────────────────────────
+    L('printf "%s\\n" "$_S"')
+    L(f'printf "  ${{_C}}Dashboard${{_N}}  →  http://{hostname}.lan:{dash_port}\\n"')
+    L(f'printf "  ${{_C}}UI${{_N}}         →  http://{hostname}.lan:{ui_port}\\n"')
+    L(f'printf "  ${{_C}}API${{_N}}        →  http://{hostname}.lan:{api_port}\\n"')
+    L(f'printf "  ${{_B}}${{_C}}Proxy${{_N}}      →  ${{_B}}{hostname}.lan:{mixed_port}  (HTTP/SOCKS5)${{_N}}\\n"')
+    L('printf "%s\\n" "$_S"')
+    L('printf "  %s\\n" "${_D}clash-system [on|off|status|restart]${_N}"')
+    L('printf "  %s\\n" "${_D}pimiproxy-core.py [status|logs|configure|debug]${_N}"')
     L('printf "%s\\n\\n" "$_S"')
 
     return "\n".join(lines) + "\n"
@@ -1354,12 +1355,72 @@ def do_update():
     meta = read_meta()
     install_dir = Path(meta["install_dir"])
     compose = (meta["compose_bin"], meta["compose_sub"])
+    arch = meta.get("arch", "linux/arm64")
+    dash_type = meta.get("dashboard_type", "metacubexd")
+
+    proxy_active = Path("/run/pimiproxy-proxy-on").exists()
 
     banner("pimiproxy update", C.CYAN)
-    step("Pulling latest images")
-    compose_run(compose, "pull", cwd=install_dir)
+    print()
+    if proxy_active:
+        print("  System proxy is ON — registry pulls will route through Mihomo.")
+    else:
+        print("  Place updated .tar.gz archives in docker-images/ before running")
+        print("  this command. Archives are loaded from disk if present; registry")
+        print("  pull is attempted only as a last resort (may fail without a proxy).")
+    print()
 
-    step("Recreating containers with new images")
+    def _pull(image: str, archive_name: str, label: str):
+        """Load from archive if present, otherwise pull from registry."""
+        _archive = _find_archive(archive_name)
+        if _archive:
+            with Spinner(f"Loading {label} from archive"):
+                result = run(f"gunzip -c {_archive} | docker load", capture=True)
+            for line in (result.stdout + result.stderr).splitlines():
+                if "Loaded image:" in line:
+                    info(f"Loaded: {line.split('Loaded image:')[-1].strip()}")
+        else:
+            info(f"No archive found — pulling {label} from registry...")
+            result = run(["docker", "pull", "--platform", arch, image], check=False)
+            if result.returncode != 0:
+                if proxy_active:
+                    warn(f"Pull failed even with system proxy. Check Mihomo logs.")
+                else:
+                    warn(f"Pull failed. Enable system proxy or place {archive_name} in docker-images/ and retry.")
+
+    # ── Third-party images ────────────────────────────────────────────────────
+    step("Mihomo")
+    _pull(MIHOMO_IMAGE, "mihomo.tar.gz", "mihomo")
+
+    step("Dashboard")
+    if dash_type == "zashboard":
+        _pull(ZASHBOARD_IMAGE, "zashboard.tar.gz", "zashboard")
+    else:
+        _pull(METACUBEXD_IMAGE, "metacubexd.tar.gz", "metacubexd")
+
+    # ── pimiproxy images ──────────────────────────────────────────────────────
+    _script_dir = Path(__file__).resolve().parent
+
+    for _svc, _tag, _archive_name in [
+        ("pimiproxy-api", "pimiproxy-api:latest", "pimiproxy-api.tar.gz"),
+        ("pimiproxy-ui",  "pimiproxy-ui:latest",  "pimiproxy-ui.tar.gz"),
+    ]:
+        step(_svc)
+        _archive = _find_archive(_archive_name)
+        _src = _script_dir / _svc
+        if _archive:
+            with Spinner(f"Loading {_svc} from archive"):
+                run(["docker", "load", "-i", str(_archive)], silent=True)
+            info(f"{_svc} loaded from archive.")
+        elif _src.exists():
+            info(f"Building {_svc} from source…")
+            run(["docker", "build", "-t", _tag, str(_src)], silent=False)
+            info(f"{_svc} built.")
+        else:
+            warn(f"No archive or source found for {_svc} — skipping.")
+
+    # ── Recreate all containers ───────────────────────────────────────────────
+    step("Recreating containers")
     compose_run(compose, "up", "-d", "--force-recreate", cwd=install_dir)
     info("Update complete.")
 
@@ -2378,34 +2439,27 @@ def do_install():
     SEP = f"  {'─'*42}"
     B, G, Y, D, N = C.BOLD, C.GREEN, C.YELLOW, C.DIM, C.NC
 
+    C2 = C.CYAN
     print()
     print(f"{B}{G}  pimiproxy — installation complete{N}")
     print(SEP)
-    print(f"  Dashboard  →  http://{hostname_new}.lan:{dashboard_port}")
-    print(f"             →  http://{lan_ip}:{dashboard_port}")
-    print(f"  UI         →  http://{hostname_new}.lan:{ui_port}")
-    print(f"  API        →  http://{hostname_new}.lan:{api_port}")
-    print(f"  Proxy      →  {hostname_new}.lan:{mixed_port}  (HTTP/SOCKS5)")
-    print(SEP)
-    if has_aes_hardware():
-        print(f"  AES hardware   {G}●  available{N}")
-    else:
-        print(f"  AES hardware   {Y}○  software fallback — higher latency{N}")
-    print(f"  {D}clash-system [on|off|status|restart]{N}")
-    print(f"  {D}pimiproxy-core.py [configure|status|logs|debug]{N}")
-    print(SEP)
-    print(
-        f"  {Y}Tip:{N} Some apps (Unity VR games etc.) bypass the system proxy."
-    )
+    print(f"  {Y}Tip:{N} Some apps (Unity VR games etc.) bypass the system proxy.")
     print(f"  Route all device traffic through this Pi instead:")
     print(f"  Set the device WiFi to {B}static{N} with these values:")
     print(f"    IP address  →  pick any unused IP on your subnet")
     print(f"    Subnet      →  /{_cidr}")
     print(f"    Gateway     →  {lan_ip}  {D}(this Pi){N}")
     print(f"    DNS 1       →  {lan_ip}  {D}(this Pi){N}")
-    print(
-        f"    DNS 2       →  {_gw or '<router-ip>'}  {D}(your router, fallback){N}"
-    )
+    print(f"    DNS 2       →  {_gw or '<router-ip>'}  {D}(your router, fallback){N}")
+    print(SEP)
+    print(f"  {C2}Dashboard{N}  →  http://{hostname_new}.lan:{dashboard_port}")
+    print(f"             →  http://{lan_ip}:{dashboard_port}")
+    print(f"  {C2}UI{N}         →  http://{hostname_new}.lan:{ui_port}")
+    print(f"  {C2}API{N}        →  http://{hostname_new}.lan:{api_port}")
+    print(f"  {B}{C2}Proxy{N}      →  {B}{hostname_new}.lan:{mixed_port}  (HTTP/SOCKS5){N}")
+    print(SEP)
+    print(f"  {D}clash-system [on|off|status|restart]{N}")
+    print(f"  {D}pimiproxy-core.py [configure|status|logs|debug]{N}")
     print(SEP)
     print()
 
