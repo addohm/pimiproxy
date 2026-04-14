@@ -1977,7 +1977,7 @@ def do_install():
     info("avahi-daemon ready.")
 
     # Docker — add repo first if needed, then install
-    setup_docker_repo(distro, china_mirrors)
+    setup_docker_repo(distro, False)
     if not shutil.which("docker"):
         _docker_pkg = "docker-ce" if distro in ("fedora", "arch", "suse") else "docker.io"
         pkg_install(distro, _docker_pkg)
