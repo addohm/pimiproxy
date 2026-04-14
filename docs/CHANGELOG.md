@@ -1,3 +1,17 @@
+## [5.1.0] — 2026-04-14
+
+### Fixed
+- **Proxy names with special YAML characters cause Mihomo crash** — proxy names containing `[`, `:`, `#`, or other YAML-reserved characters (e.g. `[REALITY] [CHINA] Daily Usage 4`) were written unquoted into `proxy-groups` lists. YAML parsed them as flow sequences and Mihomo refused to start. All proxy names in group `proxies:` lists are now quoted with `yaml_quote()` in both `config_builder.py` and `pimiproxy-core.py`.
+- **Meta Quest group referenced non-existent "Provider" group** — the hardcoded `- "Provider"` entry in the injected `🧭 Meta Quest` group caused a Mihomo crash loop (`proxy group: 🧭 Meta Quest: 'Provider' not found`) on subscriptions where the top-level group has a different name. The group now uses the first group name extracted from the subscription YAML, matching the actual group that exists.
+- **GeoIP MMDB download failure on networks without GitHub access** — Mihomo attempts to download `geoip.metadb`, `geosite.dat`, and `country.mmdb` from GitHub on first start. On networks where GitHub is unreachable, Mihomo deletes any partially downloaded file and enters a crash loop. Geo data files are now bundled in `docker-images/` and copied to `/opt/pimiproxy/config/` at install time. `geo-auto-update: false` is now set in all generated configs so Mihomo never attempts to download or update these files at runtime.
+- **(XD) dashboard link pointed to the wrong port** — the link in the management UI sidebar was defined as `href={dashUrl}`, but `dashUrl` was only populated by the initial auth check, which runs before login and fails with 401. After logging in, `dashUrl` remained empty and the link fell back to `#`, keeping the user on the UI port. A second `useEffect` with an `[authed]` dependency now fetches `/api/status` immediately after login and sets `dashUrl` correctly.
+
+### Added
+- **Check URL tool** — new tab in the management UI. Enter a URL to test whether it is reachable through the proxy. Shows HTTP status, latency, and — when available — the live Mihomo routing decision: which rule matched, rule type and value, and the full proxy chain the connection used. Routing data is retrieved by polling Mihomo's `/connections` API while the probe is in-flight.
+- **Geodata files bundled with installer** — `geoip.metadb`, `geosite.dat`, and `country.mmdb` placed in `docker-images/` are copied to the Mihomo config directory at install time. If files are already present they are not overwritten.
+
+---
+
 ## [5.0.0] — 2026-04-14
 
 ### Added

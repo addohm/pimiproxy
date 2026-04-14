@@ -77,6 +77,10 @@ rsync -avz docker-images/ user@pimiproxy.lan:~/pimiproxy/docker-images/
 
 Place all `.tar.gz` archives in the `docker-images/` subdirectory alongside `pimiproxy-core.py`. If archives are present when the installer runs, they will be loaded from disk instead of pulled or built from source.
 
+### Geodata files (bundled with pimiproxy)
+
+`geoip.metadb`, `geosite.dat`, and `country.mmdb` should also be placed in `docker-images/`. The installer copies them to `/opt/pimiproxy/config/` so Mihomo has them available without needing network access to GitHub. These files are required for GEOSITE and GEOIP rule matching. `geo-auto-update: false` is set in all generated configs — Mihomo will never attempt to download or update them at runtime.
+
 ---
 
 ## 3. Running the installer
@@ -304,6 +308,16 @@ pimiproxy includes a browser-based management UI for managing proxy groups, rule
 **Default URL:** `http://pimiproxy.lan:8585`
 
 Log in with your API secret (default: `pimiproxy`).
+
+The UI has five tabs:
+
+| Tab | Description |
+|-----|-------------|
+| **Overview** | Container status, proxy count, and provider info |
+| **Groups** | View provider groups (read-only) and manage your own groups |
+| **Rules** | Manage your rules (drag to reorder); provider rules shown below as read-only |
+| **Check URL** | Test whether a URL is reachable through the proxy. Shows HTTP status, latency, and the live Mihomo routing decision (matched rule, proxy chain) |
+| **Settings** | Provider URL, manual refresh, port info |
 
 The UI is served by two Docker containers (`pimiproxy-api` and `pimiproxy-ui`) that are built and started as part of the install. If they are not running, use option 11 in the `configure` menu to build or rebuild them:
 

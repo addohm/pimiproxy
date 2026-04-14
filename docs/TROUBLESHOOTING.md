@@ -185,7 +185,7 @@ cd /opt/pimiproxy && docker compose logs --tail=50 mihomo
 |-------------|-------|-----|
 | `bind: address already in use` on port 53 | systemd-resolved conflict | See [section 3](#3-dns-port-53-conflict) |
 | `bind: address already in use` on port 7890/9090 | Port conflict | See [section 5](#5-port-already-in-use) |
-| `failed to get GeoIP data` or MMDB errors | MaxMind database not yet downloaded | Wait ~60s after first start; or check network access to GitHub |
+| `failed to get GeoIP data` or MMDB errors | Geo data files missing from config directory | Copy `geoip.metadb`, `geosite.dat`, `country.mmdb` from `docker-images/` to `/opt/pimiproxy/config/`, then restart Mihomo. The installer does this automatically; if upgrading an older install, re-run `sudo python3 pimiproxy-core.py install` to trigger the copy. |
 | `no such file or directory` for config | Config path misconfigured | Confirm `/opt/pimiproxy/config/config.yaml` exists |
 | Container exits immediately with no log | Privileged mode blocked | Confirm Docker daemon is running as root and the container spec has `privileged: true` |
 
