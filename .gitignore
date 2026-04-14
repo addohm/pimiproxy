@@ -9,7 +9,7 @@ CLAUDE.md
 
 getapiconfig.py
 
-docker-images/*.tar.gz
+# docker-images/*.tar.gz
 
 pimiproxy-ui/node_modules/
 pimiproxy-ui/dist/
