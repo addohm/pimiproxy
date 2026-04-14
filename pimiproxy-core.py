@@ -2257,19 +2257,18 @@ def do_install():
                 pkg_install(distro, _ipt_pkg)
             info("iptables installed.")
 
-    # ── firewalld: trust docker0 so containers can reach the network ──────────
-    # firewalld is the default on Fedora/RHEL and is sometimes present on other
-    # distros (openSUSE, Arch with firewalld installed). Handle it wherever it
-    # is active, not just on Fedora.
+    # ── firewalld: ensure masquerade so container traffic can reach the internet
+    # Docker CE manages its own firewalld zone and binds docker0 itself —
+    # do NOT add docker0 to any zone manually or Docker will fail to start
+    # with ZONE_CONFLICT. We only need to ensure masquerade is on so that
+    # NAT works for traffic leaving the host.
     if shutil.which("firewall-cmd") and run_ok(
             ["systemctl", "is-active", "--quiet", "firewalld"]):
-        with Spinner("Configuring firewalld for Docker"):
-            run(["firewall-cmd", "--permanent", "--zone=trusted",
-                 "--add-interface=docker0"], silent=True, check=False)
-            run(["firewall-cmd", "--permanent", "--zone=trusted",
+        with Spinner("Configuring firewalld masquerade"):
+            run(["firewall-cmd", "--permanent", "--zone=public",
                  "--add-masquerade"], silent=True, check=False)
             run(["firewall-cmd", "--reload"], silent=True, check=False)
-        info("firewalld: docker0 added to trusted zone.")
+        info("firewalld: masquerade enabled on public zone.")
 
     compose = find_compose()
     if compose is None:
