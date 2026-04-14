@@ -116,9 +116,10 @@ export default function Groups({ onUnauthorized }) {
     }
   }
 
-  const subGroups  = config?.sub_group_names ?? []
-  const userGroups = config?.user_groups ?? []
-  const proxies    = config?.proxy_names ?? []
+  const subGroups    = config?.sub_group_names ?? []
+  const systemGroups = config?.system_group_names ?? []
+  const userGroups   = config?.user_groups ?? []
+  const proxies      = config?.proxy_names ?? []
 
   return (
     <>
@@ -141,6 +142,21 @@ export default function Groups({ onUnauthorized }) {
           ))
         }
       </div>
+
+      {/* System groups — read-only, always injected by pimiproxy */}
+      {systemGroups.length > 0 && (<>
+        <div className="section-header">
+          <span className="section-label">System</span>
+          <span className="section-badge">{systemGroups.length}</span>
+        </div>
+        <div className="card-list">
+          {systemGroups.map(name => (
+            <div key={name} className="card-row readonly">
+              <span className="card-name">{name}</span>
+            </div>
+          ))}
+        </div>
+      </>)}
 
       {/* User groups — CRUD */}
       <div className="section-header">
