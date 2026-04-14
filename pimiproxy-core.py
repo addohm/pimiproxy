@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 pimiproxy — install / uninstall / configure
-Raspberry Pi OS (Bookworm/Bullseye) · Debian 11/12
-Run as root: sudo python3 pimiproxy.py [install|uninstall|configure]
+Supports Debian, Ubuntu, Fedora, Arch, openSUSE, Alpine, and derivatives.
+Run as root: sudo python3 pimiproxy-core.py [install|uninstall|configure]
 """
 
 import os
@@ -241,7 +241,7 @@ def do_set_hostname():
     else:
         warn("avahi-daemon not running — .local won't update until it starts.")
 
-    warn(f"{name}.lan won't resolve until the Pi renews its DHCP lease.")
+    warn(f"{name}.lan won't resolve until the SBC renews its DHCP lease."))
     if confirm("Reboot now so the router picks up the new hostname?",
                default=False):
         run(["reboot"])
@@ -921,7 +921,7 @@ def build_clash_system() -> str:
         lines.append(s)
 
     L("#!/usr/bin/env bash")
-    L("# clash-system — control whether the Pi's own traffic routes through Mihomo"
+    L("# clash-system — control whether the SBC's own traffic routes through Mihomo"
       )
     L("# Forwarded traffic (e.g. Quest 3 using Pi as gateway) always uses the proxy."
       )
@@ -2217,7 +2217,7 @@ def do_install():
             "or high-speed connections. A Pi 3 or newer is recommended.")
     print()
     if _hostname_changed:
-        warn(f"{hostname_new}.lan won't resolve until the Pi renews its DHCP "
+        warn(f"{hostname_new}.lan won't resolve until the SBC renews its DHCP "
              "lease — a reboot is the easiest way to trigger this.")
         warn(f"{hostname_new}.local is available immediately via mDNS.")
         if confirm("Reboot now so the router picks up the new hostname?",

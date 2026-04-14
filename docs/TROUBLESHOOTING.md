@@ -4,13 +4,13 @@
 
 ## Table of contents
 
-1. [Mihomo on Raspberry Pi: High Latency vs Other Devices](#1-mihomo-on-raspberry-pi-high-latency-vs-other-devices)
+1. [Mihomo: High Latency vs Other Devices](#1-mihomo-high-latency-vs-other-devices)
 2. [Subscription URL: No Proxies Loaded](#2-subscription-url-no-proxies-loaded)
 3. [DNS Port 53 Conflict](#3-dns-port-53-conflict)
 4. [Mihomo Container Won't Start or Keeps Restarting](#4-mihomo-container-wont-start-or-keeps-restarting)
 5. [Port Already in Use](#5-port-already-in-use)
 6. [clash-system on Has No Effect](#6-clash-system-on-has-no-effect)
-7. [Pi's Own Traffic Not Going Through the Proxy](#7-pis-own-traffic-not-going-through-the-proxy)
+7. [SBC's Own Traffic Not Going Through the Proxy](#7-sbcs-own-traffic-not-going-through-the-proxy)
 8. [Daily Subscription Refresh Not Working](#8-daily-subscription-refresh-not-working)
 9. [Dashboard Can't Reach the Mihomo API](#9-dashboard-cant-reach-the-mihomo-api)
 10. [Recovering a Broken Config](#10-recovering-a-broken-config)
@@ -19,16 +19,16 @@
 
 ---
 
-## 1. Mihomo on Raspberry Pi: High Latency vs Other Devices
+## 1. Mihomo: High Latency vs Other Devices
 
-**Symptom:** Mihomo reports significantly higher latency on a Raspberry Pi than on another device (e.g., laptop) on the same WiFi network when connecting to the same server.
+**Symptom:** Mihomo reports significantly higher latency on the SBC than on another device (e.g., laptop) on the same WiFi network when connecting to the same server.
 
 ### Likely Causes (in order of probability)
 
 **1. WiFi Band Mismatch**
-The Pi may be connecting to 2.4 GHz while other devices use 5 GHz. 2.4 GHz has higher congestion and inherently higher latency.
+The SBC may be connecting to 2.4 GHz while other devices use 5 GHz. 2.4 GHz has higher congestion and inherently higher latency.
 
-Check which band the Pi is using:
+Check which band the SBC is using:
 ```bash
 iw dev wlan0 link
 ```
@@ -53,8 +53,8 @@ To confirm whether software or hardware AES is in use:
 openssl speed -evp aes-128-cbc
 ```
 
-- ~50 MB/s → software AES (Pi 4 or older)
-- ~500+ MB/s → hardware AES (Pi 5 or hardware with crypto extensions)
+- ~50 MB/s → software AES (no hardware crypto extensions)
+- ~500+ MB/s → hardware AES (hardware crypto extensions present)
 
 On a Pi 4, consider using **ChaCha20-Poly1305** instead of AES if your provider supports it — ChaCha20 uses NEON SIMD instructions (which the Pi 4 does have) and performs significantly faster than software AES.
 
@@ -76,15 +76,15 @@ Run a raw ping to the proxy server's IP to determine whether the latency is at t
 ```bash
 ping -c 10 <proxy-server-ip>
 ```
-- If raw ping is also ~3x higher on the Pi → WiFi or hardware issue, not mihomo config.
+- If raw ping is also ~3x higher on the SBC → WiFi or hardware issue, not mihomo config.
 - If raw ping is similar but mihomo latency is high → crypto overhead or DNS.
 
 ### Resolution Options
 
-- **Switch to 5 GHz WiFi** if your router supports it and the Pi model does too (Pi 3B+ and newer support 5 GHz).
+- **Switch to 5 GHz WiFi** if your router and SBC both support it.
 - **Use a USB WiFi adapter** with better antenna and 5 GHz support.
 - **Use Ethernet** to eliminate WiFi as a variable entirely.
-- **Upgrade to Pi 4 or Pi 5** if crypto overhead is the bottleneck.
+- **Upgrade to an SBC with hardware AES** (e.g. Raspberry Pi 5, Radxa Rock 5) if crypto overhead is the bottleneck.
 
 ---
 
@@ -277,15 +277,15 @@ sudo clash-system status
 
 ---
 
-## 7. Pi's Own Traffic Not Going Through the Proxy
+## 7. SBC's Own Traffic Not Going Through the Proxy
 
-**Symptom:** `clash-system status` shows ON but traffic from the Pi itself (e.g., `curl ifconfig.me`) doesn't appear to use the proxy.
+**Symptom:** `clash-system status` shows ON but traffic from the SBC itself (e.g., `curl ifconfig.me`) doesn't appear to use the proxy.
 
 ### Note on persistence
 
 `clash-system on` sets Linux policy routing rules that are **not persistent across reboots**. After a reboot, the rules are gone.
 
-To make it permanent, add `clash-system on` to a startup script. The simplest approach on a Pi is `/etc/rc.local`:
+To make it permanent, add `clash-system on` to a startup script. The simplest approach is `/etc/rc.local`:
 
 ```bash
 sudo nano /etc/rc.local
@@ -379,7 +379,7 @@ On first load the dashboard asks for the API backend. The correct values with de
 
 | Field | Value |
 |-------|-------|
-| API URL | `http://<pi-ip>:9090` |
+| API URL | `http://<sbc-ip>:9090` |
 | Secret | `pimiproxy` (or whatever was set during install) |
 
 Do **not** use `https://` — Mihomo's API runs plain HTTP. Do **not** use the dashboard port (8080) — that's the frontend, not the API.
@@ -442,7 +442,7 @@ sudo python3 pimiproxy-core.py configure
 
 The proxy port is **7890** (default). Port 9090 is the Mihomo API — sending proxy traffic there will not work.
 
-### Check 2 — Test from the Pi itself
+### Check 2 — Test locally
 
 ```bash
 curl -x http://localhost:7890 https://example.com
@@ -465,7 +465,7 @@ Should be `allow-lan: true`. If it's `false`, other devices cannot connect.
 
 ### Check 4 — Firewall
 
-Raspberry Pi OS doesn't enable a firewall by default, but if `ufw` or `iptables` rules have been added:
+Most distributions don't enable a firewall by default, but if `ufw` or `iptables` rules have been added:
 
 ```bash
 sudo ufw status
@@ -478,9 +478,9 @@ If port 7890 is blocked, allow it:
 sudo ufw allow 7890/tcp
 ```
 
-### Check 5 — Confirm the Pi's IP hasn't changed
+### Check 5 — Confirm the SBC's IP hasn't changed
 
-If the Pi's IP address changed since you configured the proxy settings on the device, the device will be pointing at the wrong host. Set a static IP or DHCP reservation on your router for the Pi's MAC address to prevent this.
+If the SBC's IP address changed since you configured the proxy settings on the device, the device will be pointing at the wrong host. Set a static IP or DHCP reservation on your router for the SBC's MAC address to prevent this.
 
 ---
 
@@ -492,7 +492,7 @@ If the Pi's IP address changed since you configured the proxy settings on the de
 
 The standard pimiproxy setup is an **explicit proxy**: devices are told "send your traffic to `pimiproxy.lan:7890`". This only works for apps that respect the operating system's proxy setting. Apps built on standard HTTP clients (browsers, most apps) honour it automatically.
 
-However, some apps — particularly games built on the **Unity engine** — use their own networking stack and bypass the OS proxy entirely. These apps send traffic directly to the router, skipping the Pi completely. On a network where direct internet access is blocked (e.g. behind a firewall or in a region with internet restrictions), this causes the app to report no connectivity even though the device and all other apps work fine.
+However, some apps — particularly games built on the **Unity engine** — use their own networking stack and bypass the OS proxy entirely. These apps send traffic directly to the router, skipping the SBC completely. On a network where direct internet access is blocked (e.g. behind a firewall or in a region with internet restrictions), this causes the app to report no connectivity even though the device and all other apps work fine.
 
 **Real-world example:** On a Meta Quest 3 configured with `pimiproxy.lan:7890` as its WiFi proxy, Golf+ (Unity) works correctly because it uses Unity's default WebRequest, which respects the system proxy. Les Mills Bodycombat (also Unity) shows "offline" and makes zero connections through the proxy — because it uses its own HTTP client that ignores the system proxy entirely.
 
@@ -506,9 +506,9 @@ If the app generates zero log entries while other apps show activity, it is bypa
 
 ### The fix: transparent gateway mode
 
-Instead of using an explicit proxy setting, configure the **device's WiFi gateway** to point at the Pi. All traffic from the device is then routed through the Pi at the network level — apps can't bypass it because they never make direct decisions about routing. Mihomo's TUN interface captures everything transparently.
+Instead of using an explicit proxy setting, configure the **device's WiFi gateway** to point at the SBC. All traffic from the device is then routed through the SBC at the network level — apps can't bypass it because they never make direct decisions about routing. Mihomo's TUN interface captures everything transparently.
 
-**On the Pi:** no changes needed. pimiproxy already runs Mihomo with TUN mode and `auto-route: true`, which handles all gateway traffic automatically.
+**On the SBC:** no changes needed. pimiproxy already runs Mihomo with TUN mode and `auto-route: true`, which handles all gateway traffic automatically.
 
 **On the device** (using Meta Quest 3 as the example):
 
@@ -516,18 +516,18 @@ Instead of using an explicit proxy setting, configure the **device's WiFi gatewa
 2. Switch IP settings from **DHCP** to **Static**.
 3. Fill in the fields:
    - **IP address:** assign a static IP outside your router's DHCP range (e.g. `192.168.1.200`)
-   - **Gateway:** the Pi's LAN IP address (find it with `sudo python3 pimiproxy-core.py status` or check the login banner)
+   - **Gateway:** the SBC's LAN IP address (find it with `sudo python3 pimiproxy-core.py status` or check the login banner)
    - **DNS:** your router's IP, or the Pi's IP if you want Mihomo to handle DNS
    - **Subnet mask / Prefix:** match your network (typically `255.255.255.0` / `24`)
 4. Remove any explicit proxy setting — it is no longer needed.
 
-After saving, all traffic from the device routes through the Pi regardless of whether the app honours a proxy setting or not.
+After saving, all traffic from the device routes through the SBC regardless of whether the app honours a proxy setting or not.
 
-> **Note:** Gateway mode requires entering the Pi's IP address directly — WiFi gateway fields do not accept hostnames. The Pi's current IP is shown in the `status` output and the login banner.
+> **Note:** Gateway mode requires entering the SBC's IP address directly — WiFi gateway fields do not accept hostnames. The SBC's current IP is shown in the `status` output and the login banner.
 
 ### Choosing between explicit proxy and gateway mode
 
-| | Explicit proxy (`pimiproxy.lan:7890`) | Gateway mode (Pi as WiFi gateway) |
+| | Explicit proxy (`pimiproxy.lan:7890`) | Gateway mode (SBC as WiFi gateway) |
 |---|---|---|
 | Setup | One field in WiFi proxy settings | Static IP + change gateway field |
 | Works with | Apps that respect OS proxy | All apps, regardless of networking stack |

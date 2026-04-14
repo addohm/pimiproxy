@@ -12,7 +12,7 @@
 6. [Accessing the dashboard](#6-accessing-the-dashboard)
 7. [Web management UI](#7-web-management-ui)
 8. [Configuring proxy groups and rules](#8-configuring-proxy-groups-and-rules)
-9. [Routing the Pi's own traffic through the proxy](#9-routing-the-pis-own-traffic-through-the-proxy)
+9. [Routing the SBC's own traffic through the proxy](#9-routing-the-sbcs-own-traffic-through-the-proxy)
 10. [Day-to-day management](#10-day-to-day-management)
 11. [Uninstalling](#11-uninstalling)
 12. [Troubleshooting](#12-troubleshooting)
@@ -21,20 +21,20 @@
 
 ## 1. Before you begin
 
-**On the Pi:**
-- Fresh install of Raspberry Pi OS (Bookworm or Bullseye) or Debian 11/12
-- Pi is connected to your network via ethernet (recommended) or WiFi
-- You know the Pi's IP address — check your router's device list, or run `hostname -I` on the Pi
+**On the SBC:**
+- Supported OS: Raspberry Pi OS, Debian, Ubuntu, Fedora, Arch, openSUSE, Alpine, or any compatible derivative
+- SBC is connected to your network via ethernet (recommended) or WiFi
+- You know the SBC's IP address — check your router's device list, or run `hostname -I` on the SBC
 - You have SSH access or a keyboard/monitor connected
 
 **On your network:**
-- The Pi's IP should ideally be static, or reserved in your router's DHCP settings so it doesn't change. pimiproxy does not configure a static IP for you.
+- The SBC's IP should ideally be static, or reserved in your router's DHCP settings so it doesn't change. pimiproxy does not configure a static IP for you.
 
 ---
 
 ## 2. Preparing offline image archives (optional)
 
-If your Pi has limited or no internet access, you can pre-build or pre-pull the Docker images on another machine and transfer them to the Pi.
+If your SBC has limited or no internet access, you can pre-build or pre-pull the Docker images on another machine and transfer them to the SBC.
 
 ### Third-party images (pulled from registries)
 
@@ -54,7 +54,7 @@ docker save ghcr.io/zephyruso/zashboard:latest   | gzip > docker-images/zashboar
 
 ### pimiproxy-api and pimiproxy-ui (built from source)
 
-These two images are built locally from the `pimiproxy-api/` and `pimiproxy-ui/` source directories. If the Pi cannot run `docker build` (e.g. no internet access for base image pulls), build them on your other machine and save the result:
+These two images are built locally from the `pimiproxy-api/` and `pimiproxy-ui/` source directories. If the SBC cannot run `docker build` (e.g. no internet access for base image pulls), build them on your other machine and save the result:
 
 ```bash
 # Enable arm64 cross-build support (one-time setup)
@@ -69,7 +69,7 @@ docker save pimiproxy-api:latest | gzip > docker-images/pimiproxy-api.tar.gz
 docker save pimiproxy-ui:latest  | gzip > docker-images/pimiproxy-ui.tar.gz
 ```
 
-### Transfer to the Pi
+### Transfer to the SBC
 
 ```bash
 rsync -avz docker-images/ user@pimiproxy.lan:~/pimiproxy/docker-images/
@@ -81,7 +81,7 @@ Place all `.tar.gz` archives in the `docker-images/` subdirectory alongside `pim
 
 ## 3. Running the installer
 
-SSH into your Pi (or open a terminal on it directly) and navigate to the directory containing the pimiproxy files.
+SSH into your SBC (or open a terminal on it directly) and navigate to the directory containing the pimiproxy files.
 
 ### Option A — Bootstrap (recommended)
 
@@ -149,7 +149,7 @@ Where all pimiproxy files live — the Docker Compose file, Mihomo config, and i
 ### Hostname
 **Default: `pimiproxy` (or the current hostname if the device has already been renamed)**
 
-Sets the Pi's system hostname. After install the Pi will be reachable as `<hostname>.lan` on routers that assign `.lan` hostnames via DHCP/DNS, and as `<hostname>.local` via mDNS on devices that support it.
+Sets the SBC's system hostname. After install the SBC will be reachable as `<hostname>.lan` on routers that assign `.lan` hostnames via DHCP/DNS, and as `<hostname>.local` via mDNS on devices that support it.
 
 If the device's hostname is already something other than a generic default (`raspberrypi`, `localhost`, `debian`, `ubuntu`, `alarm`), the installer will pre-fill the prompt with the existing name — press Enter to keep it unchanged.
 
@@ -166,12 +166,12 @@ This updates the system hostname, automatically restarts avahi-daemon so `.local
 ### Dashboard port
 **Default: `8080`**
 
-The port the web dashboard is served on. Open `http://<pi-ip>:8080` in a browser to access it.
+The port the web dashboard is served on. Open `http://<sbc-ip>:8080` in a browser to access it.
 
 ### Mihomo API port
 **Default: `9090`**
 
-The port the Mihomo API listens on. The dashboard communicates with Mihomo through this port. You generally do not need to change this unless something else on the Pi is already using 9090.
+The port the Mihomo API listens on. The dashboard communicates with Mihomo through this port. You generally do not need to change this unless something else on the SBC is already using 9090.
 
 ### Mixed proxy port
 **Default: `7890`**
@@ -181,7 +181,7 @@ The port other devices use to connect to the proxy. This is the port you enter i
 ### API secret
 **Default: `pimiproxy`**
 
-A password used by the dashboard to authenticate with the Mihomo API. You will be prompted to enter this in the dashboard on first load. Change it to something stronger if the Pi is accessible outside your home network.
+A password used by the dashboard to authenticate with the Mihomo API. You will be prompted to enter this in the dashboard on first load. Change it to something stronger if the SBC is accessible outside your home network.
 
 ### Provider URL
 **Default: none (optional)**
@@ -218,13 +218,13 @@ Both connect to the same Mihomo instance. You can switch between them at any tim
 
 ## 5. Connecting devices to the proxy
 
-The proxy is available immediately after install. Devices connect by setting their **proxy settings** — not their WiFi/network settings. The device stays connected to the network normally; you are only telling it to route application traffic through the Pi.
+The proxy is available immediately after install. Devices connect by setting their **proxy settings** — not their WiFi/network settings. The device stays connected to the network normally; you are only telling it to route application traffic through the SBC.
 
 **The proxy address for all devices (default settings):**
 
 | Field | Value |
 |-------|-------|
-| Host / Server | Your Pi's IP address, e.g. `10.0.0.240` |
+| Host / Server | Your SBC's IP address, e.g. `10.0.0.240` |
 | Port | `7890` |
 | Type | HTTP or SOCKS5 (both work on the same port) |
 | Username | *(leave blank)* |
@@ -371,11 +371,11 @@ sudo python3 pimiproxy-core.py restart mihomo
 
 ---
 
-## 9. Routing the Pi's own traffic through the proxy
+## 9. Routing the SBC's own traffic through the proxy
 
-By default, only devices that have manually configured their proxy settings use pimiproxy. The Pi itself sends its own traffic directly to the internet, bypassing Mihomo entirely.
+By default, only devices that have manually configured their proxy settings use pimiproxy. The SBC itself sends its own traffic directly to the internet, bypassing Mihomo entirely.
 
-To make the Pi route its own traffic through Mihomo:
+To make the SBC route its own traffic through Mihomo:
 
 ```bash
 sudo clash-system on
@@ -530,7 +530,7 @@ This is the first thing to run — it shows container state, tests the proxy wit
 
 ### Hostname doesn't resolve
 
-- **`.lan`** resolves via your router's DNS once the Pi renews its DHCP lease. The fastest way to trigger this is to reboot (`sudo reboot`) or run `sudo python3 pimiproxy-core.py hostname <current-hostname>` which will prompt you to reboot.
+- **`.lan`** resolves via your router's DNS once the SBC renews its DHCP lease. The fastest way to trigger this is to reboot (`sudo reboot`) or run `sudo python3 pimiproxy-core.py hostname <current-hostname>` which will prompt you to reboot.
 - **`.local`** resolves via mDNS (avahi). It can take up to 30 seconds to propagate after first boot. Some Android versions don't support `.local` — use `.lan` or the IP address instead.
 - Confirm avahi-daemon is running: `systemctl status avahi-daemon`
 - If neither resolves, use the IP address directly.
@@ -540,7 +540,7 @@ This is the first thing to run — it shows container state, tests the proxy wit
 - Run `sudo python3 pimiproxy-core.py status` — the proxy test will show exactly where it fails
 - Confirm you set proxy settings, not network/WiFi settings
 - Confirm the port is `7890`, not `9090` (that's the API, not the proxy)
-- Test from the Pi itself: `curl -x http://localhost:7890 https://example.com`
+- Test from the SBC itself: `curl -x http://localhost:7890 https://example.com`
 - Check Mihomo logs: `sudo python3 pimiproxy-core.py logs`
 
 ### `clash-system on` has no effect

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # =============================================================================
 # pimiproxy bootstrap
-# Detects the platform, installs all prerequisites, then launches
-# pimiproxy-core.py to perform the requested action.
+# Detects the platform, installs all prerequisites (Python 3, Docker, avahi),
+# then launches pimiproxy-core.py to perform the requested action.
+# Supports: Debian/Ubuntu/Raspbian, Fedora/RHEL, Arch, openSUSE, Alpine.
 #
 # Usage:
 #   sudo bash pimiproxy.sh [install|uninstall|configure]

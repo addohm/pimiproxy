@@ -1,20 +1,20 @@
 # pimiproxy
 
-A self-hosted proxy server for your home network, running on a Raspberry Pi. pimiproxy uses [Mihomo](https://github.com/MetaCubeX/mihomo) (the Clash.Meta engine) inside Docker, with a web dashboard for monitoring and a browser-based management UI for configuring proxy groups and rules.
+A self-hosted proxy server for your home network, running on a Linux SBC or server. pimiproxy uses [Mihomo](https://github.com/MetaCubeX/mihomo) (the Clash.Meta engine) inside Docker, with a web dashboard for monitoring and a browser-based management UI for configuring proxy groups and rules.
 
-Once installed, any device on your network can route its traffic through the Pi by pointing its proxy settings at `<pi-ip>:7890`. No VPN client, no app — just a standard HTTP/SOCKS5 proxy.
+Once installed, any device on your network can route its traffic through the SBC by pointing its proxy settings at `<pi-ip>:7890`. No VPN client, no app — just a standard HTTP/SOCKS5 proxy.
 
 ---
 
 ## What it does
 
-- Runs Mihomo (Clash.Meta engine) in a Docker container on the Pi
+- Runs Mihomo (Clash.Meta engine) in a Docker container on the SBC
 - Exposes a mixed HTTP/SOCKS5 proxy port for other devices to use
 - Provides a web dashboard (Metacubexd or Zashboard) for live traffic monitoring
 - Provides a browser-based management UI for adding proxy groups, rules, and managing your provider URL
 - Supports a two-layer config: your provider's subscription (base) + your own groups and rules (always applied on top)
-- Optionally routes the Pi's own traffic through the proxy via `clash-system`
-- Sets up mDNS so the Pi is reachable as `pimiproxy.local` on the LAN, and as `pimiproxy.lan` on routers that use `.lan` as the local domain
+- Optionally routes the SBC's own traffic through the proxy via `clash-system`
+- Sets up mDNS so the SBC is reachable as `pimiproxy.local` on the LAN, and as `pimiproxy.lan` on routers that use `.lan` as the local domain
 - Shows a status banner on every SSH/terminal login — proxy engine state, system proxy on/off, proxy count, endpoints, and quick-command reference
 
 ## What it does not do
@@ -27,7 +27,7 @@ Once installed, any device on your network can route its traffic through the Pi 
 
 ## Requirements
 
-- Raspberry Pi (any model with 64-bit OS support recommended), or any x86_64 Linux host
+- Any SBC or Linux host (Raspberry Pi, Orange Pi, Radxa, x86_64, etc.) with a 64-bit OS
 - One of the supported distro families:
   - Debian / Raspberry Pi OS / Ubuntu / Mint / Pop
   - Fedora / RHEL / CentOS / Rocky / AlmaLinux
@@ -108,12 +108,12 @@ If your router doesn't use `.lan`, try mDNS: `http://pimiproxy.local:8585`
 
 ## Connecting a device to the proxy
 
-On any device connected to the same network as the Pi, open **proxy settings** (not network/WiFi settings) and set:
+On any device connected to the same network as the SBC, open **proxy settings** (not network/WiFi settings) and set:
 
 | Field | Value |
 |-------|-------|
 | Proxy type | HTTP or SOCKS5 |
-| Host | `10.0.0.240` *(your Pi's IP)* |
+| Host | `10.0.0.240` *(your SBC's IP)* |
 | Port | `7890` |
 | Username / Password | *(leave blank)* |
 
@@ -200,8 +200,8 @@ sudo python3 pimiproxy-core.py hostname newname
 sudo python3 pimiproxy-core.py debug
 sudo python3 pimiproxy-core.py debug https://provider.example.com/api?token=abc123
 
-# Pi system proxy
-sudo clash-system on       # Route Pi's own traffic through the proxy
+# SBC system proxy
+sudo clash-system on       # Route SBC's own traffic through the proxy
 sudo clash-system off      # Revert to direct
 sudo clash-system status
 ```
