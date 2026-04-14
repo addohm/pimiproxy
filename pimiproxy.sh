@@ -146,6 +146,11 @@ else
     
     # If still missing, install Docker
     if ! command -v docker &>/dev/null || ! docker compose version &>/dev/null 2>&1; then
+        echo
+        read -r -p "  Is this device located in China? (use Aliyun mirrors for Docker CE) [y/N]: " _china_ans
+        CHINA_MIRRORS=false
+        [[ "${_china_ans,,}" == "y" || "${_china_ans,,}" == "yes" ]] && CHINA_MIRRORS=true
+
         if [[ "$CHINA_MIRRORS" == "true" ]]; then
             info "Installing Docker CE via Aliyun mirror (China mode)..."
             case "$PKG_MGR" in

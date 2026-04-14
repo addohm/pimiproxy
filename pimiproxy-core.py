@@ -1909,15 +1909,6 @@ def do_install():
     ])
     express = (mode == 1)
 
-    # ── China mirrors ─────────────────────────────────────────────────────────
-    print()
-    china_mirrors = confirm(
-        "Is this device located in China? (uses Aliyun mirrors for Docker CE)",
-        default=False,
-    )
-    if china_mirrors:
-        info("China mirror mode enabled — Docker CE will be fetched via Aliyun.")
-
     # ── prompts ───────────────────────────────────────────────────────────────
     step("Configuration")
 
