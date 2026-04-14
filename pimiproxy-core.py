@@ -221,6 +221,50 @@ def set_hostname(new_name: str):
     info(f"Hostname: {old} -> {new_name}")
 
 
+def dhcp_renew():
+    """
+    Soft DHCP renewal — sends a DHCPREQUEST with the new hostname in option 12
+    so the router updates its hostname→IP mapping without releasing the lease.
+    Detects the default-route interface and the available DHCP client.
+    Safe over SSH: no release, so the IP stays the same.
+    """
+    # Find the interface carrying the default route
+    result = run(["ip", "route", "show", "default"], capture=True, check=False)
+    iface = None
+    if result and result.returncode == 0:
+        for token in result.stdout.split():
+            if token not in ("default", "via", "dev", "proto", "metric",
+                             "onlink", "src", "scope", "link"):
+                try:
+                    import ipaddress
+                    ipaddress.ip_address(token)
+                except ValueError:
+                    if not any(c in token for c in (".", ":")):
+                        iface = token
+                        break
+
+    if not iface:
+        warn("Could not detect default network interface — skipping DHCP renew.")
+        return
+
+    with Spinner(f"Renewing DHCP lease on {iface}"):
+        if shutil.which("dhcpcd"):
+            r = run(["dhcpcd", "--rebind", iface], check=False, silent=True)
+        elif shutil.which("dhclient"):
+            r = run(["dhclient", iface], check=False, silent=True)
+        elif shutil.which("nmcli"):
+            r = run(["nmcli", "device", "reapply", iface],
+                    check=False, silent=True)
+        else:
+            warn("No supported DHCP client found (dhcpcd/dhclient/nmcli).")
+            return
+
+    if r.returncode == 0:
+        info(f"DHCP renewed — router should pick up the new hostname shortly.")
+    else:
+        warn("DHCP renew returned non-zero — router may not update immediately.")
+
+
 def do_set_hostname():
     """Subcommand: pimiproxy-core.py hostname <new-hostname>"""
     if len(sys.argv) < 3 or not sys.argv[2].strip():
@@ -241,8 +285,8 @@ def do_set_hostname():
     else:
         warn("avahi-daemon not running — .local won't update until it starts.")
 
-    warn(f"{name}.lan won't resolve until the SBC renews its DHCP lease.")
-    if confirm("Reboot now so the router picks up the new hostname?",
+    dhcp_renew()
+    if confirm("Reboot now to ensure the router fully registers the new hostname?",
                default=False):
         run(["reboot"])
 
@@ -2217,10 +2261,9 @@ def do_install():
             "or high-speed connections. A Pi 3 or newer is recommended.")
     print()
     if _hostname_changed:
-        warn(f"{hostname_new}.lan won't resolve until the SBC renews its DHCP "
-             "lease — a reboot is the easiest way to trigger this.")
-        warn(f"{hostname_new}.local is available immediately via mDNS.")
-        if confirm("Reboot now so the router picks up the new hostname?",
+        dhcp_renew()
+        info(f"{hostname_new}.local is available immediately via mDNS.")
+        if confirm("Reboot now to ensure the router fully registers the new hostname?",
                    default=False):
             run(["reboot"])
     else:
