@@ -67,16 +67,34 @@ export default function Overview({ onUnauthorized }) {
         </div>
       </div>
 
-      {config?.sub_group_names?.length > 0 && (
-        <div className="overview-card">
-          <div className="overview-card-label">Provider groups</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
-            {config.sub_group_names.map(name => (
-              <span key={name} className="card-type">{name}</span>
-            ))}
+      {(() => {
+        const subGroups    = config?.sub_group_names ?? []
+        const systemGroups = config?.system_group_names ?? []
+        const userGroups   = (config?.user_groups ?? []).map(g => g.name)
+        if (!subGroups.length && !systemGroups.length && !userGroups.length) return null
+
+        const Section = ({ label, names }) => names.length === 0 ? null : (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--meta-text)', marginBottom: 6 }}>
+              {label}
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {names.map(name => <span key={name} className="card-type">{name}</span>)}
+            </div>
           </div>
-        </div>
-      )}
+        )
+
+        return (
+          <div className="overview-card">
+            <div className="overview-card-label">Proxy groups</div>
+            <div style={{ marginTop: 12 }}>
+              <Section label="Provider" names={subGroups} />
+              <Section label="System"   names={systemGroups} />
+              <Section label="Yours"    names={userGroups} />
+            </div>
+          </div>
+        )
+      })()}
 
     </>
   )
