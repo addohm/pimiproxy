@@ -9,7 +9,7 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import urlparse
 
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
@@ -527,3 +527,46 @@ def check_view(request):
         response["connection_error"] = probe_result.get("error", "Failed")
 
     return ok(response)
+
+# ── Export ────────────────────────────────────────────────────────────────────
+
+@require_http_methods(["GET"])
+def export_user_config_view(request):
+    cfg = _read_cfg()
+    data = {
+        "proxy_groups": cfg.get("proxy_groups", []),
+        "rules":        cfg.get("rules", []),
+    }
+    response = HttpResponse(json.dumps(data, indent=2), content_type="application/json")
+    response["Content-Disposition"] = 'attachment; filename="pimiproxy-user-config.json"'
+    return response
+
+
+@require_http_methods(["GET"])
+def export_provider_yaml_view(request):
+    cfg = _read_cfg()
+    proxies = cfg.get("subscription_proxies_yaml", "")
+    groups  = cfg.get("subscription_groups_yaml",  "")
+    rules   = cfg.get("subscription_rules_yaml",   "")
+    if not (proxies or groups or rules):
+        return err("No provider data cached — run a refresh first", 404)
+    parts = ["# Provider subscription cache — exported from pimiproxy"]
+    url = cfg.get("subscription_url", "")
+    if url:
+        parts.append(f"# Source: {url}")
+    parts.append("")
+    if proxies: parts.append(proxies.rstrip())
+    if groups:  parts.append(groups.rstrip())
+    if rules:   parts.append(rules.rstrip())
+    response = HttpResponse("\n".join(parts) + "\n", content_type="application/x-yaml")
+    response["Content-Disposition"] = 'attachment; filename="pimiproxy-provider.yaml"'
+    return response
+
+
+@require_http_methods(["GET"])
+def export_final_config_view(request):
+    if not CONFIG_YAML.exists():
+        return err("config.yaml not found", 404)
+    response = HttpResponse(CONFIG_YAML.read_text(), content_type="application/x-yaml")
+    response["Content-Disposition"] = 'attachment; filename="pimiproxy-config.yaml"'
+    return response

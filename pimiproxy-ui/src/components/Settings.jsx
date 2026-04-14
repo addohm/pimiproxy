@@ -9,6 +9,7 @@ export default function Settings({ onUnauthorized }) {
   const [autoRefresh, setAutoRefresh]       = useState(true)
   const [intervalDays, setIntervalDays]     = useState(1)
   const [schedSaveStatus, setSchedSaveStatus] = useState('') // '', 'saving', 'saved', 'error'
+  const [exportStatus, setExportStatus] = useState({}) // { user: '', provider: '', config: '' }
   const [error, setError]             = useState('')
 
   async function load() {
@@ -66,6 +67,19 @@ export default function Settings({ onUnauthorized }) {
     } catch (err) {
       if (err.status === 401) { onUnauthorized(); return }
       setSchedSaveStatus('error')
+      setError(err.message)
+    }
+  }
+
+  async function handleExport(key, apiFn) {
+    setExportStatus(s => ({ ...s, [key]: 'downloading' }))
+    try {
+      await apiFn()
+      setExportStatus(s => ({ ...s, [key]: 'done' }))
+      setTimeout(() => setExportStatus(s => ({ ...s, [key]: '' })), 2000)
+    } catch (err) {
+      if (err.status === 401) { onUnauthorized(); return }
+      setExportStatus(s => ({ ...s, [key]: 'error' }))
       setError(err.message)
     }
   }
@@ -166,6 +180,39 @@ export default function Settings({ onUnauthorized }) {
             </p>
           )}
         </form>
+      </div>
+
+      {/* Export */}
+      <div style={{ marginBottom: 40 }}>
+        <div className="section-label" style={{ marginBottom: 8 }}>Export</div>
+        <p style={{ color: 'var(--dim)', fontSize: 13, marginBottom: 16 }}>
+          Download your configuration files for backup or use with a standalone Mihomo instance.
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {[
+            { key: 'user',     label: 'Your groups & rules',  desc: 'pimiproxy-user-config.json', fn: api.exportUserConfig },
+            { key: 'provider', label: 'Provider subscription', desc: 'pimiproxy-provider.yaml',    fn: api.exportProviderYaml },
+            { key: 'config',   label: 'Final Mihomo config',   desc: 'pimiproxy-config.yaml',      fn: api.exportFinalConfig },
+          ].map(({ key, label, desc, fn }) => (
+            <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 14 }}>{label}</div>
+                <div style={{ fontSize: 12, color: 'var(--dim)' }}>{desc}</div>
+              </div>
+              <button
+                className="btn btn-ghost"
+                style={{ flexShrink: 0 }}
+                onClick={() => handleExport(key, fn)}
+                disabled={exportStatus[key] === 'downloading'}
+              >
+                {exportStatus[key] === 'downloading' ? 'Downloading…'
+                  : exportStatus[key] === 'done'      ? 'Done'
+                  : exportStatus[key] === 'error'     ? 'Error'
+                  : 'Download'}
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Config info */}

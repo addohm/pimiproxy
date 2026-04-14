@@ -34,6 +34,7 @@ class C:
     CYAN = "\033[0;36m"
     YELLOW = "\033[1;33m"
     BOLD = "\033[1m"
+    DIM = "\033[2m"
     NC = "\033[0m"
 
 
@@ -244,7 +245,9 @@ def dhcp_renew():
                         break
 
     if not iface:
-        warn("Could not detect default network interface — skipping DHCP renew.")
+        warn(
+            "Could not detect default network interface — skipping DHCP renew."
+        )
         return
 
     with Spinner(f"Renewing DHCP lease on {iface}"):
@@ -254,7 +257,8 @@ def dhcp_renew():
             r = run(["dhclient", iface], check=False, silent=True)
         elif shutil.which("nmcli"):
             r = run(["nmcli", "device", "reapply", iface],
-                    check=False, silent=True)
+                    check=False,
+                    silent=True)
         else:
             warn("No supported DHCP client found (dhcpcd/dhclient/nmcli).")
             return
@@ -262,7 +266,9 @@ def dhcp_renew():
     if r.returncode == 0:
         info(f"DHCP renewed — router should pick up the new hostname shortly.")
     else:
-        warn("DHCP renew returned non-zero — router may not update immediately.")
+        warn(
+            "DHCP renew returned non-zero — router may not update immediately."
+        )
 
 
 def do_set_hostname():
@@ -286,8 +292,9 @@ def do_set_hostname():
         warn("avahi-daemon not running — .local won't update until it starts.")
 
     dhcp_renew()
-    if confirm("Reboot now to ensure the router fully registers the new hostname?",
-               default=False):
+    if confirm(
+            "Reboot now to ensure the router fully registers the new hostname?",
+            default=False):
         run(["reboot"])
 
 
@@ -411,7 +418,8 @@ def detect_distro() -> str:
     os_release = Path("/etc/os-release")
     if os_release.exists():
         text = os_release.read_text().lower()
-        if any(k in text for k in ("fedora", "rhel", "centos", "rocky", "alma")):
+        if any(k in text
+               for k in ("fedora", "rhel", "centos", "rocky", "alma")):
             return "fedora"
         if any(k in text for k in ("arch", "manjaro", "endeavour")):
             return "arch"
@@ -452,8 +460,11 @@ def pkg_install(distro: str, *packages):
         if distro == "debian":
             env = os.environ.copy()
             env["DEBIAN_FRONTEND"] = "noninteractive"
-            run(["apt-get", "install", "-y", "-qq", "--no-install-recommends",
-                 *packages], silent=True)
+            run([
+                "apt-get", "install", "-y", "-qq", "--no-install-recommends",
+                *packages
+            ],
+                silent=True)
         elif distro == "fedora":
             run(["dnf", "install", "-y", "--quiet", *packages], silent=True)
         elif distro == "arch":
@@ -470,14 +481,18 @@ def pkg_remove(distro: str, *packages):
     with Spinner(f"Removing {', '.join(packages)}"):
         if distro == "debian":
             run(["apt-get", "remove", "-y", *packages],
-                silent=True, check=False)
+                silent=True,
+                check=False)
         elif distro == "fedora":
             run(["dnf", "remove", "-y", *packages], silent=True, check=False)
         elif distro == "arch":
             run(["pacman", "-R", "--noconfirm", *packages],
-                silent=True, check=False)
+                silent=True,
+                check=False)
         elif distro == "suse":
-            run(["zypper", "remove", "-y", *packages], silent=True, check=False)
+            run(["zypper", "remove", "-y", *packages],
+                silent=True,
+                check=False)
         elif distro == "alpine":
             run(["apk", "del", *packages], silent=True, check=False)
 
@@ -494,7 +509,8 @@ def setup_docker_repo(distro: str):
     if distro == "debian":
         # Detect debian codename
         result = run(["lsb_release", "-cs"], capture=True, check=False)
-        codename = result.stdout.strip() if result and result.returncode == 0 else "bookworm"
+        codename = result.stdout.strip(
+        ) if result and result.returncode == 0 else "bookworm"
 
         base = "https://download.docker.com/linux/debian"
 
@@ -510,8 +526,7 @@ def setup_docker_repo(distro: str):
 
         sources = Path("/etc/apt/sources.list.d/docker.list")
         sources.write_text(
-            f"deb [arch=arm64 signed-by={keyring}] {base} {codename} stable\n"
-        )
+            f"deb [arch=arm64 signed-by={keyring}] {base} {codename} stable\n")
         run(["apt-get", "update", "-qq"], silent=True)
         info("Docker CE repo configured.")
 
@@ -555,19 +570,53 @@ def compose_run(compose, *args, cwd=None, silent=False):
 # =============================================================================
 # IMAGE LOADING
 # =============================================================================
+def _image_already_loaded(tag: str) -> bool:
+    """Return True if the Docker image is already present locally."""
+    r = run(["docker", "image", "inspect", tag],
+            capture=True,
+            check=False,
+            silent=True)
+    return r.returncode == 0
+
+
+def _find_archive(archive: str) -> "Path | None":
+    """
+    Search for a .tar.gz archive in order:
+      1. docker-images/ next to this script (original source location)
+      2. /opt/pimiproxy/docker-images/         (install dir copy)
+      3. ~/pimiproxy/docker-images/             (synced source on SBC)
+      4. Current working directory
+    Returns the first Path that exists, or None.
+    """
+    candidates = [
+        Path(__file__).resolve().parent / "docker-images" / archive,
+        Path("/opt/pimiproxy/docker-images") / archive,
+        Path.home() / "pimiproxy" / "docker-images" / archive,
+        Path(archive),
+    ]
+    for p in candidates:
+        if p.exists():
+            return p
+    return None
+
+
 def load_image(archive: str, fallback: str, arch: str) -> str:
     """
-    Load a Docker image from a local .tar.gz archive if present,
-    otherwise pull from the registry. Returns the image tag.
+    Load a Docker image. Priority:
+      1. Already in Docker — reuse as-is (safe for reinstall in China)
+      2. Local .tar.gz archive found in any of several standard paths
+      3. Registry pull — last resort; may fail in China / air-gapped envs
 
-    Archives are looked up in docker-images/ relative to this script,
-    then falling back to the current working directory for compatibility.
+    Returns the image tag.
     """
-    script_dir = Path(__file__).parent
-    p = script_dir / "docker-images" / archive
-    if not p.exists():
-        p = Path(archive)  # cwd fallback
-    if p.exists():
+    # 1 — already loaded
+    if _image_already_loaded(fallback):
+        info(f"Already loaded: {fallback}")
+        return fallback
+
+    # 2 — local archive
+    p = _find_archive(archive)
+    if p:
         with Spinner(f"Loading {p.name} from disk"):
             result = run(f"gunzip -c {p} | docker load", capture=True)
         output = result.stdout + result.stderr
@@ -576,13 +625,21 @@ def load_image(archive: str, fallback: str, arch: str) -> str:
                 tag = line.split("Loaded image:")[-1].strip()
                 info(f"Loaded: {tag}")
                 return tag
-        warn(f"Could not parse image tag from {p.name} — will pull instead.")
+        warn(
+            f"Could not parse image tag from {p.name} — will try pulling instead."
+        )
 
-    # docker pull shows its own layer progress — don't silence it
+    # 3 — registry pull (may fail in China / air-gapped environments)
+    warn(f"No local archive found for {archive}.")
+    warn(
+        f"Attempting registry pull — this will fail if the registry is unreachable."
+    )
     info(f"Pulling {fallback} ({arch})...")
     result = run(["docker", "pull", "--platform", arch, fallback], check=False)
     if result.returncode != 0:
-        die(f"Failed to pull {fallback}. Check network and registry access.")
+        die(f"Failed to pull {fallback}.\n"
+            f"  Place {archive} in docker-images/ next to pimiproxy-core.py and re-run.\n"
+            f"  Registry: {fallback}")
     return fallback
 
 
@@ -642,7 +699,8 @@ def build_config(cfg: dict) -> str:
         lines.append(s)
 
     L("# Mihomo config — managed by pimiproxy")
-    L("# Edit via the pimiproxy web UI or run:  sudo python3 pimiproxy-core.py configure")
+    L("# Edit via the pimiproxy web UI or run:  sudo python3 pimiproxy-core.py configure"
+      )
     L()
     L(f"external-controller: 0.0.0.0:{api_port}")
     L(f'secret: "{api_secret}"')
@@ -741,10 +799,10 @@ def build_config(cfg: dict) -> str:
     # Rules:  user rules first (highest priority), then provider rules.
 
     sub_proxies = cfg.get("subscription_proxies_yaml", "")
-    sub_groups  = cfg.get("subscription_groups_yaml", "")
-    sub_rules   = cfg.get("subscription_rules_yaml", "")
+    sub_groups = cfg.get("subscription_groups_yaml", "")
+    sub_rules = cfg.get("subscription_rules_yaml", "")
     user_groups = cfg.get("proxy_groups", [])
-    user_rules  = cfg.get("rules", [])
+    user_rules = cfg.get("rules", [])
 
     # ── proxies ───────────────────────────────────────────────────────────────
     if sub_proxies:
@@ -806,7 +864,11 @@ def build_config(cfg: dict) -> str:
     else:
         # No provider groups — use user groups + Quest fallback
         if subscription_url and not user_groups:
-            user_groups = [{"name": "Proxy", "type": "select", "proxies": ["DIRECT"]}]
+            user_groups = [{
+                "name": "Proxy",
+                "type": "select",
+                "proxies": ["DIRECT"]
+            }]
         L("proxy-groups:")
         for g in user_groups:
             _write_group(g)
@@ -891,7 +953,7 @@ def build_compose(cfg: dict) -> str:
     dashboard = cfg["dashboard_image"]
     dash_name = cfg["dash_name"]
     dash_port = cfg["dashboard_port"]
-    ui_port   = cfg.get("ui_port", "8585")
+    ui_port = cfg.get("ui_port", "8585")
     install_dir = cfg.get("install_dir", "/opt/pimiproxy")
 
     lines = []
@@ -991,11 +1053,13 @@ def build_clash_system() -> str:
     L("    }")
     L("    iptables -t mangle -D OUTPUT -j MARK --set-mark $MARK 2>/dev/null || true"
       )
+    L("    touch /run/pimiproxy-proxy-on 2>/dev/null || true")
     L("    echo -e \"System proxy: ${GREEN}ON${NC}  (Pi traffic → Mihomo)\"")
     L("    ;;")
     L("  off)")
     L("    bypass_set || iptables -t mangle -A OUTPUT -j MARK --set-mark $MARK"
       )
+    L("    rm -f /run/pimiproxy-proxy-on")
     L("    echo -e \"System proxy: ${YELLOW}OFF${NC} (Pi traffic → direct, forwarded clients → Mihomo)\""
       )
     L("    ;;")
@@ -1085,20 +1149,19 @@ def build_banner(cfg: dict, meta: dict) -> str:
     L()
     L('printf "\\n${_C}${_B}  pimiproxy${_N}\\n%s\\n" "$_S"')
     L()
-    L("# ── Proxy engine (mihomo container) ─────────────────────────────────")
-    L("if docker inspect -f '{{.State.Running}}' mihomo 2>/dev/null | grep -q true; then"
-      )
+    L("# ── Proxy engine (mihomo TUN interface) ─────────────────────────────")
+    L("if [[ -d /sys/class/net/mihomo ]]; then")
     L("  printf '  Proxy engine    %s\\n' \"${_G}●  running${_N}\"")
     L("else")
     L("  printf '  Proxy engine    %s\\n' \"${_R}●  stopped${_N}\"")
     L("fi")
     L()
-    L("# ── System proxy (clash-system routing rules) ────────────────────────"
+    L("# ── System proxy (state file written by clash-system on/off) ─────────"
       )
-    L("if ip rule show 2>/dev/null | grep -q 'priority 101'; then")
+    L("if [[ -f /run/pimiproxy-proxy-on ]]; then")
     L("  printf '  System proxy    %s\\n' \"${_G}●  ON${_N}\"")
     L("else")
-    L("  printf '  System proxy    %s\\n' \"${_R}○  OFF${_N}\"")
+    L("  printf '  System proxy    %s\\n' \"${_Y}○  OFF${_N}\"")
     L("fi")
     L()
     L("# ── Proxy count ──────────────────────────────────────────────────────"
@@ -1107,14 +1170,6 @@ def build_banner(cfg: dict, meta: dict) -> str:
     L('if [[ "$_COUNT" -gt 0 ]]; then')
     L("  printf '  Proxies loaded  %s\\n' \"${_D}${_COUNT}${_N}\"")
     L("fi")
-    L()
-    L("# ── AES hardware acceleration (baked in at install time) ─────────────"
-      )
-    if aes_ok:
-        L("  printf '  AES hardware    %s\\n' \"${_G}●  available${_N}\"")
-    else:
-        L("  printf '  AES hardware    %s\\n' \"${_Y}○  software fallback — higher latency${_N}\""
-          )
     L()
     L('printf "%s\\n" "$_S"')
     L(f'printf "  Dashboard  →  %s\\n" "http://{hostname}.lan:{dash_port}"')
@@ -1127,10 +1182,23 @@ def build_banner(cfg: dict, meta: dict) -> str:
     L('printf "  %s\\n" "${_D}pimiproxy-core.py [status|logs|configure|debug]${_N}"'
       )
     L('printf "%s\\n" "$_S"')
-    L('printf "  ${_Y}Tip:${_N} Some apps (e.g. Unity VR games) ignore the system\\n"'
+    L('printf "  ${_Y}Tip:${_N} Some apps (Unity VR games etc.) bypass the system proxy.\\n"'
       )
-    L('printf "  proxy setting. To proxy all traffic from a device, set\\n"')
-    L(f'printf "  its WiFi gateway and DNS to this Pi\'s IP instead of the router.\\n"'
+    L('printf "  Route all device traffic through this Pi instead:\\n"')
+    L('printf "  Set the device WiFi to ${_B}static${_N} with these values:\\n"'
+      )
+    L('_PI_IP=$(hostname -I 2>/dev/null | awk \'{print $1}\')')
+    L('_GW=$(ip route 2>/dev/null | awk \'/^default/{print $3; exit}\')')
+    L('_IFACE=$(ip route 2>/dev/null | awk \'/^default/{print $5; exit}\')')
+    L('_CIDR=$(ip -4 addr show "$_IFACE" 2>/dev/null | awk \'/inet /{split($2,a,"/"); print a[2]; exit}\')'
+      )
+    L('printf "    IP address  →  pick any unused IP on your subnet\\n"')
+    L('printf "    Subnet      →  /%s\\n" "${_CIDR:-24}"')
+    L('printf "    Gateway     →  %s  ${_D}(this Pi)${_N}\\n" "${_PI_IP:-<pi-ip>}"'
+      )
+    L('printf "    DNS 1       →  %s  ${_D}(this Pi)${_N}\\n" "${_PI_IP:-<pi-ip>}"'
+      )
+    L('printf "    DNS 2       →  %s  ${_D}(your router, fallback)${_N}\\n" "${_GW:-<router-ip>}"'
       )
     L('printf "%s\\n\\n" "$_S"')
 
@@ -1243,7 +1311,8 @@ def do_logs():
 
     service = sys.argv[2] if len(sys.argv) > 2 else "mihomo"
     if service not in {"mihomo", "dashboard", "pimiproxy-api", "pimiproxy-ui"}:
-        die(f"Unknown service '{service}'. Use: mihomo, dashboard, pimiproxy-api, pimiproxy-ui")
+        die(f"Unknown service '{service}'. Use: mihomo, dashboard, pimiproxy-api, pimiproxy-ui"
+            )
 
     step(f"Logs: {service}  (Ctrl-C to stop)")
     try:
@@ -1263,7 +1332,9 @@ def do_restart():
     compose = (meta["compose_bin"], meta["compose_sub"])
 
     service = sys.argv[2] if len(sys.argv) > 2 else None
-    if service and service not in {"mihomo", "dashboard", "pimiproxy-api", "pimiproxy-ui"}:
+    if service and service not in {
+            "mihomo", "dashboard", "pimiproxy-api", "pimiproxy-ui"
+    }:
         die(f"Unknown service '{service}'. Use: mihomo, dashboard, pimiproxy-api, pimiproxy-ui, or omit for all"
             )
 
@@ -1417,11 +1488,14 @@ def do_configure():
 
     while True:
         # Detect whether web UI images are already present
-        _api_img_ok = run(["docker", "image", "inspect", "pimiproxy-api:latest"],
-                          check=False, silent=True).returncode == 0
-        _ui_img_ok  = run(["docker", "image", "inspect", "pimiproxy-ui:latest"],
-                          check=False, silent=True).returncode == 0
-        _ui_status  = "enabled" if (_api_img_ok and _ui_img_ok) else "not built"
+        _api_img_ok = run(
+            ["docker", "image", "inspect", "pimiproxy-api:latest"],
+            check=False,
+            silent=True).returncode == 0
+        _ui_img_ok = run(["docker", "image", "inspect", "pimiproxy-ui:latest"],
+                         check=False,
+                         silent=True).returncode == 0
+        _ui_status = "enabled" if (_api_img_ok and _ui_img_ok) else "not built"
 
         print(f"\n{C.BOLD}── Configure pimiproxy ─────────────────────{C.NC}")
         print("  1) Manage provider URL")
@@ -1732,7 +1806,7 @@ def do_configure():
         elif choice == "7":
             cur_dash = cfg.get("dashboard_port",
                                meta.get("dashboard_port", "8080"))
-            cur_ui   = cfg.get("ui_port", meta.get("ui_port", "8585"))
+            cur_ui = cfg.get("ui_port", meta.get("ui_port", "8585"))
             cur_api = cfg.get("api_port", meta.get("api_port", "9090"))
             cur_mixed = cfg.get("mixed_port", meta.get("mixed_port", "7890"))
             print(f"\n  {C.BOLD}Current ports:{C.NC}")
@@ -1741,9 +1815,9 @@ def do_configure():
             print(f"    Mihomo API     port : {cur_api}")
             print(f"    Mixed proxy    port : {cur_mixed}")
             print()
-            new_dash  = ask("Dashboard port", cur_dash)
-            new_ui    = ask("Management UI port", cur_ui)
-            new_api   = ask("Mihomo API port", cur_api)
+            new_dash = ask("Dashboard port", cur_dash)
+            new_ui = ask("Management UI port", cur_ui)
+            new_api = ask("Mihomo API port", cur_api)
             new_mixed = ask("Mixed proxy port", cur_mixed)
             if new_dash != cur_dash:
                 cfg["dashboard_port"] = new_dash
@@ -1846,37 +1920,60 @@ def do_configure():
         # ── enable / rebuild web UI ───────────────────────────────────────────
         elif choice == "11":
             _script_dir = Path(__file__).resolve().parent
-            _api_archive = _script_dir / "docker-images" / "pimiproxy-api.tar.gz"
-            _ui_archive  = _script_dir / "docker-images" / "pimiproxy-ui.tar.gz"
-            _api_src     = _script_dir / "pimiproxy-api"
-            _ui_src      = _script_dir / "pimiproxy-ui"
+            _api_archive = _find_archive("pimiproxy-api.tar.gz")
+            _ui_archive = _find_archive("pimiproxy-ui.tar.gz")
+            _api_src = _script_dir / "pimiproxy-api"
+            _ui_src = _script_dir / "pimiproxy-ui"
 
             step("pimiproxy-api image")
-            if _api_archive.exists():
+            if _image_already_loaded("pimiproxy-api:latest"):
+                info("pimiproxy-api: already loaded — reusing existing image.")
+            elif _api_archive:
                 with Spinner("Loading pimiproxy-api from archive"):
-                    run(["docker", "load", "-i", str(_api_archive)], silent=True)
+                    run(["docker", "load", "-i",
+                         str(_api_archive)],
+                        silent=True)
                 info("pimiproxy-api image loaded from archive.")
             elif _api_src.exists():
                 info("Building pimiproxy-api from source…")
-                run(["docker", "build", "-t", "pimiproxy-api:latest", str(_api_src)], silent=False)
+                run([
+                    "docker", "build", "-t", "pimiproxy-api:latest",
+                    str(_api_src)
+                ],
+                    silent=False)
                 info("pimiproxy-api image built.")
             else:
-                warn(f"Neither archive nor source found at {_api_src}")
-                warn("Copy pimiproxy-api/ alongside this script and try again.")
+                warn(
+                    "pimiproxy-api archive not found in any standard location."
+                )
+                warn(
+                    "Place pimiproxy-api.tar.gz in docker-images/ and try again."
+                )
                 continue
 
             step("pimiproxy-ui image")
-            if _ui_archive.exists():
+            if _image_already_loaded("pimiproxy-ui:latest"):
+                info("pimiproxy-ui: already loaded — reusing existing image.")
+            elif _ui_archive:
                 with Spinner("Loading pimiproxy-ui from archive"):
-                    run(["docker", "load", "-i", str(_ui_archive)], silent=True)
+                    run(["docker", "load", "-i",
+                         str(_ui_archive)],
+                        silent=True)
                 info("pimiproxy-ui image loaded from archive.")
             elif _ui_src.exists():
                 info("Building pimiproxy-ui from source…")
-                run(["docker", "build", "-t", "pimiproxy-ui:latest", str(_ui_src)], silent=False)
+                run([
+                    "docker", "build", "-t", "pimiproxy-ui:latest",
+                    str(_ui_src)
+                ],
+                    silent=False)
                 info("pimiproxy-ui image built.")
             else:
-                warn(f"Neither archive nor source found at {_ui_src}")
-                warn("Copy pimiproxy-ui/ alongside this script and try again.")
+                warn(
+                    "pimiproxy-ui archive not found in any standard location.")
+                warn(
+                    "Place pimiproxy-ui.tar.gz in docker-images/ and try again."
+                )
                 continue
 
             # Ensure ui_port is set in cfg and meta
@@ -1906,7 +2003,11 @@ def do_configure():
             info("docker-compose.yml rebuilt with web UI services.")
 
             if confirm("Start web UI containers now?", default=True):
-                compose_run(compose, "up", "-d", "--force-recreate", cwd=install_dir)
+                compose_run(compose,
+                            "up",
+                            "-d",
+                            "--force-recreate",
+                            cwd=install_dir)
                 info("Containers started.")
                 ui_port = cfg["ui_port"]
                 hostname = meta.get("hostname", "pimiproxy")
@@ -1939,9 +2040,7 @@ def do_install():
     step("Install mode")
     print()
     print("  Express install uses all defaults — only asks for hostname and")
-    print(
-        "  your provider URL. Everything else is pre-configured."
-    )
+    print("  your provider URL. Everything else is pre-configured.")
     print()
     print("  Advanced install walks through every option.")
     print()
@@ -2009,10 +2108,10 @@ def do_install():
     _mdns_pkgs = {
         "debian": ("avahi-daemon", "libnss-mdns"),
         "fedora": ("avahi", "nss-mdns"),
-        "arch":   ("avahi", "nss-mdns"),
-        "suse":   ("avahi", "nss-mdns"),
-        "alpine": ("avahi",),
-    }.get(distro, ("avahi-daemon",))
+        "arch": ("avahi", "nss-mdns"),
+        "suse": ("avahi", "nss-mdns"),
+        "alpine": ("avahi", ),
+    }.get(distro, ("avahi-daemon", ))
     pkg_install(distro, *_mdns_pkgs)
     with Spinner("Enabling avahi-daemon"):
         run(["systemctl", "enable", "--now", "avahi-daemon"], silent=True)
@@ -2021,7 +2120,8 @@ def do_install():
     # Docker — add repo first if needed, then install
     setup_docker_repo(distro)
     if not shutil.which("docker"):
-        _docker_pkg = "docker-ce" if distro in ("fedora", "arch", "suse") else "docker.io"
+        _docker_pkg = "docker-ce" if distro in ("fedora", "arch",
+                                                "suse") else "docker.io"
         pkg_install(distro, _docker_pkg)
     else:
         v = run(["docker", "--version"], capture=True).stdout.strip()
@@ -2058,34 +2158,46 @@ def do_install():
 
     # ── pimiproxy-api and pimiproxy-ui images ─────────────────────────────────
     _script_dir = Path(__file__).resolve().parent
-    _api_archive = _script_dir / "docker-images" / "pimiproxy-api.tar.gz"
-    _ui_archive  = _script_dir / "docker-images" / "pimiproxy-ui.tar.gz"
-    _api_src     = _script_dir / "pimiproxy-api"
-    _ui_src      = _script_dir / "pimiproxy-ui"
+    _api_archive = _find_archive("pimiproxy-api.tar.gz")
+    _ui_archive = _find_archive("pimiproxy-ui.tar.gz")
+    _api_src = _script_dir / "pimiproxy-api"
+    _ui_src = _script_dir / "pimiproxy-ui"
 
     step("pimiproxy-api image")
-    if _api_archive.exists():
+    if _image_already_loaded("pimiproxy-api:latest"):
+        info("pimiproxy-api: already loaded — reusing existing image.")
+    elif _api_archive:
         with Spinner("Loading pimiproxy-api from archive"):
             run(["docker", "load", "-i", str(_api_archive)], silent=True)
         info("pimiproxy-api image loaded from archive.")
     elif _api_src.exists():
         info("Building pimiproxy-api from source (this may take a minute)…")
-        run(["docker", "build", "-t", "pimiproxy-api:latest", str(_api_src)], silent=False)
+        run(["docker", "build", "-t", "pimiproxy-api:latest",
+             str(_api_src)],
+            silent=False)
         info("pimiproxy-api image built.")
     else:
-        warn("pimiproxy-api source not found — skipping. Web UI will not work.")
+        warn(
+            "pimiproxy-api archive not found in any standard location — skipping. Web UI will not work."
+        )
 
     step("pimiproxy-ui image")
-    if _ui_archive.exists():
+    if _image_already_loaded("pimiproxy-ui:latest"):
+        info("pimiproxy-ui: already loaded — reusing existing image.")
+    elif _ui_archive:
         with Spinner("Loading pimiproxy-ui from archive"):
             run(["docker", "load", "-i", str(_ui_archive)], silent=True)
         info("pimiproxy-ui image loaded from archive.")
     elif _ui_src.exists():
         info("Building pimiproxy-ui from source (this may take a minute)…")
-        run(["docker", "build", "-t", "pimiproxy-ui:latest", str(_ui_src)], silent=False)
+        run(["docker", "build", "-t", "pimiproxy-ui:latest",
+             str(_ui_src)],
+            silent=False)
         info("pimiproxy-ui image built.")
     else:
-        warn("pimiproxy-ui source not found — skipping. Web UI will not work.")
+        warn(
+            "pimiproxy-ui archive not found in any standard location — skipping. Web UI will not work."
+        )
 
     # ── directories ───────────────────────────────────────────────────────────
     step("Directories")
@@ -2241,47 +2353,136 @@ def do_install():
     info("Containers started.")
 
     # ── summary ───────────────────────────────────────────────────────────────
-    result = run(["hostname", "-I"], capture=True)
-    lan_ip = result.stdout.strip().split()[0]
+    _r = run(["hostname", "-I"], capture=True, check=False)
+    lan_ip = (_r.stdout.strip().split() or ["<pi-ip>"])[0]
 
-    print(f"\n{C.BOLD}{C.GREEN}{'─'*42}")
-    print("  Installation complete!")
-    print(f"{'─'*42}{C.NC}")
+    _gw_r = run(["ip", "route", "show", "default"], capture=True, check=False)
+    _gw = ""
+    _cidr = "24"
+    if _gw_r and _gw_r.returncode == 0:
+        _tokens = _gw_r.stdout.split()
+        for _i, _t in enumerate(_tokens):
+            if _t == "via" and _i + 1 < len(_tokens):
+                _gw = _tokens[_i + 1]
+            if _t == "dev" and _i + 1 < len(_tokens):
+                _iface = _tokens[_i + 1]
+                _addr_r = run(["ip", "-4", "addr", "show", _iface],
+                              capture=True,
+                              check=False)
+                if _addr_r and _addr_r.returncode == 0:
+                    _m = re.search(r'inet \S+/(\d+)', _addr_r.stdout)
+                    if _m:
+                        _cidr = _m.group(1)
+                break
+
+    SEP = f"  {'─'*42}"
+    B, G, Y, D, N = C.BOLD, C.GREEN, C.YELLOW, C.DIM, C.NC
+
     print()
-    print(f"  Dashboard    ->  http://{hostname_new}.lan:{dashboard_port}")
-    print(
-        f"               ->  http://{lan_ip}:{dashboard_port}  (IP fallback)")
-    print(f"  Management UI->  http://{hostname_new}.lan:{ui_port}")
-    print(f"  Mihomo API   ->  http://{hostname_new}.lan:{api_port}")
-    print(f"  Proxy        ->  {lan_ip}:{mixed_port}  (HTTP/SOCKS5)")
-    print()
-    print("  Pi routing control:")
-    print("    sudo clash-system on      # route Pi traffic via proxy")
-    print("    sudo clash-system off     # revert to direct")
-    print("    sudo clash-system status")
-    print()
-    print("  Add or change proxy groups and rules:")
-    print(f"    sudo python3 /opt/pimiproxy/pimiproxy-core.py configure")
-    print()
+    print(f"{B}{G}  pimiproxy — installation complete{N}")
+    print(SEP)
+    print(f"  Dashboard  →  http://{hostname_new}.lan:{dashboard_port}")
+    print(f"             →  http://{lan_ip}:{dashboard_port}")
+    print(f"  UI         →  http://{hostname_new}.lan:{ui_port}")
+    print(f"  API        →  http://{hostname_new}.lan:{api_port}")
+    print(f"  Proxy      →  {hostname_new}.lan:{mixed_port}  (HTTP/SOCKS5)")
+    print(SEP)
     if has_aes_hardware():
-        info(
-            "Hardware AES acceleration: available — optimal encryption performance."
-        )
+        print(f"  AES hardware   {G}●  available{N}")
     else:
-        warn("Hardware AES acceleration: not available on this CPU.")
-        warn(
-            "Encryption will run in software — expect higher latency on heavy "
-            "or high-speed connections. A Pi 3 or newer is recommended.")
+        print(f"  AES hardware   {Y}○  software fallback — higher latency{N}")
+    print(f"  {D}clash-system [on|off|status|restart]{N}")
+    print(f"  {D}pimiproxy-core.py [configure|status|logs|debug]{N}")
+    print(SEP)
+    print(
+        f"  {Y}Tip:{N} Some apps (Unity VR games etc.) bypass the system proxy."
+    )
+    print(f"  Route all device traffic through this Pi instead:")
+    print(f"  Set the device WiFi to {B}static{N} with these values:")
+    print(f"    IP address  →  pick any unused IP on your subnet")
+    print(f"    Subnet      →  /{_cidr}")
+    print(f"    Gateway     →  {lan_ip}  {D}(this Pi){N}")
+    print(f"    DNS 1       →  {lan_ip}  {D}(this Pi){N}")
+    print(
+        f"    DNS 2       →  {_gw or '<router-ip>'}  {D}(your router, fallback){N}"
+    )
+    print(SEP)
     print()
+
+    if not has_aes_hardware():
+        warn(
+            "Hardware AES not available — encryption runs in software. Expect higher latency on heavy traffic."
+        )
     if _hostname_changed:
         dhcp_renew()
         info(f"{hostname_new}.local is available immediately via mDNS.")
-        if confirm("Reboot now to ensure the router fully registers the new hostname?",
-                   default=False):
+        warn(
+            f"{hostname_new}.lan requires a DHCP lease renewal or reboot to register with your router."
+        )
+        if confirm(
+                "Reboot now to ensure the router fully registers the new hostname?",
+                default=False):
             run(["reboot"])
     else:
         warn(f"{hostname_new}.local is available via mDNS.")
         warn(f"{hostname_new}.lan resolves via your router's DNS.")
+    print()
+
+
+# =============================================================================
+# EXPORT
+# =============================================================================
+def do_export():
+    """Export user config, cached provider YAML, and final config.yaml."""
+    meta = read_meta()
+    install_dir = Path(meta["install_dir"])
+    ext_cfg_path = install_dir / ".pimiproxy-config.json"
+    cfg = json.loads(ext_cfg_path.read_text()) if ext_cfg_path.exists() else {}
+
+    out_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else Path.cwd()
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    banner("pimiproxy export", C.CYAN)
+
+    # ── User config ───────────────────────────────────────────────────────────
+    user_data = {
+        "proxy_groups": cfg.get("proxy_groups", []),
+        "rules": cfg.get("rules", []),
+    }
+    user_path = out_dir / "pimiproxy-user-config.json"
+    user_path.write_text(json.dumps(user_data, indent=2))
+    info(f"User config (groups + rules)  →  {user_path}")
+
+    # ── Provider YAML ─────────────────────────────────────────────────────────
+    proxies = cfg.get("subscription_proxies_yaml", "")
+    groups = cfg.get("subscription_groups_yaml", "")
+    rules = cfg.get("subscription_rules_yaml", "")
+    if proxies or groups or rules:
+        parts = ["# Provider subscription cache — exported from pimiproxy"]
+        url = cfg.get("subscription_url", "")
+        if url:
+            parts.append(f"# Source: {url}")
+        parts.append("")
+        if proxies: parts.append(proxies.rstrip())
+        if groups: parts.append(groups.rstrip())
+        if rules: parts.append(rules.rstrip())
+        provider_path = out_dir / "pimiproxy-provider.yaml"
+        provider_path.write_text("\n".join(parts) + "\n")
+        info(f"Provider subscription YAML    →  {provider_path}")
+    else:
+        warn(
+            "No provider YAML cached — skipping (run refresh first if needed)."
+        )
+
+    # ── Final config ──────────────────────────────────────────────────────────
+    config_yaml = install_dir / "config" / "config.yaml"
+    if config_yaml.exists():
+        dest = out_dir / "pimiproxy-config.yaml"
+        shutil.copy2(config_yaml, dest)
+        info(f"Final Mihomo config           →  {dest}")
+    else:
+        warn("config.yaml not found — skipping.")
+
     print()
 
 
@@ -2389,12 +2590,18 @@ def do_uninstall():
             info("Containers stopped.")
         else:
             warn("No compose binary found — stopping containers by name.")
-            for name in ["mihomo", "metacubexd", "zashboard", "pimiproxy-api", "pimiproxy-ui"]:
+            for name in [
+                    "mihomo", "metacubexd", "zashboard", "pimiproxy-api",
+                    "pimiproxy-ui"
+            ]:
                 run(["docker", "stop", name], check=False, silent=True)
                 run(["docker", "rm", name], check=False, silent=True)
     else:
         warn("No docker-compose.yml found — stopping containers by name.")
-        for name in ["mihomo", "metacubexd", "zashboard", "pimiproxy-api", "pimiproxy-ui"]:
+        for name in [
+                "mihomo", "metacubexd", "zashboard", "pimiproxy-api",
+                "pimiproxy-ui"
+        ]:
             run(["docker", "stop", name], check=False, silent=True)
             run(["docker", "rm", name], check=False, silent=True)
 
@@ -2501,10 +2708,10 @@ def do_uninstall():
         _mdns_pkgs = {
             "debian": ("avahi-daemon", "libnss-mdns"),
             "fedora": ("avahi", "nss-mdns"),
-            "arch":   ("avahi", "nss-mdns"),
-            "suse":   ("avahi", "nss-mdns"),
-            "alpine": ("avahi",),
-        }.get(distro, ("avahi-daemon",))
+            "arch": ("avahi", "nss-mdns"),
+            "suse": ("avahi", "nss-mdns"),
+            "alpine": ("avahi", ),
+        }.get(distro, ("avahi-daemon", ))
         pkg_remove(distro, *_mdns_pkgs)
         info("avahi-daemon removed.")
 
@@ -2526,13 +2733,19 @@ COMMANDS = {
     "update": do_update,
     "hostname": do_set_hostname,
     "debug": do_debug,
+    "export": do_export,
 }
 
 # Commands that accept an optional second argument
-_TAKES_ARG = {"hostname", "logs", "restart", "debug"}
+_TAKES_ARG = {"hostname", "logs", "restart", "debug", "export"}
 
 
 def main():
+    if os.geteuid() != 0:
+        print("Error: pimiproxy-core.py must be run as root.")
+        print("       sudo python3 pimiproxy-core.py [command]")
+        sys.exit(1)
+
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
 
     cmd = args[0] if args else "install"
