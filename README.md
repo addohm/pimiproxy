@@ -67,7 +67,7 @@ The `.tar.gz` archives are not included in the repository. See [docs/INSTRUCTION
 **Option A — Bootstrap (recommended, handles all prerequisites):**
 
 ```bash
-sudo bash pimiproxy.sh
+sudo ./pimiproxy.sh
 ```
 
 This detects your distro, installs Python, Docker, avahi-daemon, and raspi-config if needed, then launches the installer automatically.

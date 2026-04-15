@@ -6,7 +6,7 @@
 # Supports: Debian/Ubuntu/Raspbian, Fedora/RHEL, Arch, openSUSE, Alpine.
 #
 # Usage:
-#   sudo bash pimiproxy.sh [install|uninstall|configure]
+#   sudo ./pimiproxy.sh [install|uninstall|configure]
 #
 # Offline image preparation (run on a machine with internet + Docker):
 #   Use rebuild.sh --third-party to pull mihomo/metacubexd/zashboard for both
@@ -82,7 +82,7 @@ PYTHON_SCRIPT="${SCRIPT_DIR}/pimiproxy-core.py"
 PIMIPROXY_CMD="${1:-install}"
 
 # Non-install commands skip the full bootstrap and pass straight through to Python.
-# This lets users run e.g. `sudo bash pimiproxy.sh logs` instead of invoking
+# This lets users run e.g. `sudo ./pimiproxy.sh logs` instead of invoking
 # pimiproxy-core.py directly.
 if [[ "$PIMIPROXY_CMD" != "install" ]]; then
     [[ -f "$PYTHON_SCRIPT" ]] || die "pimiproxy-core.py not found at ${PYTHON_SCRIPT}."

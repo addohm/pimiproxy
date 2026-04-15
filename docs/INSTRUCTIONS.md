@@ -92,15 +92,15 @@ SSH into your SBC (or open a terminal on it directly) and navigate to the direct
 The bootstrap script detects your distro, installs Python 3, Docker (via the official `get.docker.com` installer), avahi-daemon, and raspi-config automatically, then launches the Python installer. This is the easiest path and works on Debian, Ubuntu, Fedora, Arch, openSUSE, Alpine, and their derivatives.
 
 ```bash
-sudo bash pimiproxy.sh
+sudo ./pimiproxy.sh
 ```
 
 Pass a subcommand to control what happens after prerequisites are confirmed:
 
 ```bash
-sudo bash pimiproxy.sh install     # default
-sudo bash pimiproxy.sh uninstall
-sudo bash pimiproxy.sh configure
+sudo ./pimiproxy.sh install     # default
+sudo ./pimiproxy.sh uninstall
+sudo ./pimiproxy.sh configure
 ```
 
 ### Option B — Python script directly

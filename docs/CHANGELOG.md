@@ -10,7 +10,7 @@
 
 ### Changed
 - **`pimiproxy-ultralite.sh`** — mirrors `pimiproxy.sh` structure but drops the Docker install section entirely. Warns if no matching mihomo binary is found for the detected arch rather than exiting.
-- **Shell wrapper passthrough** — both `pimiproxy.sh` and `pimiproxy-ultralite.sh` now skip the full bootstrap for any command other than `install`, passing directly to their Python script. Users can run all management commands through the shell wrapper (e.g. `sudo bash pimiproxy.sh logs`) without invoking the Python script directly. Extra arguments (e.g. for `rule-add`, `hostname`, `debug`) are forwarded correctly.
+- **Shell wrapper passthrough** — both `pimiproxy.sh` and `pimiproxy-ultralite.sh` now skip the full bootstrap for any command other than `install`, passing directly to their Python script. Users can run all management commands through the shell wrapper (e.g. `sudo ./pimiproxy.sh logs`) without invoking the Python script directly. Extra arguments (e.g. for `rule-add`, `hostname`, `debug`) are forwarded correctly. Both wrappers are executable — `sudo bash` is not required.
 
 ---
 

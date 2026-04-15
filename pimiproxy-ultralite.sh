@@ -6,7 +6,7 @@
 # Supports: Debian/Ubuntu/Raspbian, Fedora/RHEL, Arch, openSUSE, Alpine.
 #
 # Usage:
-#   sudo bash pimiproxy-ultralite.sh [install|uninstall|configure]
+#   sudo ./pimiproxy-ultralite.sh [install|uninstall|configure]
 #
 # Mihomo binary preparation:
 #   Download the appropriate release binary from:
@@ -67,7 +67,7 @@ PYTHON_SCRIPT="${SCRIPT_DIR}/pimiproxy-ultralite.py"
 PIMIPROXY_CMD="${1:-install}"
 
 # Non-install commands skip the full bootstrap and pass straight through to Python.
-# This lets users run e.g. `sudo bash pimiproxy-ultralite.sh logs` instead of invoking
+# This lets users run e.g. `sudo ./pimiproxy-ultralite.sh logs` instead of invoking
 # pimiproxy-ultralite.py directly.
 if [[ "$PIMIPROXY_CMD" != "install" ]]; then
     [[ -f "$PYTHON_SCRIPT" ]] || die "pimiproxy-ultralite.py not found at ${PYTHON_SCRIPT}."
