@@ -81,6 +81,14 @@ PYTHON_SCRIPT="${SCRIPT_DIR}/pimiproxy-core.py"
 
 PIMIPROXY_CMD="${1:-install}"
 
+# Non-install commands skip the full bootstrap and pass straight through to Python.
+# This lets users run e.g. `sudo bash pimiproxy.sh logs` instead of invoking
+# pimiproxy-core.py directly.
+if [[ "$PIMIPROXY_CMD" != "install" ]]; then
+    [[ -f "$PYTHON_SCRIPT" ]] || die "pimiproxy-core.py not found at ${PYTHON_SCRIPT}."
+    exec python3 "$PYTHON_SCRIPT" "$PIMIPROXY_CMD" "${@:2}"
+fi
+
 echo -e "\n${CYAN}${BOLD}══════════════════════════════════════════"
 echo -e "  pimiproxy bootstrap"
 echo -e "══════════════════════════════════════════${NC}\n"

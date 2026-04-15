@@ -66,6 +66,14 @@ PYTHON_SCRIPT="${SCRIPT_DIR}/pimiproxy-ultralite.py"
 
 PIMIPROXY_CMD="${1:-install}"
 
+# Non-install commands skip the full bootstrap and pass straight through to Python.
+# This lets users run e.g. `sudo bash pimiproxy-ultralite.sh logs` instead of invoking
+# pimiproxy-ultralite.py directly.
+if [[ "$PIMIPROXY_CMD" != "install" ]]; then
+    [[ -f "$PYTHON_SCRIPT" ]] || die "pimiproxy-ultralite.py not found at ${PYTHON_SCRIPT}."
+    exec python3 "$PYTHON_SCRIPT" "$PIMIPROXY_CMD" "${@:2}"
+fi
+
 echo -e "\n${CYAN}${BOLD}══════════════════════════════════════════"
 echo -e "  pimiproxy-ultralite bootstrap"
 echo -e "══════════════════════════════════════════${NC}\n"
