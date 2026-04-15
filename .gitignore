@@ -16,10 +16,6 @@ docs/pmp-deluxe-plan.md
 *.yaml
 *.yaml.old
 
-# Mihomo binaries (placed in bin/ for ultralite installs)
-bin/mihomo-*
-bin/mihomo
-
 # Packaged Installers
 releases/
 
