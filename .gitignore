@@ -1,15 +1,25 @@
-clash-system.sh
-clash-system-status.sh
+# Dev helper script
 rebuild.sh
 
+# Claude
 CLAUDE.md
+.claude/
 
+# Plan Documents
+docs/pmp-ultralite-plan.md
+docs/pmp-deluxe-plan.md
+
+# Config examples
 *.yaml
 *.yaml.old
-pimiproxy.tar.gz
-getapiconfig.py
 
-# docker-images/*.tar.gz
+# Mihomo binaries (placed in bin/ for ultralite installs)
+bin/mihomo-*
+bin/mihomo
 
+# Packaged Installers
+releases/
+
+# UI node stuff
 pimiproxy-ui/node_modules/
 pimiproxy-ui/dist/
