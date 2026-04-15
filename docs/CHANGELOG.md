@@ -1,3 +1,18 @@
+## [6.0.0] — 2026-04-15
+
+### Added
+- **pimiproxy-ultralite** — Docker-free variant. A standalone Python script (`pimiproxy-ultralite.py`) and bash bootstrap wrapper (`pimiproxy-ultralite.sh`) that install mihomo as a native systemd service. No Docker, no web UI, no dashboard. Target use case: devices where Docker is undesirable or unavailable.
+- **Native systemd service** — mihomo runs as `/etc/systemd/system/mihomo.service` with `CAP_NET_ADMIN`, `CAP_NET_RAW`, and `CAP_NET_BIND_SERVICE` ambient capabilities. No container overhead.
+- **Arch-detected binary install** — mihomo release binaries placed in `bin/` are automatically selected by host architecture (`aarch64`, `armv7l`, `x86_64`) and copied to `/usr/local/bin/mihomo`.
+- **Non-interactive rule subcommands** — `rule-list`, `rule-add`, `rule-remove` allow scripted rule management without entering the configure menu.
+- **Install path `/opt/pimiproxy-lite/`** — coexists safely alongside a full pimiproxy install at `/opt/pimiproxy/`.
+- **`bin/` directory** — holds mihomo release binaries for offline/ultralite installs. Binaries are gitignored; directory tracked via `.gitkeep`.
+
+### Changed
+- **`pimiproxy-ultralite.sh`** — mirrors `pimiproxy.sh` structure but drops the Docker install section entirely. Warns if no matching mihomo binary is found for the detected arch rather than exiting.
+
+---
+
 ## [5.1.0] — 2026-04-14
 
 ### Fixed
