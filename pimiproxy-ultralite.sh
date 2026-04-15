@@ -2,7 +2,7 @@
 # =============================================================================
 # pimiproxy-ultralite bootstrap
 # Detects the platform, installs all prerequisites (Python 3, avahi),
-# then launches pimiproxy-ultralite.py to perform the requested action.
+# then launches pimiproxy-ultralite-core.py to perform the requested action.
 # Supports: Debian/Ubuntu/Raspbian, Fedora/RHEL, Arch, openSUSE, Alpine.
 #
 # Usage:
@@ -38,16 +38,16 @@ spin() {
     local frames='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
     local n=${#frames}
     local i=0 rc=0
-
+    
     "$@" >"$_SPIN_LOG" 2>&1 &
     local pid=$!
-
+    
     while kill -0 "$pid" 2>/dev/null; do
         printf "\r  ${CYAN}${frames:$i:1}${NC}  %s" "$msg"
         i=$(( (i + 1) % n ))
         sleep 0.1
     done
-
+    
     wait "$pid" || rc=$?
     if [[ $rc -eq 0 ]]; then
         printf "\r${GREEN}  ✔${NC}  %s\n" "$msg"
@@ -62,15 +62,15 @@ spin() {
 [[ $EUID -eq 0 ]] || die "Run as root:  sudo bash $0 [install|uninstall|configure]"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PYTHON_SCRIPT="${SCRIPT_DIR}/pimiproxy-ultralite.py"
+PYTHON_SCRIPT="${SCRIPT_DIR}/pimiproxy-ultralite-core.py"
 
 PIMIPROXY_CMD="${1:-install}"
 
 # Non-install commands skip the full bootstrap and pass straight through to Python.
 # This lets users run e.g. `sudo ./pimiproxy-ultralite.sh logs` instead of invoking
-# pimiproxy-ultralite.py directly.
+# pimiproxy-ultralite-core.py directly.
 if [[ "$PIMIPROXY_CMD" != "install" ]]; then
-    [[ -f "$PYTHON_SCRIPT" ]] || die "pimiproxy-ultralite.py not found at ${PYTHON_SCRIPT}."
+    [[ -f "$PYTHON_SCRIPT" ]] || die "pimiproxy-ultralite-core.py not found at ${PYTHON_SCRIPT}."
     exec python3 "$PYTHON_SCRIPT" "$PIMIPROXY_CMD" "${@:2}"
 fi
 
@@ -115,9 +115,9 @@ case "$OS_ID" in
     alpine)                                PKG_MGR="apk"   ;;
     *)
         if   echo "$OS_LIKE" | grep -q "debian"; then PKG_MGR="apt"
-        elif echo "$OS_LIKE" | grep -q "fedora\|rhel"; then PKG_MGR="dnf"
-        elif echo "$OS_LIKE" | grep -q "arch"; then PKG_MGR="pacman"
-        else die "Unsupported distribution: $OS_ID. Install Python 3 and avahi-daemon manually, then run: sudo python3 pimiproxy-ultralite.py $PIMIPROXY_CMD"
+            elif echo "$OS_LIKE" | grep -q "fedora\|rhel"; then PKG_MGR="dnf"
+            elif echo "$OS_LIKE" | grep -q "arch"; then PKG_MGR="pacman"
+        else die "Unsupported distribution: $OS_ID. Install Python 3 and avahi-daemon manually, then run: sudo python3 pimiproxy-ultralite-core.py $PIMIPROXY_CMD"
         fi
     ;;
 esac
@@ -173,9 +173,9 @@ esac
 
 if [[ -f "${SCRIPT_DIR}/bin/${BIN_NAME}" ]]; then
     info "Found: bin/${BIN_NAME}"
-elif [[ -f "${SCRIPT_DIR}/bin/mihomo" ]]; then
+    elif [[ -f "${SCRIPT_DIR}/bin/mihomo" ]]; then
     info "Found: bin/mihomo (generic)"
-elif [[ -f "/usr/local/bin/mihomo" ]]; then
+    elif [[ -f "/usr/local/bin/mihomo" ]]; then
     info "Found: /usr/local/bin/mihomo (already installed)"
 else
     warn "No mihomo binary found for arch '${ARCH}' (expected bin/${BIN_NAME})."
@@ -214,18 +214,18 @@ if [[ "$IS_RASPI" == "true" ]] && ! command -v raspi-config &>/dev/null; then
     step "raspi-config"
     case "$PKG_MGR" in
         apt) spin "Installing raspi-config"  apt-get install -y -qq raspi-config
-             info "raspi-config installed." ;;
+        info "raspi-config installed." ;;
         *)   warn "raspi-config is only available on Raspberry Pi OS / Debian. Skipping." ;;
     esac
 fi
 
 # =============================================================================
-# 7. ENSURE PIMIPROXY-ULTRALITE.PY IS PRESENT
+# 7. ENSURE PIMIPROXY-ultralite-core.py IS PRESENT
 # =============================================================================
-step "pimiproxy-ultralite.py"
+step "pimiproxy-ultralite-core.py"
 
 if [[ ! -f "$PYTHON_SCRIPT" ]]; then
-    die "pimiproxy-ultralite.py not found at ${PYTHON_SCRIPT}.\nPlace pimiproxy-ultralite.py in the same directory as this bootstrap script."
+    die "pimiproxy-ultralite-core.py not found at ${PYTHON_SCRIPT}.\nPlace pimiproxy-ultralite-core.py in the same directory as this bootstrap script."
 fi
 
 info "Found: $PYTHON_SCRIPT"
@@ -233,5 +233,5 @@ info "Found: $PYTHON_SCRIPT"
 # =============================================================================
 # 8. HAND OFF TO PYTHON
 # =============================================================================
-echo -e "\n${CYAN}${BOLD}▸ Launching pimiproxy-ultralite.py ${PIMIPROXY_CMD}...${NC}\n"
+echo -e "\n${CYAN}${BOLD}▸ Launching pimiproxy-ultralite-core.py ${PIMIPROXY_CMD}...${NC}\n"
 exec python3 "$PYTHON_SCRIPT" "$PIMIPROXY_CMD"
