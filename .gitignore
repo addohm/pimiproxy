@@ -1,3 +1,6 @@
+# Python
+__pycache__/
+
 # Dev helper script
 rebuild.sh
 
