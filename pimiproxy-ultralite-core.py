@@ -619,90 +619,7 @@ def build_mihomo_service(install_dir: str) -> str:
     return "\n".join(lines)
 
 
-# =============================================================================
-# CLASH-SYSTEM UTILITY
-# =============================================================================
-def build_clash_system() -> str:
-    lines = []
-    def L(s=""):
-        lines.append(s)
-
-    L("#!/usr/bin/env bash")
-    L("# clash-system — control whether the SBC's own traffic routes through Mihomo")
-    L("# Forwarded traffic (e.g. Quest 3 using Pi as gateway) always uses the proxy.")
-    L()
-    L("RED=$'\\033[0;31m'; GREEN=$'\\033[0;32m'; YELLOW=$'\\033[1;33m'; NC=$'\\033[0m'")
-    L()
-    L("[[ $EUID -eq 0 ]] || exec sudo \"$0\" \"$@\"")
-    L()
-    L("MARK=666")
-    L()
-    L("iface_up()   { [[ -d /sys/class/net/mihomo ]]; }")
-    L("bypass_set() { iptables -t mangle -C OUTPUT -j MARK --set-mark $MARK 2>/dev/null; }")
-    L()
-    L("case \"${1:-}\" in")
-    L("  on)")
-    L("    iface_up || {")
-    L("      echo -e \"${RED}✗${NC} mihomo TUN not found — is the service running?\"")
-    L("      exit 1")
-    L("    }")
-    L("    iptables -t mangle -D OUTPUT -j MARK --set-mark $MARK 2>/dev/null || true")
-    L("    touch /run/pimiproxy-proxy-on 2>/dev/null || true")
-    L("    echo -e \"System proxy: ${GREEN}ON${NC}  (Pi traffic → Mihomo)\"")
-    L("    ;;")
-    L("  off)")
-    L("    bypass_set || iptables -t mangle -A OUTPUT -j MARK --set-mark $MARK")
-    L("    rm -f /run/pimiproxy-proxy-on")
-    L("    echo -e \"System proxy: ${YELLOW}OFF${NC} (Pi traffic → direct, forwarded clients → Mihomo)\"")
-    L("    ;;")
-    L("  status)")
-    L("    if bypass_set; then")
-    L("      echo -e \"System proxy: ${YELLOW}OFF${NC} (Pi direct)\"")
-    L("    else")
-    L("      echo -e \"System proxy: ${GREEN}ON${NC}  (Pi proxied)\"")
-    L("    fi")
-    L("    iface_up \\")
-    L("      && echo -e \"  TUN interface: ${GREEN}up${NC}\" \\")
-    L("      || echo -e \"  TUN interface: ${RED}down${NC} (service not running?)\"")
-    L("    ;;")
-    L("  restart)")
-    L("    \"$0\" off; sleep 1; \"$0\" on")
-    L("    ;;")
-    L("  *)")
-    L("    echo 'Usage: clash-system [on|off|status|restart]'")
-    L("    echo '  off  — device uses direct internet (default); gateway clients still proxied'")
-    L("    echo '  on   — device traffic also routes through Mihomo'")
-    L("    exit 1")
-    L("    ;;")
-    L("esac")
-
-    return "\n".join(lines)
-
-
-# =============================================================================
-# BYPASS SERVICE
-# =============================================================================
 BYPASS_SERVICE_PATH = Path("/etc/systemd/system/pimiproxy-bypass.service")
-
-
-def build_bypass_service() -> str:
-    lines = []
-    def L(s=""):
-        lines.append(s)
-
-    L("[Unit]")
-    L("Description=pimiproxy — restore device traffic bypass after network is up")
-    L("After=network.target")
-    L()
-    L("[Service]")
-    L("Type=oneshot")
-    L("ExecStart=/usr/local/bin/clash-system off")
-    L("RemainAfterExit=yes")
-    L()
-    L("[Install]")
-    L("WantedBy=multi-user.target")
-
-    return "\n".join(lines)
 
 
 # =============================================================================
@@ -744,12 +661,7 @@ def build_banner(cfg: dict, meta: dict) -> str:
     L("  printf '  Proxy engine    %s\\n' \"${_R}●  stopped${_N}\"")
     L("fi")
     L()
-    L("# ── System proxy state ───────────────────────────────────────────────")
-    L("if [[ -f /run/pimiproxy-proxy-on ]]; then")
-    L("  printf '  System proxy    %s\\n' \"${_G}●  ON${_N}\"")
-    L("else")
-    L("  printf '  System proxy    %s\\n' \"${_Y}○  OFF${_N}\"")
-    L("fi")
+    L("printf '  TUN mode        %s\\n' \"${_G}●  always on${_N}\"")
     L()
     L("# ── Proxy count ──────────────────────────────────────────────────────")
     L(f"_COUNT=$(grep -c '- name:' '{cfg_file}' 2>/dev/null || echo 0)")
@@ -781,7 +693,6 @@ def build_banner(cfg: dict, meta: dict) -> str:
     L(f'printf "  ${{_C}}API${{_N}}        →  http://{hostname}.lan:{api_port}\\n"')
     L(f'printf "  ${{_B}}${{_C}}Proxy${{_N}}      →  ${{_B}}{hostname}.lan:{mixed_port}  (HTTP/SOCKS5)${{_N}}\\n"')
     L('printf "%s\\n" "$_S"')
-    L('printf "  %s\\n" "${_D}clash-system [on|off|status|restart]${_N}"')
     L('printf "  %s\\n" "${_D}pimiproxy-ultralite.py [status|logs|configure|debug]${_N}"')
     L('printf "%s\\n\\n" "$_S"')
 
@@ -860,13 +771,12 @@ def do_status():
     else:
         warn(f"mihomo: {state}")
 
-    # ── clash-system ──────────────────────────────────────────────────────────
-    step("System proxy (clash-system)")
-    cs = Path("/usr/local/bin/clash-system")
-    if cs.exists():
-        run([str(cs), "status"], check=False)
+    # ── TUN ────────────────────────────────────────────────────────────────────
+    step("TUN")
+    if Path("/sys/class/net/mihomo").exists():
+        info("TUN interface: up — all traffic tunneled through Mihomo.")
     else:
-        warn("clash-system not installed.")
+        warn("TUN interface: down — is the Mihomo service running?")
 
     # ── provider ──────────────────────────────────────────────────────────────
     step("Provider")
@@ -1382,11 +1292,16 @@ def do_install():
         run(["systemctl", "enable", "--now", "avahi-daemon"], silent=True)
     info("avahi-daemon ready.")
 
-    if not shutil.which("iptables"):
-        _ipt_pkg = {"fedora": "iptables", "arch": "iptables", "suse": "iptables"}.get(distro)
-        if _ipt_pkg:
-            pkg_install(distro, _ipt_pkg)
-            info("iptables installed.")
+    # ── systemd-resolved: free port 53 for Mihomo's DNS server ─────────────
+    _resolved_conf = Path("/etc/systemd/resolved.conf.d")
+    if shutil.which("systemd-resolve") or shutil.which("resolvectl"):
+        _resolved_conf.mkdir(parents=True, exist_ok=True)
+        (_resolved_conf / "no-stub.conf").write_text(
+            "[Resolve]\nDNSStubListener=no\n"
+        )
+        run(["systemctl", "restart", "systemd-resolved"],
+            silent=True, check=False)
+        info("systemd-resolved: stub listener disabled (port 53 freed for Mihomo).")
 
     # ── firewalld masquerade + ports ─────────────────────────────────────────
     if shutil.which("firewall-cmd") and run_ok(
@@ -1471,21 +1386,6 @@ def do_install():
     run(["systemctl", "start",  "mihomo"],    silent=True, check=False)
     info("mihomo.service installed and started.")
 
-    # ── clash-system ──────────────────────────────────────────────────────────
-    step("clash-system utility")
-    cs_path = Path("/usr/local/bin/clash-system")
-    cs_path.write_text(build_clash_system())
-    cs_path.chmod(0o755)
-    info("/usr/local/bin/clash-system installed.")
-
-    # ── bypass service ────────────────────────────────────────────────────────
-    step("Pi traffic bypass service")
-    BYPASS_SERVICE_PATH.write_text(build_bypass_service())
-    run(["systemctl", "daemon-reload"],                silent=True)
-    run(["systemctl", "enable", "pimiproxy-bypass"],   silent=True)
-    run(["systemctl", "start",  "pimiproxy-bypass"],   silent=True, check=False)
-    info("pimiproxy-bypass.service installed and enabled.")
-
     # ── IP forwarding ─────────────────────────────────────────────────────────
     step("Enabling IP forwarding")
     sysctl_conf = Path("/etc/sysctl.d/99-pimiproxy.conf")
@@ -1566,7 +1466,6 @@ def do_install():
     print(f"         →  http://{lan_ip}:{api_port}")
     print(f"  {B}{C2}Proxy{N}  →  {B}{hostname_new}.lan:{mixed_port}  (HTTP/SOCKS5){N}")
     print(SEP)
-    print(f"  {D}clash-system [on|off|status|restart]{N}")
     print(f"  {D}pimiproxy-ultralite.py [configure|status|logs|debug]{N}")
     print(SEP)
     print()
@@ -1737,13 +1636,6 @@ def do_uninstall():
         bin_path.unlink()
         info("Removed /usr/local/bin/mihomo")
 
-    # ── routing rules ─────────────────────────────────────────────────────────
-    step("Clearing routing rules")
-    cs = Path("/usr/local/bin/clash-system")
-    if cs.exists():
-        run([str(cs), "off"], check=False, silent=True)
-    info("Routing rules cleared.")
-
     # ── files ─────────────────────────────────────────────────────────────────
     step("Removing files")
 
@@ -1751,9 +1643,12 @@ def do_uninstall():
         shutil.rmtree(install_dir)
         info(f"Removed {install_dir}")
 
+    # Clean up legacy clash-system if present from older installs
+    cs = Path("/usr/local/bin/clash-system")
     if cs.exists():
+        run([str(cs), "off"], check=False, silent=True)
         cs.unlink()
-        info("Removed /usr/local/bin/clash-system")
+        info("Removed legacy /usr/local/bin/clash-system")
 
     cron_path = Path("/etc/cron.daily/pimiproxy-refresh")
     if cron_path.exists():
@@ -1770,14 +1665,15 @@ def do_uninstall():
         run(["sysctl", "-w", "net.ipv4.ip_forward=0"], check=False, silent=True)
         info("Removed IP forwarding config and disabled forwarding.")
 
+    # Clean up legacy bypass service from older installs
     if BYPASS_SERVICE_PATH.exists():
         run(["systemctl", "stop",    "pimiproxy-bypass"], check=False, silent=True)
         run(["systemctl", "disable", "pimiproxy-bypass"], check=False, silent=True)
         BYPASS_SERVICE_PATH.unlink()
         run(["systemctl", "daemon-reload"], silent=True, check=False)
-        run(["iptables", "-t", "mangle", "-D", "OUTPUT", "-j", "MARK", "--set-mark", "666"],
-            check=False, silent=True)
-        info("Removed bypass service and cleared iptables rules.")
+        info("Removed legacy bypass service.")
+    run(["iptables", "-t", "mangle", "-D", "OUTPUT", "-j", "MARK", "--set-mark", "666"],
+        check=False, silent=True)
 
     # ── hostname ──────────────────────────────────────────────────────────────
     step("Hostname")

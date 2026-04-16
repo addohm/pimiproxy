@@ -9,13 +9,11 @@
 3. [DNS Port 53 Conflict](#3-dns-port-53-conflict)
 4. [Mihomo Container Won't Start or Keeps Restarting](#4-mihomo-container-wont-start-or-keeps-restarting)
 5. [Port Already in Use](#5-port-already-in-use)
-6. [clash-system on Has No Effect](#6-clash-system-on-has-no-effect)
-7. [SBC's Own Traffic Not Going Through the Proxy](#7-sbcs-own-traffic-not-going-through-the-proxy)
-8. [Daily Subscription Refresh Not Working](#8-daily-subscription-refresh-not-working)
-9. [Dashboard Can't Reach the Mihomo API](#9-dashboard-cant-reach-the-mihomo-api)
-10. [Recovering a Broken Config](#10-recovering-a-broken-config)
-11. [Devices on the Network Can't Connect to the Proxy](#11-devices-on-the-network-cant-connect-to-the-proxy)
-12. [App Shows No Connectivity Despite Proxy Being Configured](#12-app-shows-no-connectivity-despite-proxy-being-configured)
+6. [Daily Subscription Refresh Not Working](#6-daily-subscription-refresh-not-working)
+7. [Dashboard Can't Reach the Mihomo API](#7-dashboard-cant-reach-the-mihomo-api)
+8. [Recovering a Broken Config](#8-recovering-a-broken-config)
+9. [Devices on the Network Can't Connect to the Proxy](#9-devices-on-the-network-cant-connect-to-the-proxy)
+10. [App Shows No Connectivity Despite Proxy Being Configured](#10-app-shows-no-connectivity-despite-proxy-being-configured)
 
 ---
 
@@ -227,107 +225,7 @@ sudo ss -tulpn | grep -E ':(7890|8080|9090)'
 
 ---
 
-## 6. clash-system on Has No Effect
-
-**Symptom:** `sudo clash-system on` runs without error but the Pi's own traffic still goes directly to the internet.
-
-### Check 1 — Is the mihomo TUN interface up?
-
-```bash
-ip link show mihomo
-```
-
-If the interface doesn't exist, the mihomo container isn't running or didn't create the TUN device. Check container status and logs:
-
-```bash
-cd /opt/pimiproxy && docker compose ps
-docker compose logs --tail=30 mihomo
-```
-
-### Check 2 — Are the policy routing rules active?
-
-```bash
-ip rule show
-```
-
-You should see rules at priorities 90, 100, and 101. If they're absent, `clash-system on` failed silently. Re-run it and look for error output:
-
-```bash
-sudo clash-system on
-```
-
-### Check 3 — Is routing table 101 populated?
-
-```bash
-ip route show table 101
-```
-
-You should see a default route via the `mihomo` interface. If the table is empty, the TUN interface was down when `clash-system on` ran.
-
-### Fix
-
-Ensure the container is fully started before running `clash-system on`:
-
-```bash
-cd /opt/pimiproxy && docker compose up -d
-sleep 5
-sudo clash-system on
-sudo clash-system status
-```
-
----
-
-## 7. SBC's Own Traffic Not Going Through the Proxy
-
-**Symptom:** `clash-system status` shows ON but traffic from the SBC itself (e.g., `curl ifconfig.me`) doesn't appear to use the proxy.
-
-### Note on persistence
-
-`clash-system on` sets Linux policy routing rules that are **not persistent across reboots**. After a reboot, the rules are gone.
-
-To make it permanent, add `clash-system on` to a startup script. The simplest approach is `/etc/rc.local`:
-
-```bash
-sudo nano /etc/rc.local
-```
-
-Add before the `exit 0` line:
-```bash
-sleep 10 && clash-system on
-```
-
-The `sleep 10` gives the Docker container time to start and create the TUN interface before the routing rules are applied.
-
-Alternatively, create a systemd unit:
-
-```bash
-sudo nano /etc/systemd/system/clash-system.service
-```
-
-```ini
-[Unit]
-Description=Enable clash-system transparent proxy routing
-After=docker.service
-Wants=docker.service
-
-[Service]
-Type=oneshot
-ExecStartPre=/bin/sleep 10
-ExecStart=/usr/local/bin/clash-system on
-RemainAfterExit=yes
-ExecStop=/usr/local/bin/clash-system off
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-sudo systemctl enable --now clash-system
-```
-
----
-
-## 8. Daily Subscription Refresh Not Working
+## 6. Daily Subscription Refresh Not Working
 
 **Symptom:** Server list becomes stale; providers often rotate servers and expire old ones. The automatic daily refresh appears not to run.
 
@@ -369,7 +267,7 @@ sudo systemctl status crond
 
 ---
 
-## 9. Dashboard Can't Reach the Mihomo API
+## 7. Dashboard Can't Reach the Mihomo API
 
 **Symptom:** Dashboard loads but shows a connection error when trying to reach the backend, or prompts for an API URL and secret repeatedly.
 
@@ -406,7 +304,7 @@ The dashboard secret must match exactly. It is case-sensitive.
 
 ---
 
-## 10. Recovering a Broken Config
+## 8. Recovering a Broken Config
 
 **Symptom:** `config.yaml` was manually edited and broke Mihomo, or the file is missing.
 
@@ -434,7 +332,7 @@ sudo python3 pimiproxy-core.py configure
 
 ---
 
-## 11. Devices on the Network Can't Connect to the Proxy
+## 9. Devices on the Network Can't Connect to the Proxy
 
 **Symptom:** You've configured proxy settings on a device but connections fail or the device shows "proxy unreachable".
 
@@ -484,7 +382,7 @@ If the SBC's IP address changed since you configured the proxy settings on the d
 
 ---
 
-## 12. App Shows No Connectivity Despite Proxy Being Configured
+## 10. App Shows No Connectivity Despite Proxy Being Configured
 
 **Symptom:** A device is correctly configured to use pimiproxy as its HTTP/SOCKS5 proxy, other apps work fine, but one specific app shows "no internet" or "offline" — and the app never appears in Mihomo's logs at all.
 

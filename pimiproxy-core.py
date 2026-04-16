@@ -1042,118 +1042,7 @@ def build_compose(cfg: dict) -> str:
     return "\n".join(lines)
 
 
-def build_clash_system() -> str:
-    # How this works with auto-route: true
-    # ─────────────────────────────────────
-    # Mihomo's auto-route installs two key ip rules at startup:
-    #   fwmark 666 → lookup main   (exempt marked packets from TUN)
-    #   all traffic → lookup TUN table  (everything else enters TUN)
-    #
-    # clash-system off (DEFAULT — Pi traffic goes direct):
-    #   iptables mangle OUTPUT marks every packet the Pi itself originates
-    #   with fwmark 666.  Mihomo's ip rule then exempts them from TUN →
-    #   Pi gets direct internet.
-    #   Forwarded packets (Quest 3 etc.) go through the FORWARD chain, NOT
-    #   OUTPUT → never marked → hit Mihomo's TUN table → proxied. ✓
-    #
-    # clash-system on (Pi routes through proxy too):
-    #   Remove the iptables OUTPUT mark rule.  Pi packets no longer carry
-    #   fwmark 666 → fall through to Mihomo's TUN table → proxied.
-    #   Forwarded packets: unchanged → proxied. ✓
-    #
-    # Persisted across reboots by pimiproxy-bypass.service which runs
-    # clash-system off once after network is up.
-
-    lines = []
-
-    def L(s=""):
-        lines.append(s)
-
-    L("#!/usr/bin/env bash")
-    L("# clash-system — control whether the SBC's own traffic routes through Mihomo"
-      )
-    L("# Forwarded traffic (e.g. Quest 3 using Pi as gateway) always uses the proxy."
-      )
-    L()
-    L("RED=$'\\033[0;31m'; GREEN=$'\\033[0;32m'; YELLOW=$'\\033[1;33m'; NC=$'\\033[0m'"
-      )
-    L()
-    L("[[ $EUID -eq 0 ]] || exec sudo \"$0\" \"$@\"")
-    L()
-    L("MARK=666")
-    L()
-    L("iface_up()   { [[ -d /sys/class/net/mihomo ]]; }")
-    L("bypass_set() { iptables -t mangle -C OUTPUT -j MARK --set-mark $MARK 2>/dev/null; }"
-      )
-    L()
-    L("case \"${1:-}\" in")
-    L("  on)")
-    L("    iface_up || {")
-    L("      echo -e \"${RED}✗${NC} mihomo TUN not found — is the container running?\""
-      )
-    L("      exit 1")
-    L("    }")
-    L("    iptables -t mangle -D OUTPUT -j MARK --set-mark $MARK 2>/dev/null || true"
-      )
-    L("    touch /run/pimiproxy-proxy-on 2>/dev/null || true")
-    L("    echo -e \"System proxy: ${GREEN}ON${NC}  (Pi traffic → Mihomo)\"")
-    L("    ;;")
-    L("  off)")
-    L("    bypass_set || iptables -t mangle -A OUTPUT -j MARK --set-mark $MARK"
-      )
-    L("    rm -f /run/pimiproxy-proxy-on")
-    L("    echo -e \"System proxy: ${YELLOW}OFF${NC} (Pi traffic → direct, forwarded clients → Mihomo)\""
-      )
-    L("    ;;")
-    L("  status)")
-    L("    if bypass_set; then")
-    L("      echo -e \"System proxy: ${YELLOW}OFF${NC} (Pi direct)\"")
-    L("    else")
-    L("      echo -e \"System proxy: ${GREEN}ON${NC}  (Pi proxied)\"")
-    L("    fi")
-    L("    iface_up \\")
-    L("      && echo -e \"  TUN interface: ${GREEN}up${NC}\" \\")
-    L("      || echo -e \"  TUN interface: ${RED}down${NC} (container not running?)\""
-      )
-    L("    ;;")
-    L("  restart)")
-    L("    \"$0\" off; sleep 1; \"$0\" on")
-    L("    ;;")
-    L("  *)")
-    L("    echo 'Usage: clash-system [on|off|status|restart]'")
-    L("    echo '  off  — device uses direct internet (default); gateway clients still proxied'"
-      )
-    L("    echo '  on   — device traffic also routes through Mihomo'")
-    L("    exit 1")
-    L("    ;;")
-    L("esac")
-
-    return "\n".join(lines)
-
-
 BYPASS_SERVICE_PATH = Path("/etc/systemd/system/pimiproxy-bypass.service")
-
-
-def build_bypass_service() -> str:
-    lines = []
-
-    def L(s=""):
-        lines.append(s)
-
-    L("[Unit]")
-    L("Description=pimiproxy — restore device traffic bypass after network is up")
-    L("Documentation=https://github.com/your-repo/pimiproxy")
-    L("After=network.target")
-    L()
-    L("[Service]")
-    L("Type=oneshot")
-    L("ExecStart=/usr/local/bin/clash-system off")
-    L("RemainAfterExit=yes")
-    L()
-    L("[Install]")
-    L("WantedBy=multi-user.target")
-
-    return "\n".join(lines)
 
 
 def build_banner(cfg: dict, meta: dict) -> str:
@@ -1198,13 +1087,7 @@ def build_banner(cfg: dict, meta: dict) -> str:
     L("  printf '  Proxy engine    %s\\n' \"${_R}●  stopped${_N}\"")
     L("fi")
     L()
-    L("# ── System proxy (state file written by clash-system on/off) ─────────"
-      )
-    L("if [[ -f /run/pimiproxy-proxy-on ]]; then")
-    L("  printf '  System proxy    %s\\n' \"${_G}●  ON${_N}\"")
-    L("else")
-    L("  printf '  System proxy    %s\\n' \"${_Y}○  OFF${_N}\"")
-    L("fi")
+    L("printf '  TUN mode        %s\\n' \"${_G}●  always on${_N}\"")
     L()
     L("# ── Proxy count ──────────────────────────────────────────────────────"
       )
@@ -1241,7 +1124,6 @@ def build_banner(cfg: dict, meta: dict) -> str:
     L(f'printf "  ${{_C}}API${{_N}}        →  http://{hostname}.lan:{api_port}\\n"')
     L(f'printf "  ${{_B}}${{_C}}Proxy${{_N}}      →  ${{_B}}{hostname}.lan:{mixed_port}  (HTTP/SOCKS5)${{_N}}\\n"')
     L('printf "%s\\n" "$_S"')
-    L('printf "  %s\\n" "${_D}clash-system [on|off|status|restart]${_N}"')
     L('printf "  %s\\n" "${_D}pimiproxy-core.py [status|logs|configure|debug]${_N}"')
     L('printf "%s\\n\\n" "$_S"')
 
@@ -1270,13 +1152,12 @@ def do_status():
     step("Containers")
     run(compose_cmd(compose, "ps"), cwd=install_dir, check=False)
 
-    # ── clash-system ──────────────────────────────────────────────────────────
-    step("System proxy (clash-system)")
-    cs = Path("/usr/local/bin/clash-system")
-    if cs.exists():
-        run([str(cs), "status"], check=False)
+    # ── TUN ────────────────────────────────────────────────────────────────────
+    step("TUN")
+    if Path("/sys/class/net/mihomo").exists():
+        info("TUN interface: up — all traffic tunneled through Mihomo.")
     else:
-        warn("clash-system not installed.")
+        warn("TUN interface: down — is the Mihomo container running?")
 
     # ── provider ──────────────────────────────────────────────────────────────
     step("Provider")
@@ -1400,16 +1281,11 @@ def do_update():
     arch = meta.get("arch") or _host_arch()
     dash_type = meta.get("dashboard_type", "metacubexd")
 
-    proxy_active = Path("/run/pimiproxy-proxy-on").exists()
-
     banner("pimiproxy update", C.CYAN)
     print()
-    if proxy_active:
-        print("  System proxy is ON — registry pulls will route through Mihomo.")
-    else:
-        print("  Place updated .tar.gz archives in docker-images/ before running")
-        print("  this command. Archives are loaded from disk if present; registry")
-        print("  pull is attempted only as a last resort (may fail without a proxy).")
+    print("  All traffic is tunneled through Mihomo. Registry pulls will route")
+    print("  through the proxy. If pulls fail, place .tar.gz archives in")
+    print("  docker-images/ and retry.")
     print()
 
     def _pull(image: str, archive_name: str, label: str):
@@ -1438,10 +1314,7 @@ def do_update():
             info(f"Pulling {label} from registry ({arch})...")
             result = run(["docker", "pull", "--platform", arch, image], check=False)
             if result.returncode != 0:
-                if proxy_active:
-                    warn(f"Pull failed even with system proxy. Check Mihomo logs.")
-                else:
-                    warn(f"Pull failed. Enable system proxy or place {archive_name} in docker-images/ and retry.")
+                warn(f"Pull failed. Place {archive_name} in docker-images/ and retry.")
 
     # ── Third-party images ────────────────────────────────────────────────────
     step("Mihomo")
@@ -2245,17 +2118,19 @@ def do_install():
     with Spinner("Enabling Docker"):
         run(["systemctl", "enable", "--now", "docker"], silent=True)
 
-    # ── iptables: required by clash-system on distros that don't bundle it ──────
-    if not shutil.which("iptables"):
-        _ipt_pkg = {
-            "fedora": "iptables",
-            "arch":   "iptables",
-            "suse":   "iptables",
-        }.get(distro)
-        if _ipt_pkg:
-            with Spinner("Installing iptables"):
-                pkg_install(distro, _ipt_pkg)
-            info("iptables installed.")
+    # ── systemd-resolved: free port 53 for Mihomo's DNS server ─────────────
+    # Mihomo TUN mode needs to bind 0.0.0.0:53 for dns-hijack. On distros with
+    # systemd-resolved (Fedora, Ubuntu, etc.), the stub listener occupies port 53.
+    # Disable it so Mihomo can take over DNS for TUN routing.
+    _resolved_conf = Path("/etc/systemd/resolved.conf.d")
+    if shutil.which("systemd-resolve") or shutil.which("resolvectl"):
+        _resolved_conf.mkdir(parents=True, exist_ok=True)
+        (_resolved_conf / "no-stub.conf").write_text(
+            "[Resolve]\nDNSStubListener=no\n"
+        )
+        run(["systemctl", "restart", "systemd-resolved"],
+            silent=True, check=False)
+        info("systemd-resolved: stub listener disabled (port 53 freed for Mihomo).")
 
     # ── firewalld: ensure masquerade so container traffic can reach the internet
     # Docker CE manages its own firewalld zone and binds docker0 itself —
@@ -2467,23 +2342,6 @@ def do_install():
     (install_path / "docker-compose.yml").write_text(compose_text)
     info("docker-compose.yml written.")
 
-    # ── clash-system ──────────────────────────────────────────────────────────
-    step("clash-system utility")
-
-    cs_path = Path("/usr/local/bin/clash-system")
-    cs_path.write_text(build_clash_system())
-    cs_path.chmod(0o755)
-    info("/usr/local/bin/clash-system installed.")
-
-    # ── bypass service (Pi traffic goes direct by default after reboot) ───────
-    step("Pi traffic bypass service")
-
-    BYPASS_SERVICE_PATH.write_text(build_bypass_service())
-    run(["systemctl", "daemon-reload"], silent=True)
-    run(["systemctl", "enable", "pimiproxy-bypass"], silent=True)
-    run(["systemctl", "start", "pimiproxy-bypass"], silent=True, check=False)
-    info("pimiproxy-bypass.service installed and enabled.")
-
     # ── metadata ──────────────────────────────────────────────────────────────
     meta = {
         "install_dir": install_dir,
@@ -2567,7 +2425,6 @@ def do_install():
     print(f"  {C2}API{N}        →  http://{hostname_new}.lan:{api_port}")
     print(f"  {B}{C2}Proxy{N}      →  {B}{hostname_new}.lan:{mixed_port}  (HTTP/SOCKS5){N}")
     print(SEP)
-    print(f"  {D}clash-system [on|off|status|restart]{N}")
     print(f"  {D}pimiproxy-core.py [configure|status|logs|debug]{N}")
     print(SEP)
     print()
@@ -2788,14 +2645,6 @@ def do_uninstall():
             else:
                 warn(f"Could not remove {img} — in use elsewhere?")
 
-    # ── routing rules ─────────────────────────────────────────────────────────
-    step("Clearing routing rules")
-
-    cs = Path("/usr/local/bin/clash-system")
-    if cs.exists():
-        run([str(cs), "off"], check=False, silent=True)
-    info("Routing rules cleared.")
-
     # ── files ─────────────────────────────────────────────────────────────────
     step("Removing files")
 
@@ -2808,9 +2657,12 @@ def do_uninstall():
         shutil.rmtree(install_dir)
         info(f"Removed {install_dir}")
 
+    # Clean up legacy clash-system if present from older installs
+    cs = Path("/usr/local/bin/clash-system")
     if cs.exists():
+        run([str(cs), "off"], check=False, silent=True)
         cs.unlink()
-        info("Removed /usr/local/bin/clash-system")
+        info("Removed legacy /usr/local/bin/clash-system")
 
     cron_path = Path("/etc/cron.daily/pimiproxy-refresh")
     if cron_path.exists():
@@ -2829,6 +2681,7 @@ def do_uninstall():
             silent=True)
         info("Removed IP forwarding config and disabled forwarding.")
 
+    # Clean up legacy bypass service and iptables rules from older installs
     if BYPASS_SERVICE_PATH.exists():
         run(["systemctl", "stop", "pimiproxy-bypass"],
             check=False,
@@ -2838,14 +2691,13 @@ def do_uninstall():
             silent=True)
         BYPASS_SERVICE_PATH.unlink()
         run(["systemctl", "daemon-reload"], silent=True, check=False)
-        # Clean up any leftover iptables mark rule
-        run([
-            "iptables", "-t", "mangle", "-D", "OUTPUT", "-j", "MARK",
-            "--set-mark", "666"
-        ],
-            check=False,
-            silent=True)
-        info("Removed bypass service and cleared iptables rules.")
+        info("Removed legacy bypass service.")
+    run([
+        "iptables", "-t", "mangle", "-D", "OUTPUT", "-j", "MARK",
+        "--set-mark", "666"
+    ],
+        check=False,
+        silent=True)
 
     # ── hostname ──────────────────────────────────────────────────────────────
     step("Hostname")

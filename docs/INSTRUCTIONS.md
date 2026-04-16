@@ -12,10 +12,9 @@
 6. [Accessing the dashboard](#6-accessing-the-dashboard)
 7. [Web management UI](#7-web-management-ui)
 8. [Configuring proxy groups and rules](#8-configuring-proxy-groups-and-rules)
-9. [Routing the SBC's own traffic through the proxy](#9-routing-the-sbcs-own-traffic-through-the-proxy)
-10. [Day-to-day management](#10-day-to-day-management)
-11. [Uninstalling](#11-uninstalling)
-12. [Troubleshooting](#12-troubleshooting)
+9. [Day-to-day management](#9-day-to-day-management)
+10. [Uninstalling](#10-uninstalling)
+11. [Troubleshooting](#11-troubleshooting)
 
 ---
 
@@ -385,39 +384,7 @@ sudo python3 pimiproxy-core.py restart mihomo
 
 ---
 
-## 9. Routing the SBC's own traffic through the proxy
-
-By default, only devices that have manually configured their proxy settings use pimiproxy. The SBC itself sends its own traffic directly to the internet, bypassing Mihomo entirely.
-
-To make the SBC route its own traffic through Mihomo:
-
-```bash
-sudo clash-system on
-```
-
-To revert:
-
-```bash
-sudo clash-system off
-```
-
-To check current state:
-
-```bash
-sudo clash-system status
-```
-
-To turn off and immediately back on (useful after config changes):
-
-```bash
-sudo clash-system restart
-```
-
-**Note:** `clash-system on` uses Linux policy routing rules and the `mihomo` TUN interface. These rules are not persistent across reboots — you would need to add `clash-system on` to a startup script (e.g. `/etc/rc.local` or a systemd unit) if you want it permanent.
-
----
-
-## 10. Day-to-day management
+## 9. Day-to-day management
 
 ### Login banner
 
@@ -427,7 +394,7 @@ A status banner is displayed automatically on every interactive SSH or terminal 
   pimiproxy
   ──────────────────────────────────────────
   Proxy engine    ●  running
-  System proxy    ○  OFF
+  TUN mode        ●  always on
   Proxies loaded     47
   AES hardware    ●  available
   ──────────────────────────────────────────
@@ -436,7 +403,6 @@ A status banner is displayed automatically on every interactive SSH or terminal 
   API        →  http://pimiproxy.lan:9090
   Proxy      →  pimiproxy.lan:7890  (HTTP/SOCKS5)
   ──────────────────────────────────────────
-  clash-system [on|off|status|restart]
   pimiproxy-core.py [status|logs|configure|debug]
   ──────────────────────────────────────────
 ```
@@ -451,7 +417,7 @@ The banner is installed to `/etc/profile.d/pimiproxy-banner.sh` and is removed b
 sudo python3 pimiproxy-core.py status
 ```
 
-Shows container health, subscription info (URL and number of proxies loaded), clash-system routing state, and runs a live HTTP and HTTPS connectivity test through the proxy with latency results.
+Shows container health, subscription info (URL and number of proxies loaded), and runs a live HTTP and HTTPS connectivity test through the proxy with latency results.
 
 ### View logs
 
@@ -507,7 +473,7 @@ sudo python3 pimiproxy-core.py restart mihomo
 
 ---
 
-## 11. Uninstalling
+## 10. Uninstalling
 
 ```bash
 sudo python3 pimiproxy-core.py uninstall
@@ -517,16 +483,14 @@ The uninstaller will:
 
 1. Stop and remove all containers (mihomo, dashboard, pimiproxy-api, pimiproxy-ui)
 2. Remove the associated Docker images
-3. Clear any active routing rules (`clash-system off`)
-4. Delete `/opt/pimiproxy` and all contents (including `ui-secret.txt`)
-5. Remove `/usr/local/bin/clash-system`
-6. Remove the daily subscription refresh cron job (`/etc/cron.daily/pimiproxy-refresh`)
-7. Optionally reset the hostname back to `raspberrypi`
-8. Optionally remove avahi-daemon
+3. Delete `/opt/pimiproxy` and all contents (including `ui-secret.txt`)
+4. Remove the daily subscription refresh cron job (`/etc/cron.daily/pimiproxy-refresh`)
+5. Optionally reset the hostname back to `raspberrypi`
+6. Optionally remove avahi-daemon
 
 ---
 
-## 12. Troubleshooting
+## 11. Troubleshooting
 
 ### Check if everything is working
 
@@ -556,12 +520,6 @@ This is the first thing to run — it shows container state, tests the proxy wit
 - Confirm the port is `7890`, not `9090` (that's the API, not the proxy)
 - Test from the SBC itself: `curl -x http://localhost:7890 https://example.com`
 - Check Mihomo logs: `sudo python3 pimiproxy-core.py logs`
-
-### `clash-system on` has no effect
-
-- Confirm the mihomo container is running: `sudo python3 pimiproxy-core.py status`
-- Confirm the TUN interface exists: `ip link show mihomo`
-- If the interface is missing, the container may not have started with the TUN device — check logs: `sudo python3 pimiproxy-core.py logs`
 
 ### Install fails with a Docker error
 

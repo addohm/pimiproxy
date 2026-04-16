@@ -13,9 +13,9 @@ Once installed, any device on your network can route its traffic through the SBC
 - Provides a web dashboard (Metacubexd or Zashboard) for live traffic monitoring
 - Provides a browser-based management UI for adding proxy groups, rules, and managing your provider URL
 - Supports a two-layer config: your provider's subscription (base) + your own groups and rules (always applied on top)
-- Optionally routes the SBC's own traffic through the proxy via `clash-system`
+- Routes all device traffic through the proxy via TUN mode (always on)
 - Sets up mDNS so the SBC is reachable as `pimiproxy.local` on the LAN, and as `pimiproxy.lan` on routers that use `.lan` as the local domain
-- Shows a status banner on every SSH/terminal login — proxy engine state, system proxy on/off, proxy count, endpoints, and quick-command reference
+- Shows a status banner on every SSH/terminal login — proxy engine state, proxy count, endpoints, and quick-command reference
 
 ## What it does not do
 
@@ -161,7 +161,7 @@ sudo python3 pimiproxy-core.py status
 
 Shows:
 - Container up/down state
-- `clash-system` routing state
+- TUN interface state
 - Provider URL and number of proxies loaded
 - Live HTTP and HTTPS connectivity test through the proxy, with latency
 - Dashboard, UI, API, and proxy endpoint URLs
@@ -209,10 +209,8 @@ sudo python3 pimiproxy-core.py hostname newname
 sudo python3 pimiproxy-core.py debug
 sudo python3 pimiproxy-core.py debug https://provider.example.com/api?token=abc123
 
-# SBC system proxy
-sudo clash-system on       # Route SBC's own traffic through the proxy
-sudo clash-system off      # Revert to direct
-sudo clash-system status
+# All device traffic is always tunneled through the proxy via TUN mode.
+# No manual on/off toggle is needed.
 ```
 
 ---

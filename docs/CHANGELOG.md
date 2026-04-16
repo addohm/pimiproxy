@@ -1,3 +1,17 @@
+## [6.1.0] — 2026-04-16
+
+### Removed
+- **`clash-system` utility** — the `/usr/local/bin/clash-system` on/off/status/restart tool has been removed. TUN mode is now always on — all device traffic (including the SBC's own traffic) is always tunneled through the proxy. There is no longer a toggle to route the SBC's traffic direct vs. through the proxy.
+- **`pimiproxy-bypass.service`** — the systemd unit that ran `clash-system off` on boot is no longer needed and has been removed.
+- **`/run/pimiproxy-proxy-on` marker file** — no longer written or checked; system proxy state is no longer tracked because TUN is always active.
+
+### Changed
+- **Login banner** — "System proxy" line replaced with "TUN mode: always on". The `clash-system` quick-command reference has been removed from the banner.
+- **`status` subcommand** — no longer reports clash-system routing state (it was always on).
+- **Uninstaller** — no longer removes `/usr/local/bin/clash-system` or clears iptables routing rules (neither exists anymore).
+
+---
+
 ## [6.0.0] — 2026-04-15
 
 ### Added

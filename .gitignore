@@ -22,3 +22,6 @@ releases/
 # UI node stuff
 pimiproxy-ui/node_modules/
 pimiproxy-ui/dist/
+
+# API config url
+api.url
