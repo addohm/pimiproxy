@@ -1435,6 +1435,16 @@ def do_install():
     BANNER_PATH.chmod(0o644)
     info(f"Login banner installed ({BANNER_PATH}).")
 
+    _bashrc = Path("/etc/bash.bashrc")
+    if not _bashrc.exists():
+        _bashrc = Path("/etc/bashrc")
+    _banner_source = f'[[ -f {BANNER_PATH} ]] && source {BANNER_PATH}'
+    if _bashrc.exists():
+        _txt = _bashrc.read_text()
+        if str(BANNER_PATH) not in _txt:
+            _bashrc.write_text(_txt.rstrip() + "\n\n" + _banner_source + "\n")
+            info(f"Banner source added to {_bashrc} for desktop terminals.")
+
     # ── summary ───────────────────────────────────────────────────────────────
     if shutil.which("hostname"):
         _r = run(["hostname", "-I"], capture=True, check=False)
@@ -1677,6 +1687,16 @@ def do_uninstall():
     if BANNER_PATH.exists():
         BANNER_PATH.unlink()
         info(f"Removed login banner ({BANNER_PATH}).")
+
+    for _rc in [Path("/etc/bash.bashrc"), Path("/etc/bashrc")]:
+        if _rc.exists():
+            _txt = _rc.read_text()
+            if str(BANNER_PATH) in _txt:
+                _rc.write_text("\n".join(
+                    l for l in _txt.splitlines()
+                    if str(BANNER_PATH) not in l
+                ) + "\n")
+                info(f"Removed banner source from {_rc}.")
 
     sysctl_conf = Path("/etc/sysctl.d/99-pimiproxy.conf")
     if sysctl_conf.exists():
