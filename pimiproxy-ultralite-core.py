@@ -1801,6 +1801,156 @@ def do_rule_remove():
 
 
 # =============================================================================
+# REPO MANAGEMENT (restore-repos / china-repos)
+# =============================================================================
+def do_restore_repos():
+    banner("Restore system repos", C.CYAN)
+    distro = detect_distro()
+
+    if distro == "debian":
+        pairs = []
+        sl = Path("/etc/apt/sources.list.bak")
+        if sl.exists():
+            pairs.append((sl, Path("/etc/apt/sources.list")))
+        sld = Path("/etc/apt/sources.list.d")
+        if sld.exists():
+            for bak in sld.glob("*.bak"):
+                pairs.append((bak, bak.with_suffix("")))
+            for dis in sld.glob("*.disabled"):
+                orig = Path(str(dis).replace(".disabled", ""))
+                pairs.append((dis, orig))
+        aliyun = Path("/etc/apt/sources.list.d/aliyun-system.sources")
+        if not pairs and not aliyun.exists():
+            info("No backups found — repos were not modified by pimiproxy.")
+            return
+        step("Restoring apt sources")
+        if aliyun.exists():
+            aliyun.unlink()
+            info("Removed aliyun-system.sources")
+        for bak, orig in pairs:
+            bak.rename(orig)
+            info(f"Restored {orig.name}")
+        with Spinner("Updating package lists"):
+            run(["apt-get", "update", "-qq"], check=False)
+        info("System repos restored to original configuration.")
+
+    elif distro == "fedora":
+        step("Restoring dnf repos")
+        restored = False
+        for bak in Path("/etc/yum.repos.d").glob("*.bak"):
+            bak.rename(bak.with_suffix(""))
+            info(f"Restored {bak.with_suffix('').name}")
+            restored = True
+        if not restored:
+            info("No backups found — repos were not modified by pimiproxy.")
+            return
+        info("System repos restored to original configuration.")
+
+    elif distro == "arch":
+        bak = Path("/etc/pacman.d/mirrorlist.bak")
+        if not bak.exists():
+            info("No backup found — mirrorlist was not modified by pimiproxy.")
+            return
+        step("Restoring pacman mirrorlist")
+        bak.rename(Path("/etc/pacman.d/mirrorlist"))
+        with Spinner("Syncing package database"):
+            run(["pacman", "-Sy", "--noconfirm"], check=False)
+        info("Mirrorlist restored to original configuration.")
+
+    else:
+        warn(f"restore-repos is not supported on {distro}.")
+
+
+def do_china_repos():
+    banner("Switch to Aliyun mirrors", C.CYAN)
+    distro = detect_distro()
+
+    if distro == "debian":
+        step("Switching apt sources to Aliyun")
+        distro_id = ""
+        codename = ""
+        if Path("/etc/os-release").exists():
+            for line in Path("/etc/os-release").read_text().splitlines():
+                if line.startswith("ID="):
+                    distro_id = line.split("=", 1)[1].strip().strip('"')
+                if line.startswith("VERSION_CODENAME="):
+                    codename = line.split("=", 1)[1].strip().strip('"')
+        if not codename:
+            die("Could not determine VERSION_CODENAME.")
+        sl = Path("/etc/apt/sources.list")
+        sld = Path("/etc/apt/sources.list.d")
+        if sl.exists() and not Path("/etc/apt/sources.list.bak").exists():
+            shutil.copy2(sl, sl.with_suffix(".bak"))
+        if sld.exists():
+            for f in list(sld.glob("*.sources")) + list(sld.glob("*.list")):
+                if "aliyun" in f.name:
+                    continue
+                bak = f.with_suffix(f.suffix + ".bak")
+                if not bak.exists():
+                    shutil.copy2(f, bak)
+                f.rename(f.with_suffix(f.suffix + ".disabled"))
+        if sl.exists():
+            sl.rename(sl.with_suffix(".disabled"))
+        aliyun = sld / "aliyun-system.sources"
+        if distro_id == "ubuntu":
+            aliyun.write_text(
+                f"Types: deb\nURIs: https://mirrors.aliyun.com/ubuntu\n"
+                f"Suites: {codename} {codename}-updates {codename}-security\n"
+                f"Components: main restricted universe multiverse\n"
+                f"Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n")
+        else:
+            aliyun.write_text(
+                f"Types: deb\nURIs: https://mirrors.aliyun.com/debian\n"
+                f"Suites: {codename} {codename}-updates\n"
+                f"Components: main contrib non-free non-free-firmware\n"
+                f"Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg\n\n"
+                f"Types: deb\nURIs: https://mirrors.aliyun.com/debian-security\n"
+                f"Suites: {codename}-security\n"
+                f"Components: main contrib non-free non-free-firmware\n"
+                f"Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg\n")
+        with Spinner("Updating package lists"):
+            run(["apt-get", "update", "-qq"], check=False)
+        info("System repos switched to Aliyun. Run 'restore-repos' to undo.")
+
+    elif distro == "fedora":
+        step("Switching dnf repos to Aliyun")
+        for f in [Path("/etc/yum.repos.d/fedora.repo"),
+                  Path("/etc/yum.repos.d/fedora-updates.repo")]:
+            if not f.exists():
+                continue
+            bak = f.with_suffix(".bak")
+            if not bak.exists():
+                shutil.copy2(f, bak)
+            txt = f.read_text()
+            txt = re.sub(r'^metalink=', '#metalink=', txt, flags=re.MULTILINE)
+            txt = re.sub(r'^#baseurl=http://download\.example/pub/fedora/linux',
+                         'baseurl=https://mirrors.aliyun.com/fedora',
+                         txt, flags=re.MULTILINE)
+            f.write_text(txt)
+        for name in ["fedora-cisco-openh264", "fedora-updates-testing",
+                     "fedora-modular", "fedora-updates-modular"]:
+            f = Path(f"/etc/yum.repos.d/{name}.repo")
+            if f.exists():
+                f.write_text(re.sub(r'^enabled=1', 'enabled=0',
+                                    f.read_text(), flags=re.MULTILINE))
+        info("System repos switched to Aliyun. Run 'restore-repos' to undo.")
+
+    elif distro == "arch":
+        step("Switching pacman mirrorlist to Aliyun")
+        ml = Path("/etc/pacman.d/mirrorlist")
+        bak = ml.with_suffix(".bak")
+        if not bak.exists() and ml.exists():
+            shutil.copy2(ml, bak)
+        ml.write_text("Server = https://mirrors.aliyun.com/archlinux/$repo/os/$arch\n")
+        with Spinner("Syncing package database"):
+            run(["pacman", "-Sy", "--noconfirm"], check=False)
+        info("Mirrorlist switched to Aliyun. Run 'restore-repos' to undo.")
+
+    else:
+        warn(f"china-repos is not supported on {distro}.")
+
+
+# =============================================================================
 # ENTRYPOINT
 # =============================================================================
 COMMANDS = {
@@ -1818,6 +1968,8 @@ COMMANDS = {
     "rule-list":    do_rule_list,
     "rule-add":     do_rule_add,
     "rule-remove":  do_rule_remove,
+    "restore-repos": do_restore_repos,
+    "china-repos":   do_china_repos,
 }
 
 _TAKES_ARG = {"hostname", "debug", "export", "rule-add", "rule-remove"}
