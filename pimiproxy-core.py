@@ -194,7 +194,17 @@ _DEFAULT_HOSTNAMES = {"raspberrypi", "localhost", "debian", "ubuntu", "alarm"}
 
 
 def current_hostname() -> str:
-    return run(["hostname"], capture=True).stdout.strip()
+    if shutil.which("hostname"):
+        return run(["hostname"], capture=True).stdout.strip()
+    # Arch Linux doesn't ship hostname; fall back to hostnamectl or /etc/hostname
+    if shutil.which("hostnamectl"):
+        r = run(["hostnamectl", "--static"], capture=True, check=False)
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip()
+    try:
+        return Path("/etc/hostname").read_text().strip()
+    except FileNotFoundError:
+        return "localhost"
 
 
 def set_hostname(new_name: str):
@@ -1104,7 +1114,7 @@ def build_banner(cfg: dict, meta: dict) -> str:
     L()
     # ── Tip (above endpoints) ─────────────────────────────────────────────────
     L('printf "%s\\n" "$_S"')
-    L('_PI_IP=$(hostname -I 2>/dev/null | awk \'{print $1}\')')
+    L('_PI_IP=$(hostname -I 2>/dev/null | awk \'{print $1}\' || ip -4 addr show scope global 2>/dev/null | awk \'/inet /{split($2,a,"/"); print a[1]; exit}\')')
     L('_GW=$(ip route 2>/dev/null | awk \'/^default/{print $3; exit}\')')
     L('_IFACE=$(ip route 2>/dev/null | awk \'/^default/{print $5; exit}\')')
     L('_CIDR=$(ip -4 addr show "$_IFACE" 2>/dev/null | awk \'/inet /{split($2,a,"/"); print a[2]; exit}\')')
@@ -2381,8 +2391,17 @@ def do_install():
     info("Containers started.")
 
     # ── summary ───────────────────────────────────────────────────────────────
-    _r = run(["hostname", "-I"], capture=True, check=False)
-    lan_ip = (_r.stdout.strip().split() or ["<pi-ip>"])[0]
+    if shutil.which("hostname"):
+        _r = run(["hostname", "-I"], capture=True, check=False)
+        lan_ip = (_r.stdout.strip().split() or [""])[0]
+    else:
+        lan_ip = ""
+    if not lan_ip:
+        # Fallback: get first global-scope IPv4 address
+        _r = run(["ip", "-4", "addr", "show", "scope", "global"],
+                 capture=True, check=False)
+        _m = re.search(r'inet (\S+)/', _r.stdout) if _r else None
+        lan_ip = _m.group(1) if _m else "<device-ip>"
 
     _gw_r = run(["ip", "route", "show", "default"], capture=True, check=False)
     _gw = ""
@@ -2703,7 +2722,7 @@ def do_uninstall():
     # ── hostname ──────────────────────────────────────────────────────────────
     step("Hostname")
 
-    current = run(["hostname"], capture=True).stdout.strip()
+    current = current_hostname()
     if current == meta.get("hostname"):
         if confirm(f"Reset hostname '{current}' back to 'raspberrypi'?"):
             run(["hostnamectl", "set-hostname", "raspberrypi"])
