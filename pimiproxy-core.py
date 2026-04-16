@@ -2424,6 +2424,7 @@ def do_install():
     print(f"  {C2}UI{N}         →  http://{hostname_new}.lan:{ui_port}")
     print(f"  {C2}API{N}        →  http://{hostname_new}.lan:{api_port}")
     print(f"  {B}{C2}Proxy{N}      →  {B}{hostname_new}.lan:{mixed_port}  (HTTP/SOCKS5){N}")
+    print(f"  {Y}Login{N}      →  API secret: {B}{api_secret}{N}")
     print(SEP)
     print(f"  {D}pimiproxy-core.py [configure|status|logs|debug]{N}")
     print(SEP)

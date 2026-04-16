@@ -1465,6 +1465,7 @@ def do_install():
     print(f"  {C2}API{N}    →  http://{hostname_new}.lan:{api_port}")
     print(f"         →  http://{lan_ip}:{api_port}")
     print(f"  {B}{C2}Proxy{N}  →  {B}{hostname_new}.lan:{mixed_port}  (HTTP/SOCKS5){N}")
+    print(f"  {Y}Login{N}  →  API secret: {B}{api_secret}{N}")
     print(SEP)
     print(f"  {D}pimiproxy-ultralite.py [configure|status|logs|debug]{N}")
     print(SEP)
