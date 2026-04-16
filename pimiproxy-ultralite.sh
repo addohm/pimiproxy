@@ -225,7 +225,60 @@ python3 -c "import sys; assert sys.version_info >= (3,7), 'Python 3.7+ required'
 || die "Python 3.7 or newer is required."
 
 # =============================================================================
-# 5. CHECK MIHOMO BINARY
+# 5. ESSENTIAL TOOLS (curl, iproute2, procps — may be missing on minimal installs)
+# =============================================================================
+step "Essential tools"
+
+_missing=()
+command -v curl &>/dev/null || _missing+=(curl)
+command -v ip   &>/dev/null || _missing+=(ip)
+command -v sysctl &>/dev/null || _missing+=(sysctl)
+
+if [[ ${#_missing[@]} -eq 0 ]]; then
+    info "curl, ip, sysctl — all present."
+else
+    info "Installing missing tools: ${_missing[*]}"
+    case "$PKG_MGR" in
+        apt)
+            _pkgs=""
+            [[ " ${_missing[*]} " == *" curl "* ]]   && _pkgs+=" curl"
+            [[ " ${_missing[*]} " == *" ip "* ]]     && _pkgs+=" iproute2"
+            [[ " ${_missing[*]} " == *" sysctl "* ]] && _pkgs+=" procps"
+            spin "Installing${_pkgs}"  apt-get install -y -qq --no-install-recommends $_pkgs
+        ;;
+        dnf)
+            _pkgs=""
+            [[ " ${_missing[*]} " == *" curl "* ]]   && _pkgs+=" curl"
+            [[ " ${_missing[*]} " == *" ip "* ]]     && _pkgs+=" iproute"
+            [[ " ${_missing[*]} " == *" sysctl "* ]] && _pkgs+=" procps-ng"
+            spin "Installing${_pkgs}"  dnf install -y -q $_pkgs
+        ;;
+        pacman)
+            _pkgs=""
+            [[ " ${_missing[*]} " == *" curl "* ]]   && _pkgs+=" curl"
+            [[ " ${_missing[*]} " == *" ip "* ]]     && _pkgs+=" iproute2"
+            [[ " ${_missing[*]} " == *" sysctl "* ]] && _pkgs+=" procps-ng"
+            spin "Installing${_pkgs}"  pacman -S --noconfirm $_pkgs
+        ;;
+        zypper)
+            _pkgs=""
+            [[ " ${_missing[*]} " == *" curl "* ]]   && _pkgs+=" curl"
+            [[ " ${_missing[*]} " == *" ip "* ]]     && _pkgs+=" iproute2"
+            [[ " ${_missing[*]} " == *" sysctl "* ]] && _pkgs+=" procps"
+            spin "Installing${_pkgs}"  zypper install -y -q $_pkgs
+        ;;
+        apk)
+            _pkgs=""
+            [[ " ${_missing[*]} " == *" curl "* ]]   && _pkgs+=" curl"
+            [[ " ${_missing[*]} " == *" ip "* ]]     && _pkgs+=" iproute2"
+            [[ " ${_missing[*]} " == *" sysctl "* ]] && _pkgs+=" procps"
+            spin "Installing${_pkgs}"  apk add -q $_pkgs
+        ;;
+    esac
+fi
+
+# =============================================================================
+# 6. CHECK MIHOMO BINARY
 # =============================================================================
 step "Mihomo binary"
 
@@ -251,7 +304,7 @@ else
 fi
 
 # =============================================================================
-# 6. AVAHI / mDNS
+# 7. AVAHI / mDNS
 # =============================================================================
 step "mDNS (avahi)"
 
@@ -274,7 +327,7 @@ fi
 info "avahi-daemon ready."
 
 # =============================================================================
-# 7. CRON (needed for daily provider refresh)
+# 8. CRON (needed for daily provider refresh)
 # =============================================================================
 step "Cron"
 
@@ -299,7 +352,7 @@ fi
 info "cron ready."
 
 # =============================================================================
-# 8. RASPI-CONFIG  (Raspberry Pi only)
+# 9. RASPI-CONFIG  (Raspberry Pi only)
 # =============================================================================
 if [[ "$IS_RASPI" == "true" ]] && ! command -v raspi-config &>/dev/null; then
     step "raspi-config"
@@ -311,7 +364,7 @@ if [[ "$IS_RASPI" == "true" ]] && ! command -v raspi-config &>/dev/null; then
 fi
 
 # =============================================================================
-# 9. ENSURE PIMIPROXY-ultralite-core.py IS PRESENT
+# 10. ENSURE PIMIPROXY-ultralite-core.py IS PRESENT
 # =============================================================================
 step "pimiproxy-ultralite-core.py"
 
@@ -322,7 +375,7 @@ fi
 info "Found: $PYTHON_SCRIPT"
 
 # =============================================================================
-# 10. HAND OFF TO PYTHON
+# 11. HAND OFF TO PYTHON
 # =============================================================================
 echo -e "\n${CYAN}${BOLD}▸ Launching pimiproxy-ultralite-core.py ${PIMIPROXY_CMD}...${NC}\n"
 exec python3 "$PYTHON_SCRIPT" "$PIMIPROXY_CMD"
