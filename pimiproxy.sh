@@ -259,40 +259,40 @@ else
                     spin "Switching system repos to Aliyun"  bash -c '
                         DISTRO="$(. /etc/os-release && echo "$ID")"
                         CODENAME="$(. /etc/os-release && echo "$VERSION_CODENAME")"
+                        # Back up and disable existing sources
+                        [[ -f /etc/apt/sources.list ]] && \
+                            mv /etc/apt/sources.list /etc/apt/sources.list.bak 2>/dev/null || true
+                        for f in /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do
+                            [[ -f "$f" ]] && mv "$f" "${f}.bak" 2>/dev/null || true
+                        done
                         case "$DISTRO" in
-                            ubuntu)          MIRROR="https://mirrors.aliyun.com/ubuntu" ;;
-                            debian|raspbian) MIRROR="https://mirrors.aliyun.com/debian" ;;
-                            *)               MIRROR="" ;;
-                        esac
-                        if [[ -n "$MIRROR" && -n "$CODENAME" ]]; then
-                            # Back up and disable existing sources
-                            [[ -f /etc/apt/sources.list ]] && \
-                                mv /etc/apt/sources.list /etc/apt/sources.list.bak 2>/dev/null || true
-                            for f in /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do
-                                [[ -f "$f" ]] && mv "$f" "${f}.bak" 2>/dev/null || true
-                            done
-                            # Determine components based on distro
-                            case "$DISTRO" in
-                                ubuntu) COMPONENTS="main restricted universe multiverse"
-                                        SUITES="${CODENAME} ${CODENAME}-updates ${CODENAME}-security" ;;
-                                *)      COMPONENTS="main contrib non-free non-free-firmware"
-                                        SUITES="${CODENAME} ${CODENAME}-updates ${CODENAME}-security" ;;
-                            esac
-                            # Write DEB822-format source (modern) + classic fallback
-                            if [[ -d /etc/apt/sources.list.d ]]; then
+                            ubuntu)
+                                # Ubuntu: main + updates + security all from one mirror
                                 cat > /etc/apt/sources.list.d/aliyun-system.sources <<SRCEOF
 Types: deb
-URIs: ${MIRROR}
-Suites: ${SUITES}
-Components: ${COMPONENTS}
-Signed-By: /usr/share/keyrings/${DISTRO}-archive-keyring.gpg
+URIs: https://mirrors.aliyun.com/ubuntu
+Suites: ${CODENAME} ${CODENAME}-updates ${CODENAME}-security
+Components: main restricted universe multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
 SRCEOF
-                            else
-                                for suite in ${SUITES}; do
-                                    echo "deb ${MIRROR} ${suite} ${COMPONENTS}"
-                                done > /etc/apt/sources.list
-                            fi
-                        fi
+                            ;;
+                            debian|raspbian)
+                                # Debian: main + updates from /debian, security from /debian-security
+                                cat > /etc/apt/sources.list.d/aliyun-system.sources <<SRCEOF
+Types: deb
+URIs: https://mirrors.aliyun.com/debian
+Suites: ${CODENAME} ${CODENAME}-updates
+Components: main contrib non-free non-free-firmware
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+
+Types: deb
+URIs: https://mirrors.aliyun.com/debian-security
+Suites: ${CODENAME}-security
+Components: main contrib non-free non-free-firmware
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+SRCEOF
+                            ;;
+                        esac
                         apt-get update -qq'
                 ;;
                 dnf)
