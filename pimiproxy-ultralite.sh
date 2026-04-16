@@ -274,7 +274,32 @@ fi
 info "avahi-daemon ready."
 
 # =============================================================================
-# 7. RASPI-CONFIG  (Raspberry Pi only)
+# 7. CRON (needed for daily provider refresh)
+# =============================================================================
+step "Cron"
+
+if [[ -d /etc/cron.daily ]] && command -v crontab &>/dev/null; then
+    info "cron already available."
+else
+    case "$PKG_MGR" in
+        apt)    spin "Installing cron"  apt-get install -y -qq cron ;;
+        dnf)    spin "Installing cronie"  dnf install -y -q cronie ;;
+        pacman) spin "Installing cronie"  pacman -S --noconfirm cronie ;;
+        zypper) spin "Installing cron"    zypper install -y -q cron ;;
+        apk)    spin "Installing dcron"   apk add -q dcron ;;
+    esac
+    if command -v systemctl &>/dev/null; then
+        spin "Enabling cron service"  bash -c '
+            systemctl enable --now cronie 2>/dev/null || \
+            systemctl enable --now cron   2>/dev/null || true'
+    fi
+    mkdir -p /etc/cron.daily
+fi
+
+info "cron ready."
+
+# =============================================================================
+# 8. RASPI-CONFIG  (Raspberry Pi only)
 # =============================================================================
 if [[ "$IS_RASPI" == "true" ]] && ! command -v raspi-config &>/dev/null; then
     step "raspi-config"
@@ -286,7 +311,7 @@ if [[ "$IS_RASPI" == "true" ]] && ! command -v raspi-config &>/dev/null; then
 fi
 
 # =============================================================================
-# 8. ENSURE PIMIPROXY-ultralite-core.py IS PRESENT
+# 9. ENSURE PIMIPROXY-ultralite-core.py IS PRESENT
 # =============================================================================
 step "pimiproxy-ultralite-core.py"
 
@@ -297,7 +322,7 @@ fi
 info "Found: $PYTHON_SCRIPT"
 
 # =============================================================================
-# 9. HAND OFF TO PYTHON
+# 10. HAND OFF TO PYTHON
 # =============================================================================
 echo -e "\n${CYAN}${BOLD}▸ Launching pimiproxy-ultralite-core.py ${PIMIPROXY_CMD}...${NC}\n"
 exec python3 "$PYTHON_SCRIPT" "$PIMIPROXY_CMD"

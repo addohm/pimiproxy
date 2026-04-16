@@ -374,7 +374,33 @@ fi
 info "avahi-daemon ready."
 
 # =============================================================================
-# 6. RASPI-CONFIG  (Raspberry Pi only)
+# 6. CRON (needed for daily provider refresh)
+# =============================================================================
+step "Cron"
+
+if [[ -d /etc/cron.daily ]] && command -v crontab &>/dev/null; then
+    info "cron already available."
+else
+    case "$PKG_MGR" in
+        apt)    spin "Installing cron"  apt-get install -y -qq cron ;;
+        dnf)    spin "Installing cronie"  dnf install -y -q cronie ;;
+        pacman) spin "Installing cronie"  pacman -S --noconfirm cronie ;;
+        zypper) spin "Installing cron"    zypper install -y -q cron ;;
+        apk)    spin "Installing dcron"   apk add -q dcron ;;
+    esac
+    if command -v systemctl &>/dev/null; then
+        spin "Enabling cron service"  bash -c '
+            systemctl enable --now cronie 2>/dev/null || \
+            systemctl enable --now cron   2>/dev/null || true'
+    fi
+    # Ensure cron.daily directory exists
+    mkdir -p /etc/cron.daily
+fi
+
+info "cron ready."
+
+# =============================================================================
+# 7. RASPI-CONFIG  (Raspberry Pi only)
 # =============================================================================
 if [[ "$IS_RASPI" == "true" ]] && ! command -v raspi-config &>/dev/null; then
     step "raspi-config"
@@ -386,7 +412,7 @@ if [[ "$IS_RASPI" == "true" ]] && ! command -v raspi-config &>/dev/null; then
 fi
 
 # =============================================================================
-# 7. ENSURE PIMIPROXY-CORE.PY IS PRESENT
+# 8. ENSURE PIMIPROXY-CORE.PY IS PRESENT
 # =============================================================================
 step "pimiproxy-core.py"
 
@@ -397,7 +423,7 @@ fi
 info "Found: $PYTHON_SCRIPT"
 
 # =============================================================================
-# 8. HAND OFF TO PYTHON
+# 9. HAND OFF TO PYTHON
 # =============================================================================
 echo -e "\n${CYAN}${BOLD}▸ Launching pimiproxy-core.py ${PIMIPROXY_CMD}...${NC}\n"
 exec python3 "$PYTHON_SCRIPT" "$PIMIPROXY_CMD"
