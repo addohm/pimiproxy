@@ -297,7 +297,9 @@ SRCEOF
                 ;;
                 dnf)
                     spin "Switching system repos to Aliyun"  bash -c '
-                        for f in /etc/yum.repos.d/fedora*.repo; do
+                        # Only touch the core repos — other fedora-* repos (cisco-openh264 etc.)
+                        # have different URL patterns and break if their metalink is removed.
+                        for f in /etc/yum.repos.d/fedora.repo /etc/yum.repos.d/fedora-updates.repo; do
                             [[ -f "$f" ]] || continue
                             cp "$f" "${f}.bak" 2>/dev/null || true
                             sed -i "s|^metalink=|#metalink=|g" "$f"

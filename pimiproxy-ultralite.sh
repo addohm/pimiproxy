@@ -173,7 +173,7 @@ SRCEOF
         ;;
         dnf)
             spin "Configuring Aliyun dnf mirror"  bash -c '
-                for f in /etc/yum.repos.d/fedora*.repo; do
+                for f in /etc/yum.repos.d/fedora.repo /etc/yum.repos.d/fedora-updates.repo; do
                     [[ -f "$f" ]] || continue
                     cp "$f" "${f}.bak" 2>/dev/null || true
                     sed -i "s|^metalink=|#metalink=|g" "$f"
