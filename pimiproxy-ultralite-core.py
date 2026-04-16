@@ -1801,9 +1801,9 @@ def do_rule_remove():
 
 
 # =============================================================================
-# REPO MANAGEMENT (restore-repos / china-repos)
+# REPO MANAGEMENT (standard-repos / china-repos)
 # =============================================================================
-def do_restore_repos():
+def do_standard_repos():
     banner("Restore system repos", C.CYAN)
     distro = detect_distro()
 
@@ -1858,7 +1858,7 @@ def do_restore_repos():
         info("Mirrorlist restored to original configuration.")
 
     else:
-        warn(f"restore-repos is not supported on {distro}.")
+        warn(f"standard-repos is not supported on {distro}.")
 
 
 def do_china_repos():
@@ -1910,7 +1910,7 @@ def do_china_repos():
                 f"Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg\n")
         with Spinner("Updating package lists"):
             run(["apt-get", "update", "-qq"], check=False)
-        info("System repos switched to Aliyun. Run 'restore-repos' to undo.")
+        info("System repos switched to Aliyun. Run 'standard-repos' to undo.")
 
     elif distro == "fedora":
         step("Switching dnf repos to Aliyun")
@@ -1933,7 +1933,7 @@ def do_china_repos():
             if f.exists():
                 f.write_text(re.sub(r'^enabled=1', 'enabled=0',
                                     f.read_text(), flags=re.MULTILINE))
-        info("System repos switched to Aliyun. Run 'restore-repos' to undo.")
+        info("System repos switched to Aliyun. Run 'standard-repos' to undo.")
 
     elif distro == "arch":
         step("Switching pacman mirrorlist to Aliyun")
@@ -1944,7 +1944,7 @@ def do_china_repos():
         ml.write_text("Server = https://mirrors.aliyun.com/archlinux/$repo/os/$arch\n")
         with Spinner("Syncing package database"):
             run(["pacman", "-Sy", "--noconfirm"], check=False)
-        info("Mirrorlist switched to Aliyun. Run 'restore-repos' to undo.")
+        info("Mirrorlist switched to Aliyun. Run 'standard-repos' to undo.")
 
     else:
         warn(f"china-repos is not supported on {distro}.")
@@ -1968,7 +1968,7 @@ COMMANDS = {
     "rule-list":    do_rule_list,
     "rule-add":     do_rule_add,
     "rule-remove":  do_rule_remove,
-    "restore-repos": do_restore_repos,
+    "standard-repos": do_standard_repos,
     "china-repos":   do_china_repos,
 }
 
