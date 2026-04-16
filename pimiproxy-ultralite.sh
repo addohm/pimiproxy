@@ -125,7 +125,73 @@ esac
 info "Package manager: $PKG_MGR"
 
 # =============================================================================
-# 2. SYSTEM UPDATE (package lists only)
+# 2. CHINA MIRRORS (optional — switch system repos to Aliyun)
+# =============================================================================
+echo
+read -r -p "  Is this device located in China? (use Aliyun mirrors) [y/N]: " _china_ans
+CHINA_MIRRORS=false
+[[ "${_china_ans,,}" == "y" || "${_china_ans,,}" == "yes" ]] && CHINA_MIRRORS=true
+
+if [[ "$CHINA_MIRRORS" == "true" ]]; then
+    step "Switching system repos to Aliyun"
+    case "$PKG_MGR" in
+        apt)
+            spin "Configuring Aliyun apt mirror"  bash -c '
+                DISTRO="$(. /etc/os-release && echo "$ID")"
+                CODENAME="$(. /etc/os-release && echo "$VERSION_CODENAME")"
+                case "$DISTRO" in
+                    ubuntu)          MIRROR="https://mirrors.aliyun.com/ubuntu" ;;
+                    debian|raspbian) MIRROR="https://mirrors.aliyun.com/debian" ;;
+                    *)               MIRROR="" ;;
+                esac
+                if [[ -n "$MIRROR" && -n "$CODENAME" ]]; then
+                    [[ -f /etc/apt/sources.list ]] && \
+                        mv /etc/apt/sources.list /etc/apt/sources.list.bak 2>/dev/null || true
+                    for f in /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do
+                        [[ -f "$f" ]] && mv "$f" "${f}.bak" 2>/dev/null || true
+                    done
+                    case "$DISTRO" in
+                        ubuntu) COMPONENTS="main restricted universe multiverse"
+                                SUITES="${CODENAME} ${CODENAME}-updates ${CODENAME}-security" ;;
+                        *)      COMPONENTS="main contrib non-free non-free-firmware"
+                                SUITES="${CODENAME} ${CODENAME}-updates ${CODENAME}-security" ;;
+                    esac
+                    if [[ -d /etc/apt/sources.list.d ]]; then
+                        cat > /etc/apt/sources.list.d/aliyun-system.sources <<SRCEOF
+Types: deb
+URIs: ${MIRROR}
+Suites: ${SUITES}
+Components: ${COMPONENTS}
+Signed-By: /usr/share/keyrings/${DISTRO}-archive-keyring.gpg
+SRCEOF
+                    else
+                        for suite in ${SUITES}; do
+                            echo "deb ${MIRROR} ${suite} ${COMPONENTS}"
+                        done > /etc/apt/sources.list
+                    fi
+                fi'
+        ;;
+        dnf)
+            spin "Configuring Aliyun dnf mirror"  bash -c '
+                for f in /etc/yum.repos.d/fedora*.repo; do
+                    [[ -f "$f" ]] || continue
+                    cp "$f" "${f}.bak" 2>/dev/null || true
+                    sed -i "s|^metalink=|#metalink=|g" "$f"
+                    sed -i "s|^#baseurl=http://download.example/pub/fedora/linux|baseurl=https://mirrors.aliyun.com/fedora|g" "$f"
+                done'
+        ;;
+        pacman)
+            spin "Configuring Aliyun pacman mirror"  bash -c '
+                [[ -f /etc/pacman.d/mirrorlist ]] && \
+                    cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.bak
+                echo "Server = https://mirrors.aliyun.com/archlinux/\$repo/os/\$arch" \
+                    > /etc/pacman.d/mirrorlist'
+        ;;
+    esac
+fi
+
+# =============================================================================
+# 3. SYSTEM UPDATE (package lists only)
 # =============================================================================
 step "Updating package lists"
 
@@ -138,7 +204,7 @@ case "$PKG_MGR" in
 esac
 
 # =============================================================================
-# 3. PYTHON 3
+# 4. PYTHON 3
 # =============================================================================
 step "Python 3"
 
@@ -159,7 +225,7 @@ python3 -c "import sys; assert sys.version_info >= (3,7), 'Python 3.7+ required'
 || die "Python 3.7 or newer is required."
 
 # =============================================================================
-# 4. CHECK MIHOMO BINARY
+# 5. CHECK MIHOMO BINARY
 # =============================================================================
 step "Mihomo binary"
 
@@ -185,7 +251,7 @@ else
 fi
 
 # =============================================================================
-# 5. AVAHI / mDNS
+# 6. AVAHI / mDNS
 # =============================================================================
 step "mDNS (avahi)"
 
@@ -208,7 +274,7 @@ fi
 info "avahi-daemon ready."
 
 # =============================================================================
-# 6. RASPI-CONFIG  (Raspberry Pi only)
+# 7. RASPI-CONFIG  (Raspberry Pi only)
 # =============================================================================
 if [[ "$IS_RASPI" == "true" ]] && ! command -v raspi-config &>/dev/null; then
     step "raspi-config"
@@ -220,7 +286,7 @@ if [[ "$IS_RASPI" == "true" ]] && ! command -v raspi-config &>/dev/null; then
 fi
 
 # =============================================================================
-# 7. ENSURE PIMIPROXY-ultralite-core.py IS PRESENT
+# 8. ENSURE PIMIPROXY-ultralite-core.py IS PRESENT
 # =============================================================================
 step "pimiproxy-ultralite-core.py"
 
@@ -231,7 +297,7 @@ fi
 info "Found: $PYTHON_SCRIPT"
 
 # =============================================================================
-# 8. HAND OFF TO PYTHON
+# 9. HAND OFF TO PYTHON
 # =============================================================================
 echo -e "\n${CYAN}${BOLD}▸ Launching pimiproxy-ultralite-core.py ${PIMIPROXY_CMD}...${NC}\n"
 exec python3 "$PYTHON_SCRIPT" "$PIMIPROXY_CMD"
