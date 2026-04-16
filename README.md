@@ -4,6 +4,8 @@ A self-hosted proxy server for your home network, running on a Linux SBC or serv
 
 Once installed, any device on your network can route its traffic through the SBC by pointing its proxy settings at `<pi-ip>:7890`. No VPN client, no app — just a standard HTTP/SOCKS5 proxy.
 
+> **This installer is designed for fresh OS installs.** It modifies system settings including the hostname, DNS configuration, firewall rules, IP forwarding, and package repositories (when China mirrors are selected). Do not run it on a machine that is already configured for other purposes.
+
 ---
 
 ## What it does
