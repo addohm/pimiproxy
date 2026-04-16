@@ -178,6 +178,12 @@ SRCEOF
                     cp "$f" "${f}.bak" 2>/dev/null || true
                     sed -i "s|^metalink=|#metalink=|g" "$f"
                     sed -i "s|^#baseurl=http://download.example/pub/fedora/linux|baseurl=https://mirrors.aliyun.com/fedora|g" "$f"
+                done
+                for f in /etc/yum.repos.d/fedora-cisco-openh264.repo \
+                         /etc/yum.repos.d/fedora-updates-testing.repo \
+                         /etc/yum.repos.d/fedora-modular.repo \
+                         /etc/yum.repos.d/fedora-updates-modular.repo; do
+                    [[ -f "$f" ]] && sed -i "s|^enabled=1|enabled=0|g" "$f" 2>/dev/null || true
                 done'
         ;;
         pacman)

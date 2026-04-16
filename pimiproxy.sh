@@ -297,13 +297,20 @@ SRCEOF
                 ;;
                 dnf)
                     spin "Switching system repos to Aliyun"  bash -c '
-                        # Only touch the core repos — other fedora-* repos (cisco-openh264 etc.)
-                        # have different URL patterns and break if their metalink is removed.
+                        # Switch core repos to Aliyun baseurl
                         for f in /etc/yum.repos.d/fedora.repo /etc/yum.repos.d/fedora-updates.repo; do
                             [[ -f "$f" ]] || continue
                             cp "$f" "${f}.bak" 2>/dev/null || true
                             sed -i "s|^metalink=|#metalink=|g" "$f"
                             sed -i "s|^#baseurl=http://download.example/pub/fedora/linux|baseurl=https://mirrors.aliyun.com/fedora|g" "$f"
+                        done
+                        # Disable third-party repos that have no Chinese mirror and whose
+                        # metalinks are unreachable from China (cisco-openh264, etc.)
+                        for f in /etc/yum.repos.d/fedora-cisco-openh264.repo \
+                                 /etc/yum.repos.d/fedora-updates-testing.repo \
+                                 /etc/yum.repos.d/fedora-modular.repo \
+                                 /etc/yum.repos.d/fedora-updates-modular.repo; do
+                            [[ -f "$f" ]] && sed -i "s|^enabled=1|enabled=0|g" "$f" 2>/dev/null || true
                         done'
                 ;;
                 pacman)
