@@ -789,8 +789,14 @@ def build_config(cfg: dict) -> str:
     L("  fake-ip-filter:")
     for entry in [
             # LAN / mDNS — never fake-IP local hostnames
+            # Double-suffix patterns (*.lan.lan, *.local.lan) handle resolv.conf
+            # search domain appending — e.g. armiproxy.lan → armiproxy.lan.lan
             "*.lan",
             "*.local",
+            "*.lan.lan",
+            "*.local.lan",
+            "*.lan.localdomain",
+            "*.local.localdomain",
             # Android / Meta / Apple connectivity checks — must resolve to real
             # IPs or the OS reports no internet and throttles/blocks traffic
             "connectivitycheck.gstatic.com",

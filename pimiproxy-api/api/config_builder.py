@@ -62,6 +62,7 @@ def build_config(cfg: dict) -> str:
     L("  fake-ip-filter:")
     for entry in [
         "*.lan", "*.local",
+        "*.lan.lan", "*.local.lan", "*.lan.localdomain", "*.local.localdomain",
         "connectivitycheck.gstatic.com", "connectivitycheck.android.com",
         "captive.apple.com", "*.msftconnecttest.com", "*.msftncsi.com",
         "time.android.com", "time.facebook.com", "time1.google.com",
