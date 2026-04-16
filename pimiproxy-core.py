@@ -2264,11 +2264,14 @@ def do_install():
     # NAT works for traffic leaving the host.
     if shutil.which("firewall-cmd") and run_ok(
             ["systemctl", "is-active", "--quiet", "firewalld"]):
-        with Spinner("Configuring firewalld masquerade"):
+        with Spinner("Configuring firewalld"):
             run(["firewall-cmd", "--permanent", "--zone=public",
                  "--add-masquerade"], silent=True, check=False)
+            for _fw_port in [mixed_port, dash_port, ui_port, api_port]:
+                run(["firewall-cmd", "--permanent", "--zone=public",
+                     "--add-port=%s/tcp" % _fw_port], silent=True, check=False)
             run(["firewall-cmd", "--reload"], silent=True, check=False)
-        info("firewalld: masquerade enabled on public zone.")
+        info("firewalld: masquerade + proxy ports opened on public zone.")
 
     compose = find_compose()
     if compose is None:
