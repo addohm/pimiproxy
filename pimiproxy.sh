@@ -197,6 +197,71 @@ else
         [[ "${_china_ans,,}" == "y" || "${_china_ans,,}" == "yes" ]] && CHINA_MIRRORS=true
 
         if [[ "$CHINA_MIRRORS" == "true" ]]; then
+            # ── Switch system package repos to Aliyun mirrors ────────────────
+            # Docker CE dependencies (git, pigz, etc.) come from system repos,
+            # not the Docker CE repo. If the VM's default mirrors are broken or
+            # blocked, the install will fail even though the Docker repo is fine.
+            case "$PKG_MGR" in
+                apt)
+                    spin "Switching system repos to Aliyun"  bash -c '
+                        DISTRO="$(. /etc/os-release && echo "$ID")"
+                        CODENAME="$(. /etc/os-release && echo "$VERSION_CODENAME")"
+                        case "$DISTRO" in
+                            ubuntu)          MIRROR="https://mirrors.aliyun.com/ubuntu" ;;
+                            debian|raspbian) MIRROR="https://mirrors.aliyun.com/debian" ;;
+                            *)               MIRROR="" ;;
+                        esac
+                        if [[ -n "$MIRROR" && -n "$CODENAME" ]]; then
+                            # Back up and disable existing sources
+                            [[ -f /etc/apt/sources.list ]] && \
+                                mv /etc/apt/sources.list /etc/apt/sources.list.bak 2>/dev/null || true
+                            for f in /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do
+                                [[ -f "$f" ]] && mv "$f" "${f}.bak" 2>/dev/null || true
+                            done
+                            # Determine components based on distro
+                            case "$DISTRO" in
+                                ubuntu) COMPONENTS="main restricted universe multiverse"
+                                        SUITES="${CODENAME} ${CODENAME}-updates ${CODENAME}-security" ;;
+                                *)      COMPONENTS="main contrib non-free non-free-firmware"
+                                        SUITES="${CODENAME} ${CODENAME}-updates ${CODENAME}-security" ;;
+                            esac
+                            # Write DEB822-format source (modern) + classic fallback
+                            if [[ -d /etc/apt/sources.list.d ]]; then
+                                cat > /etc/apt/sources.list.d/aliyun-system.sources <<SRCEOF
+Types: deb
+URIs: ${MIRROR}
+Suites: ${SUITES}
+Components: ${COMPONENTS}
+Signed-By: /usr/share/keyrings/${DISTRO}-archive-keyring.gpg
+SRCEOF
+                            else
+                                for suite in ${SUITES}; do
+                                    echo "deb ${MIRROR} ${suite} ${COMPONENTS}"
+                                done > /etc/apt/sources.list
+                            fi
+                        fi
+                        apt-get update -qq'
+                ;;
+                dnf)
+                    spin "Switching system repos to Aliyun"  bash -c '
+                        for f in /etc/yum.repos.d/fedora*.repo; do
+                            [[ -f "$f" ]] || continue
+                            cp "$f" "${f}.bak" 2>/dev/null || true
+                            sed -i "s|^metalink=|#metalink=|g" "$f"
+                            sed -i "s|^#baseurl=http://download.example/pub/fedora/linux|baseurl=https://mirrors.aliyun.com/fedora|g" "$f"
+                        done'
+                ;;
+                pacman)
+                    spin "Switching system repos to Aliyun"  bash -c '
+                        [[ -f /etc/pacman.d/mirrorlist ]] && \
+                            cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.bak
+                        echo "Server = https://mirrors.aliyun.com/archlinux/\$repo/os/\$arch" \
+                            > /etc/pacman.d/mirrorlist
+                        pacman -Sy --noconfirm'
+                ;;
+            esac
+
+            # ── Install Docker CE from Chinese mirrors ───────────────────────
             case "$PKG_MGR" in
                 apt)
                     spin "Installing prerequisites"  apt-get install -y -qq ca-certificates curl gnupg
@@ -206,7 +271,7 @@ else
                         curl -fsSL "https://mirrors.aliyun.com/docker-ce/linux/${DISTRO}/gpg" \
                             | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
                         chmod a+r /etc/apt/keyrings/docker.gpg'
-                    spin "Adding Aliyun Docker repo"  bash -c '
+                    spin "Adding Aliyun Docker CE repo"  bash -c '
                         DISTRO="$(. /etc/os-release && echo "$ID")"
                         CODENAME="$(. /etc/os-release && echo "$VERSION_CODENAME")"
                         # Fall back to latest known-supported codename if this one is not in the mirror yet
@@ -226,7 +291,7 @@ https://mirrors.aliyun.com/docker-ce/linux/${DISTRO} ${CODENAME} stable" \
                 ;;
                 dnf)
                     spin "Installing prerequisites"  dnf install -y -q curl
-                    spin "Adding Aliyun Docker repo"  bash -c '
+                    spin "Adding Aliyun Docker CE repo"  bash -c '
                         # Download repo file directly — avoids dnf4/dnf5 config-manager differences
                         curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/fedora/docker-ce.repo \
                             -o /etc/yum.repos.d/docker-ce.repo
@@ -246,12 +311,6 @@ https://mirrors.aliyun.com/docker-ce/linux/${DISTRO} ${CODENAME} stable" \
                         dnf install -y -q docker-ce docker-ce-cli containerd.io docker-compose-plugin
                 ;;
                 pacman)
-                    spin "Configuring TUNA Arch mirror"  bash -c '
-                        [[ -f /etc/pacman.d/mirrorlist ]] && \
-                            cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.bak
-                        echo "Server = https://mirrors.tuna.tsinghua.edu.cn/archlinux/\$repo/os/\$arch" \
-                            > /etc/pacman.d/mirrorlist
-                        pacman -Sy --noconfirm'
                     timed_step "Installing Docker via pacman" \
                         pacman -S --noconfirm docker docker-compose
                     # Ensure docker compose plugin is wired up
