@@ -2267,7 +2267,7 @@ def do_install():
         with Spinner("Configuring firewalld"):
             run(["firewall-cmd", "--permanent", "--zone=public",
                  "--add-masquerade"], silent=True, check=False)
-            for _fw_port in [mixed_port, dash_port, ui_port, api_port]:
+            for _fw_port in [mixed_port, dashboard_port, ui_port, api_port]:
                 run(["firewall-cmd", "--permanent", "--zone=public",
                      "--add-port=%s/tcp" % _fw_port], silent=True, check=False)
             run(["firewall-cmd", "--reload"], silent=True, check=False)
