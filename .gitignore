@@ -16,9 +16,6 @@ docs/pmp-deluxe-plan.md
 *.yaml
 *.yaml.old
 
-# Packaged Installers
-releases/
-
 # UI node stuff
 pimiproxy-ui/node_modules/
 pimiproxy-ui/dist/
