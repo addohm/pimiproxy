@@ -2,7 +2,7 @@
 __pycache__/
 
 # Dev helper script
-rebuild.sh
+scripts/
 
 # Claude
 CLAUDE.md
