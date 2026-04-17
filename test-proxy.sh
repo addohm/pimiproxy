@@ -5,6 +5,30 @@
 
 set -euo pipefail
 
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    cat <<'EOF'
+Usage: test-proxy.sh [host:port]
+
+Test proxy connectivity by sending requests through each proxy group
+(DIRECT, General, AI, Google/Youtube, Netflix, International Media,
+Apple, Online Storage) and reporting the results.
+
+Arguments:
+  host:port    Proxy address to test (default: 127.0.0.1:7890)
+
+Examples:
+  ./test-proxy.sh                      # test local proxy
+  ./test-proxy.sh pimiproxy.lan:7890   # test remote proxy by hostname
+  ./test-proxy.sh 10.0.0.240:7890      # test remote proxy by IP
+
+Output:
+  ✓  green     request succeeded (2xx/3xx)
+  ~  yellow    reached server but got 403 (e.g. Cloudflare without session)
+  ✗  red       timeout or error — usually a provider node issue
+EOF
+    exit 0
+fi
+
 PROXY="${1:-127.0.0.1:7890}"
 PROXY_URL="http://${PROXY}"
 TIMEOUT=10
@@ -26,30 +50,30 @@ pass=0; fail=0; total=0
 test_url() {
     local group="$1" url="$2" expect="${3:-2}" # expect: 2=2xx, 3=3xx redirect
     local result code time_s
-
+    
     total=$((total + 1))
     result=$(curl -x "$PROXY_URL" -s -o /dev/null \
         -w "%{http_code} %{time_total}" \
-        --max-time "$TIMEOUT" "$url" 2>&1) || true
-
+    --max-time "$TIMEOUT" "$url" 2>&1) || true
+    
     code="${result%% *}"
     time_s="${result##* }"
-
+    
     # Format latency
     local ms
     ms=$(awk "BEGIN {printf \"%.0f\", $time_s * 1000}" 2>/dev/null || echo "?")
-
+    
     # Determine pass/fail
     local status icon
     if [[ "$code" == "000" ]]; then
         icon="${R}✗${N}"
         status="${R}TIMEOUT${N}"
         fail=$((fail + 1))
-    elif [[ "$code" =~ ^[23] ]]; then
+        elif [[ "$code" =~ ^[23] ]]; then
         icon="${G}✓${N}"
         status="${G}${code}${N} ${D}${ms}ms${N}"
         pass=$((pass + 1))
-    elif [[ "$code" == "403" ]]; then
+        elif [[ "$code" == "403" ]]; then
         # 403 means we reached the server (e.g. Cloudflare block on curl)
         icon="${Y}~${N}"
         status="${Y}${code}${N} ${D}${ms}ms (reached server, blocked without session)${N}"
@@ -59,7 +83,7 @@ test_url() {
         status="${R}${code}${N} ${D}${ms}ms${N}"
         fail=$((fail + 1))
     fi
-
+    
     printf "  %s  %-20s  %-30s  %s\n" "$icon" "$group" "$url" "$status"
 }
 
@@ -91,7 +115,7 @@ echo
 # ── General (general international) ────────────────────────────────────────
 echo "  ${B}General${N} ${D}(general international traffic)${N}"
 echo "${SEP}"
-test_url "General" "https://www.google.com"
+test_url "General" "https://www.instagram.com"
 test_url "General" "https://www.twitter.com"
 echo
 
