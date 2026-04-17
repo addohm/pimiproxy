@@ -51,10 +51,12 @@ def warn(msg):
     print(f"{C.YELLOW}  ⚠{C.NC}  {msg}")
 
 
+SEP_LINE = '─' * 42
+
 def banner(msg, colour=C.CYAN):
-    print(f"\n{colour}{C.BOLD}{'─'*42}")
+    print(f"\n{colour}{C.BOLD}{SEP_LINE}")
     print(f"  {msg}")
-    print(f"{'─'*42}{C.NC}\n")
+    print(f"{SEP_LINE}{C.NC}\n")
 
 
 def die(msg):
@@ -76,26 +78,26 @@ def confirm(msg, default=False):
 
 
 def ask(prompt, default=""):
-    hint = f" [{default}]" if default else ""
-    raw = input(f"  {prompt}{hint}: ").strip()
+    hint = f" {C.DIM}[{default}]{C.NC}" if default else ""
+    raw = input(f"  {C.BOLD}{prompt}{C.NC}{hint}: ").strip()
     return raw if raw else default
 
 
 def ask_secret(prompt, default=""):
     import getpass
-    hint = f" [{default}]" if default else ""
-    raw = getpass.getpass(f"  {prompt}{hint}: ").strip()
+    hint = f" {C.DIM}[{default}]{C.NC}" if default else ""
+    raw = getpass.getpass(f"  {C.BOLD}{prompt}{C.NC}{hint}: ").strip()
     return raw if raw else default
 
 
 def choose(prompt, options, default=1):
     """Present a numbered menu, return the chosen index (1-based)."""
-    print(f"  {prompt}")
+    print(f"  {C.BOLD}{prompt}{C.NC}")
     for i, opt in enumerate(options, 1):
-        marker = " (default)" if i == default else ""
-        print(f"    {i}) {opt}{marker}")
+        marker = f" {C.DIM}(default){C.NC}" if i == default else ""
+        print(f"    {C.CYAN}{i}){C.NC} {opt}{marker}")
     while True:
-        raw = input(f"  Selection [1-{len(options)}]: ").strip()
+        raw = input(f"  {C.BOLD}Selection{C.NC} {C.DIM}[1-{len(options)}]{C.NC}: ").strip()
         if raw == "":
             return default
         if raw.isdigit() and 1 <= int(raw) <= len(options):
@@ -1238,12 +1240,12 @@ def do_status():
 
     # ── endpoints ─────────────────────────────────────────────────────────────
     ui_port = meta.get("ui_port", "8585")
-    print()
-    print(f"  Dashboard  ->  http://{hostname}.lan:{dash_port}")
-    print(f"  UI         ->  http://{hostname}.lan:{ui_port}")
-    print(f"  API        ->  http://{hostname}.lan:{api_port}")
-    print(f"  Proxy      ->  0.0.0.0:{mixed_port}  (HTTP/SOCKS5)")
-    print()
+    print(f"\n  {C.DIM}{SEP_LINE}{C.NC}")
+    print(f"  {C.CYAN}Dashboard{C.NC}  →  http://{hostname}.lan:{dash_port}")
+    print(f"  {C.CYAN}UI{C.NC}         →  http://{hostname}.lan:{ui_port}")
+    print(f"  {C.CYAN}API{C.NC}        →  http://{hostname}.lan:{api_port}")
+    print(f"  {C.BOLD}{C.CYAN}Proxy{C.NC}      →  {C.BOLD}{hostname}.lan:{mixed_port}  (HTTP/SOCKS5){C.NC}")
+    print(f"  {C.DIM}{SEP_LINE}{C.NC}\n")
 
 
 # =============================================================================
@@ -1793,20 +1795,21 @@ def do_configure():
                          silent=True).returncode == 0
         _ui_status = "enabled" if (_api_img_ok and _ui_img_ok) else "not built"
 
-        print(f"\n{C.BOLD}── Configure pimiproxy ─────────────────────{C.NC}")
-        print("  1) Manage provider URL")
-        print("  2) Manage proxy groups")
-        print("  3) Manage rules")
-        print("  4) Show current config")
-        print("  5) Refresh provider now")
-        print("  6) Change API secret")
-        print("  7) Change ports")
-        print("  8) Switch dashboard")
-        print("  9) Save and apply")
-        print(" 10) Exit without saving")
-        print(f" 11) Enable / rebuild web management UI  [{_ui_status}]")
-        print()
-        choice = input("  Selection [1-11]: ").strip()
+        print(f"\n{C.CYAN}{C.BOLD}  Configure pimiproxy{C.NC}")
+        print(f"  {C.DIM}{SEP_LINE}{C.NC}")
+        print(f"   {C.CYAN} 1){C.NC} Manage provider URL")
+        print(f"   {C.CYAN} 2){C.NC} Manage proxy groups")
+        print(f"   {C.CYAN} 3){C.NC} Manage rules")
+        print(f"   {C.CYAN} 4){C.NC} Show current config")
+        print(f"   {C.CYAN} 5){C.NC} Refresh provider now")
+        print(f"   {C.CYAN} 6){C.NC} Change API secret")
+        print(f"   {C.CYAN} 7){C.NC} Change ports")
+        print(f"   {C.CYAN} 8){C.NC} Switch dashboard")
+        print(f"   {C.CYAN} 9){C.NC} Save and apply")
+        print(f"   {C.CYAN}10){C.NC} Exit without saving")
+        print(f"   {C.CYAN}11){C.NC} Enable / rebuild web management UI  {C.DIM}[{_ui_status}]{C.NC}")
+        print(f"  {C.DIM}{SEP_LINE}{C.NC}")
+        choice = input(f"  {C.BOLD}Selection{C.NC} {C.DIM}[1-11]{C.NC}: ").strip()
 
         # ── provider URL ─────────────────────────────────────────────────────
         if choice == "1":
@@ -2762,36 +2765,34 @@ def do_install():
                         _cidr = _m.group(1)
                 break
 
-    SEP = f"  {'─'*42}"
-    B, G, Y, D, N = C.BOLD, C.GREEN, C.YELLOW, C.DIM, C.NC
+    _SEP = f"  {C.DIM}{SEP_LINE}{C.NC}"
 
-    C2 = C.CYAN
     print()
-    print(f"{B}{G}  pimiproxy — installation complete{N}")
-    print(SEP)
-    print(f"  {Y}Tip:{N} Some apps (Unity VR games etc.) bypass the system proxy.")
+    print(f"{C.BOLD}{C.GREEN}  pimiproxy — installation complete{C.NC}")
+    print(_SEP)
+    print(f"  {C.YELLOW}Tip:{C.NC} Some apps (Unity VR games etc.) bypass the system proxy.")
     print(f"  Route all device traffic through this device instead:")
-    print(f"  Set the device WiFi to {B}static{N} with these values:")
+    print(f"  Set the device WiFi to {C.BOLD}static{C.NC} with these values:")
     print(f"    IP address  →  pick any unused IP on your subnet")
     print(f"    Subnet      →  /{_cidr}")
-    print(f"    Gateway     →  {lan_ip}  {D}(this device){N}")
-    print(f"    DNS 1       →  {lan_ip}  {D}(this device){N}")
-    print(f"    DNS 2       →  {_gw or '<router-ip>'}  {D}(your router, fallback){N}")
-    print(SEP)
-    print(f"  {C2}Dashboard{N}  →  http://{hostname_new}.lan:{dashboard_port}")
+    print(f"    Gateway     →  {lan_ip}  {C.DIM}(this device){C.NC}")
+    print(f"    DNS 1       →  {lan_ip}  {C.DIM}(this device){C.NC}")
+    print(f"    DNS 2       →  {_gw or '<router-ip>'}  {C.DIM}(your router, fallback){C.NC}")
+    print(_SEP)
+    print(f"  {C.CYAN}Dashboard{C.NC}  →  http://{hostname_new}.lan:{dashboard_port}")
     print(f"             →  http://{lan_ip}:{dashboard_port}")
-    print(f"  {C2}UI{N}         →  http://{hostname_new}.lan:{ui_port}")
-    print(f"  {C2}API{N}        →  http://{hostname_new}.lan:{api_port}")
-    print(f"  {B}{C2}Proxy{N}      →  {B}{hostname_new}.lan:{mixed_port}  (HTTP/SOCKS5){N}")
-    print(f"  {Y}Login{N}      →  API secret: {B}{api_secret}{N}")
-    print(SEP)
-    print(f"  {D}pimiproxy.sh [status|test|logs|configure|debug]{N}")
-    print(SEP)
+    print(f"  {C.CYAN}UI{C.NC}         →  http://{hostname_new}.lan:{ui_port}")
+    print(f"  {C.CYAN}API{C.NC}        →  http://{hostname_new}.lan:{api_port}")
+    print(f"  {C.BOLD}{C.CYAN}Proxy{C.NC}      →  {C.BOLD}{hostname_new}.lan:{mixed_port}  (HTTP/SOCKS5){C.NC}")
+    print(f"  {C.YELLOW}Login{C.NC}      →  API secret: {C.BOLD}{api_secret}{C.NC}")
+    print(_SEP)
+    print(f"  {C.DIM}pimiproxy.sh [status|test|logs|configure|debug]{C.NC}")
+    print(_SEP)
     print()
 
     if subscription_url:
-        print(f"  {Y}Next step:{N} Open the dashboard and select a proxy server for the")
-        print(f"  {B}🧭 Meta Quest{N} group. This group handles Meta/Oculus/Facebook traffic")
+        print(f"  {C.YELLOW}Next step:{C.NC} Open the dashboard and select a proxy server for the")
+        print(f"  {C.BOLD}🧭 Meta Quest{C.NC} group. This group handles Meta/Oculus/Facebook traffic")
         print(f"  and has no proxy selected by default.")
         print()
 

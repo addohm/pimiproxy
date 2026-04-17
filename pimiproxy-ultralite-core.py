@@ -51,10 +51,12 @@ def warn(msg):
     print(f"{C.YELLOW}  ⚠{C.NC}  {msg}")
 
 
+SEP_LINE = '─' * 42
+
 def banner(msg, colour=C.CYAN):
-    print(f"\n{colour}{C.BOLD}{'─'*42}")
+    print(f"\n{colour}{C.BOLD}{SEP_LINE}")
     print(f"  {msg}")
-    print(f"{'─'*42}{C.NC}\n")
+    print(f"{SEP_LINE}{C.NC}\n")
 
 
 def die(msg):
@@ -75,25 +77,25 @@ def confirm(msg, default=False):
 
 
 def ask(prompt, default=""):
-    hint = f" [{default}]" if default else ""
-    raw  = input(f"  {prompt}{hint}: ").strip()
+    hint = f" {C.DIM}[{default}]{C.NC}" if default else ""
+    raw  = input(f"  {C.BOLD}{prompt}{C.NC}{hint}: ").strip()
     return raw if raw else default
 
 
 def ask_secret(prompt, default=""):
     import getpass
-    hint = f" [{default}]" if default else ""
-    raw  = getpass.getpass(f"  {prompt}{hint}: ").strip()
+    hint = f" {C.DIM}[{default}]{C.NC}" if default else ""
+    raw  = getpass.getpass(f"  {C.BOLD}{prompt}{C.NC}{hint}: ").strip()
     return raw if raw else default
 
 
 def choose(prompt, options, default=1):
-    print(f"  {prompt}")
+    print(f"  {C.BOLD}{prompt}{C.NC}")
     for i, opt in enumerate(options, 1):
-        marker = " (default)" if i == default else ""
-        print(f"    {i}) {opt}{marker}")
+        marker = f" {C.DIM}(default){C.NC}" if i == default else ""
+        print(f"    {C.CYAN}{i}){C.NC} {opt}{marker}")
     while True:
-        raw = input(f"  Selection [1-{len(options)}]: ").strip()
+        raw = input(f"  {C.BOLD}Selection{C.NC} {C.DIM}[1-{len(options)}]{C.NC}: ").strip()
         if raw == "":
             return default
         if raw.isdigit() and 1 <= int(raw) <= len(options):
@@ -830,9 +832,10 @@ def do_status():
         warn("AES hardware acceleration: not available — software encryption, higher latency.")
 
     # ── endpoints ─────────────────────────────────────────────────────────────
-    print()
-    print(f"  API    ->  http://{hostname}.lan:{api_port}")
-    print(f"  Proxy  ->  0.0.0.0:{mixed_port}  (HTTP/SOCKS5)")
+    print(f"\n  {C.DIM}{SEP_LINE}{C.NC}")
+    print(f"  {C.CYAN}API{C.NC}    →  http://{hostname}.lan:{api_port}")
+    print(f"  {C.BOLD}{C.CYAN}Proxy{C.NC}  →  {C.BOLD}{hostname}.lan:{mixed_port}  (HTTP/SOCKS5){C.NC}")
+    print(f"  {C.DIM}{SEP_LINE}{C.NC}")
     print()
 
 
@@ -1235,18 +1238,19 @@ def do_configure():
     changed = False
 
     while True:
-        print(f"\n{C.BOLD}── Configure pimiproxy-ultralite ───────────{C.NC}")
-        print("  1) Manage provider URL")
-        print("  2) Manage proxy groups")
-        print("  3) Manage rules")
-        print("  4) Show current config")
-        print("  5) Refresh provider now")
-        print("  6) Change API secret")
-        print("  7) Change ports")
-        print("  8) Save and apply")
-        print("  9) Exit without saving")
-        print()
-        choice = input("  Selection [1-9]: ").strip()
+        print(f"\n{C.CYAN}{C.BOLD}  Configure pimiproxy-ultralite{C.NC}")
+        print(f"  {C.DIM}{SEP_LINE}{C.NC}")
+        print(f"   {C.CYAN}1){C.NC} Manage provider URL")
+        print(f"   {C.CYAN}2){C.NC} Manage proxy groups")
+        print(f"   {C.CYAN}3){C.NC} Manage rules")
+        print(f"   {C.CYAN}4){C.NC} Show current config")
+        print(f"   {C.CYAN}5){C.NC} Refresh provider now")
+        print(f"   {C.CYAN}6){C.NC} Change API secret")
+        print(f"   {C.CYAN}7){C.NC} Change ports")
+        print(f"   {C.CYAN}8){C.NC} Save and apply")
+        print(f"   {C.CYAN}9){C.NC} Exit without saving")
+        print(f"  {C.DIM}{SEP_LINE}{C.NC}")
+        choice = input(f"  {C.BOLD}Selection{C.NC} {C.DIM}[1-9]{C.NC}: ").strip()
 
         # ── provider URL ─────────────────────────────────────────────────────
         if choice == "1":
@@ -1775,28 +1779,27 @@ def do_install():
                         _cidr = _m.group(1)
                 break
 
-    SEP = f"  {'─'*42}"
-    B, G, Y, D, N, C2 = C.BOLD, C.GREEN, C.YELLOW, C.DIM, C.NC, C.CYAN
+    _SEP = f"  {C.DIM}{SEP_LINE}{C.NC}"
 
     print()
-    print(f"{B}{G}  pimiproxy-ultralite — installation complete{N}")
-    print(SEP)
-    print(f"  {Y}Tip:{N} Some apps (Unity VR games etc.) bypass the system proxy.")
+    print(f"{C.BOLD}{C.GREEN}  pimiproxy-ultralite — installation complete{C.NC}")
+    print(_SEP)
+    print(f"  {C.YELLOW}Tip:{C.NC} Some apps (Unity VR games etc.) bypass the system proxy.")
     print(f"  Route all device traffic through this device instead:")
-    print(f"  Set the device WiFi to {B}static{N} with these values:")
+    print(f"  Set the device WiFi to {C.BOLD}static{C.NC} with these values:")
     print(f"    IP address  →  pick any unused IP on your subnet")
     print(f"    Subnet      →  /{_cidr}")
-    print(f"    Gateway     →  {lan_ip}  {D}(this device){N}")
-    print(f"    DNS 1       →  {lan_ip}  {D}(this device){N}")
-    print(f"    DNS 2       →  {_gw or '<router-ip>'}  {D}(your router, fallback){N}")
-    print(SEP)
-    print(f"  {C2}API{N}    →  http://{hostname_new}.lan:{api_port}")
+    print(f"    Gateway     →  {lan_ip}  {C.DIM}(this device){C.NC}")
+    print(f"    DNS 1       →  {lan_ip}  {C.DIM}(this device){C.NC}")
+    print(f"    DNS 2       →  {_gw or '<router-ip>'}  {C.DIM}(your router, fallback){C.NC}")
+    print(_SEP)
+    print(f"  {C.CYAN}API{C.NC}    →  http://{hostname_new}.lan:{api_port}")
     print(f"         →  http://{lan_ip}:{api_port}")
-    print(f"  {B}{C2}Proxy{N}  →  {B}{hostname_new}.lan:{mixed_port}  (HTTP/SOCKS5){N}")
-    print(f"  {Y}Login{N}  →  API secret: {B}{api_secret}{N}")
-    print(SEP)
-    print(f"  {D}pimiproxy-ultralite.sh [configure|status|logs|debug]{N}")
-    print(SEP)
+    print(f"  {C.BOLD}{C.CYAN}Proxy{C.NC}  →  {C.BOLD}{hostname_new}.lan:{mixed_port}  (HTTP/SOCKS5){C.NC}")
+    print(f"  {C.YELLOW}Login{C.NC}  →  API secret: {C.BOLD}{api_secret}{C.NC}")
+    print(_SEP)
+    print(f"  {C.DIM}pimiproxy-ultralite.sh [status|test|logs|configure|debug]{C.NC}")
+    print(_SEP)
     print()
 
     if not has_aes_hardware():
