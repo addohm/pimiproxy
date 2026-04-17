@@ -1352,9 +1352,164 @@ def do_test():
     SEP = f"  {C.DIM}{'─' * 58}{C.NC}"
 
     if single_url:
+        import urllib.error
+        import threading
+        from urllib.parse import urlparse
+
+        try:
+            parsed = urlparse(single_url if "://" in single_url else f"http://{single_url}")
+            domain = (parsed.hostname or single_url).lower()
+        except Exception:
+            domain = single_url.lower()
+
+        api_port = meta.get("api_port", "9090")
+        api_secret = meta.get("api_secret", "")
+
         print(f"  {C.BOLD}Single URL test{C.NC}")
         print(SEP)
-        _test("Custom", single_url)
+        print(f"  Domain: {C.BOLD}{domain}{C.NC}")
+        print()
+
+        # Probe through the proxy in a background thread
+        probe_result = {}
+
+        def _probe():
+            t0 = time.monotonic()
+            try:
+                req = urllib.request.Request(single_url)
+                with opener.open(req, timeout=10) as r:
+                    probe_result["code"] = r.status
+            except urllib.error.HTTPError as e:
+                probe_result["code"] = e.code
+            except Exception as e:
+                probe_result["code"] = 0
+                probe_result["error"] = str(e)[:120]
+            probe_result["ms"] = (time.monotonic() - t0) * 1000
+
+        t = threading.Thread(target=_probe, daemon=True)
+        t.start()
+
+        # Poll Mihomo /connections API to find the rule match
+        mihomo_conn = {}
+        deadline = time.time() + 4.0
+        while time.time() < deadline:
+            time.sleep(0.1)
+            try:
+                mreq = urllib.request.Request(
+                    f"http://127.0.0.1:{api_port}/connections",
+                    headers={"Authorization": f"Bearer {api_secret}"},
+                )
+                with urllib.request.urlopen(mreq, timeout=2) as resp:
+                    data = json.loads(resp.read())
+                for conn in reversed(data.get("connections") or []):
+                    host = conn.get("metadata", {}).get("host", "")
+                    if domain in host or host.endswith(domain):
+                        mihomo_conn = {
+                            "rule":    conn.get("rule", ""),
+                            "payload": conn.get("rulePayload", ""),
+                            "chains":  conn.get("chains") or [],
+                        }
+                        break
+            except Exception:
+                pass
+            if mihomo_conn.get("rule"):
+                break
+
+        t.join(timeout=12)
+
+        # Show connection result
+        code = probe_result.get("code", 0)
+        ms = probe_result.get("ms", 0)
+        if code == 0:
+            failed += 1
+            print(f"  {C.RED}✗{C.NC}  Connection: {C.RED}TIMEOUT{C.NC}"
+                  f"  {C.DIM}{probe_result.get('error', '')}{C.NC}")
+        elif code == 403:
+            passed += 1
+            print(f"  {C.YELLOW}~{C.NC}  Connection: {C.YELLOW}{code}{C.NC}"
+                  f"  {C.DIM}{ms:.0f}ms (reached server, blocked without session){C.NC}")
+        elif 200 <= code < 400:
+            passed += 1
+            print(f"  {C.GREEN}✓{C.NC}  Connection: {C.GREEN}{code}{C.NC}"
+                  f"  {C.DIM}{ms:.0f}ms{C.NC}")
+        else:
+            failed += 1
+            print(f"  {C.RED}✗{C.NC}  Connection: {C.RED}{code}{C.NC}"
+                  f"  {C.DIM}{ms:.0f}ms{C.NC}")
+
+        # Show rule match info
+        print()
+        if mihomo_conn.get("rule"):
+            rule_type = mihomo_conn["rule"]
+            payload = mihomo_conn["payload"]
+            chains = mihomo_conn["chains"]
+            target = chains[0] if chains else ""
+            rule_str = f"{rule_type},{payload},{target}" if payload else f"{rule_type},{target}"
+            print(f"  {C.CYAN}Rule match{C.NC}  {C.BOLD}{rule_str}{C.NC}")
+            print(f"  {C.CYAN}Type{C.NC}        {rule_type}")
+            if payload:
+                print(f"  {C.CYAN}Value{C.NC}       {payload}")
+            print(f"  {C.CYAN}Target{C.NC}      {target}")
+            if len(chains) > 1:
+                print(f"  {C.CYAN}Chain{C.NC}       {' → '.join(chains)}")
+            print(f"  {C.CYAN}Source{C.NC}      {C.DIM}mihomo (live connection){C.NC}")
+        else:
+            # Fall back to static rule parsing
+            install_dir = Path(meta["install_dir"])
+            ext_cfg_path = install_dir / ".pimiproxy-config.json"
+            matched_rule = None
+            source = None
+            if ext_cfg_path.exists():
+                cfg = json.loads(ext_cfg_path.read_text())
+                def _parse_rule(r):
+                    parts = r.split(",", 2)
+                    if len(parts) == 3:
+                        return {"rule_type": parts[0], "value": parts[1], "target": parts[2]}
+                    if len(parts) == 2:
+                        return {"rule_type": parts[0], "value": "", "target": parts[1]}
+                    return {"rule_type": r, "value": "", "target": ""}
+
+                def _rule_matches(rule, dom):
+                    rt = rule["rule_type"].upper()
+                    val = rule.get("value", "").lower()
+                    if rt == "DOMAIN":
+                        return dom == val
+                    if rt == "DOMAIN-SUFFIX":
+                        return dom == val or dom.endswith("." + val)
+                    if rt == "DOMAIN-KEYWORD":
+                        return bool(val) and val in dom
+                    if rt == "MATCH":
+                        return True
+                    return False
+
+                for r in cfg.get("rules", []):
+                    parsed_r = _parse_rule(r)
+                    if _rule_matches(parsed_r, domain):
+                        matched_rule, source = parsed_r, "user"
+                        break
+                if not matched_rule:
+                    for line in cfg.get("subscription_rules_yaml", "").splitlines():
+                        line = line.strip().lstrip("- ").strip("'\"")
+                        if line and line != "rules:":
+                            parsed_r = _parse_rule(line)
+                            if _rule_matches(parsed_r, domain):
+                                matched_rule, source = parsed_r, "provider"
+                                break
+
+            if matched_rule:
+                rule_str = (f"{matched_rule['rule_type']},{matched_rule['value']},{matched_rule['target']}"
+                            if matched_rule["value"]
+                            else f"{matched_rule['rule_type']},{matched_rule['target']}")
+                print(f"  {C.CYAN}Rule match{C.NC}  {C.BOLD}{rule_str}{C.NC}")
+                print(f"  {C.CYAN}Type{C.NC}        {matched_rule['rule_type']}")
+                if matched_rule["value"]:
+                    print(f"  {C.CYAN}Value{C.NC}       {matched_rule['value']}")
+                print(f"  {C.CYAN}Target{C.NC}      {matched_rule['target']}")
+                print(f"  {C.CYAN}Source{C.NC}      {C.DIM}{source} (static rule match){C.NC}")
+            else:
+                warn("Could not determine matching rule.")
+                warn("GEOIP/GEOSITE rules require Mihomo's API to report the match.")
+        print()
     else:
         for group_name, desc, urls in _TEST_GROUPS:
             label = f"{C.BOLD}{group_name}{C.NC}"

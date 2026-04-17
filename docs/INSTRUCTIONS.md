@@ -88,7 +88,7 @@ SSH into your SBC (or open a terminal on it directly) and navigate to the direct
 
 ### Option A — Bootstrap (recommended)
 
-The bootstrap script detects your distro, installs Python 3, Docker (via the official `get.docker.com` installer), avahi-daemon, and raspi-config automatically, then launches the Python installer. This is the easiest path and works on Debian, Ubuntu, Fedora, Arch, openSUSE, Alpine, and their derivatives.
+The bootstrap script detects your distro, installs essential tools (curl, iproute2, procps), Python 3, cron, Docker (via the official `get.docker.com` installer), avahi-daemon, and raspi-config automatically, then launches the Python installer. This is the easiest path and works on Debian, Ubuntu, Fedora, Arch, openSUSE, Alpine, and their derivatives.
 
 ```bash
 sudo ./pimiproxy.sh
@@ -104,7 +104,7 @@ sudo ./pimiproxy.sh configure
 
 ### Option B — Python script directly
 
-If Python 3, Docker + Compose, and avahi-daemon are already installed:
+If Python 3, Docker + Compose, cron, and avahi-daemon are already installed:
 
 ```bash
 sudo python3 pimiproxy-core.py install
@@ -120,13 +120,20 @@ sudo python3 pimiproxy-core.py uninstall
 
 ### Installing from mainland China
 
-Docker's package servers (`download.docker.com`) are frequently blocked or unreachable from mainland China. If `pimiproxy.sh` needs to install Docker CE, it will ask:
+Docker's package servers (`download.docker.com`) and standard distro repositories are frequently blocked or unreachable from mainland China. If `pimiproxy.sh` needs to install Docker CE, it will ask:
 
 ```
   Is this device located in China? (use Aliyun mirrors for Docker CE) [y/N]:
 ```
 
-Answer **y** to route the Docker CE installation through Aliyun's mirror instead. This question only appears if Docker is not already installed. Everything else — image pulls, subscription fetches, runtime traffic — is unaffected and routes through whatever proxy you configure.
+Answer **y** to switch system package repositories (apt/dnf/pacman) and Docker CE to Aliyun mirrors. On Debian/Ubuntu, apt sources are replaced with `mirrors.aliyun.com` (with a separate `/debian-security` mirror path for Debian security updates). On Fedora, core repos are switched to Aliyun base URLs and third-party repos (cisco-openh264 etc.) are disabled. On Arch, the mirrorlist is replaced with Aliyun. This question only appears during install. Everything else — image pulls, subscription fetches, runtime traffic — is unaffected and routes through whatever proxy you configure.
+
+After install, you can switch mirrors at any time:
+
+```bash
+sudo python3 pimiproxy-core.py china-repos      # Switch to Aliyun mirrors
+sudo python3 pimiproxy-core.py standard-repos    # Restore original repos from backups
+```
 
 ### Supported platforms
 
@@ -134,7 +141,7 @@ Answer **y** to route the Docker CE installation through Aliyun's mirror instead
 |---|---|---|
 | Debian / Raspberry Pi OS / Ubuntu / Mint | apt | `docker.io` (distro repo) or Docker CE via official repo |
 | Fedora / RHEL / CentOS / Rocky / Alma | dnf | `docker-ce` via Docker CE repo |
-| Arch / Manjaro / EndeavourOS | pacman | `docker-ce` via Docker CE repo |
+| Arch / Manjaro / EndeavourOS | pacman | `docker` (community repo) or Docker CE via `get.docker.com` |
 | openSUSE | zypper | `docker-ce` via Docker CE repo |
 | Alpine | apk | `docker-ce` via Docker CE repo |
 
@@ -152,7 +159,7 @@ Where all pimiproxy files live — the Docker Compose file, Mihomo config, and i
 ### Hostname
 **Default: `pimiproxy` (or the current hostname if the device has already been renamed)**
 
-Sets the SBC's system hostname. After install the SBC will be reachable as `<hostname>.lan` on routers that assign `.lan` hostnames via DHCP/DNS, and as `<hostname>.local` via mDNS on devices that support it.
+Sets the SBC's system hostname. Limited to 24 characters, alphanumeric and hyphens only. After install the SBC will be reachable as `<hostname>.lan` on routers that assign `.lan` hostnames via DHCP/DNS, and as `<hostname>.local` via mDNS on devices that support it.
 
 If the device's hostname is already something other than a generic default (`raspberrypi`, `localhost`, `debian`, `ubuntu`, `alarm`), the installer will pre-fill the prompt with the existing name — press Enter to keep it unchanged.
 
@@ -184,7 +191,7 @@ The port other devices use to connect to the proxy. This is the port you enter i
 ### API secret
 **Default: `pimiproxy`**
 
-A password used by the dashboard to authenticate with the Mihomo API. You will be prompted to enter this in the dashboard on first load. Change it to something stronger if the SBC is accessible outside your home network.
+A password used by the dashboard to authenticate with the Mihomo API. The secret is shown in the install summary at the end of the install process. You will be prompted to enter it in the dashboard on first load. Change it to something stronger if the SBC is accessible outside your home network.
 
 ### Provider URL
 **Default: none (optional)**
@@ -197,7 +204,7 @@ https://provider.example.com/api/v1/client/subscribe?token=abc123
 https://another-provider.example.com/clash?token=abc123
 ```
 
-If you provide a URL, the installer will generate a complete working config with:
+If you provide a URL, the installer will fetch it immediately and validate that it contains proxies before proceeding. The installer will generate a complete working config with:
 - A `select` group — pick a server manually from the dashboard
 - An `Auto - Fastest` group — automatically uses the lowest-latency server
 - LAN and private IP bypass rules so local traffic never goes through the proxy
@@ -409,7 +416,7 @@ A status banner is displayed automatically on every interactive SSH or terminal 
 
 The AES line shows green `●  available` when the CPU has hardware AES acceleration, or yellow `○  software fallback — higher latency` when it does not. This is checked once at install time and baked into the banner — it won't change unless you reinstall.
 
-The banner is installed to `/etc/profile.d/pimiproxy-banner.sh` and is removed by the uninstaller. If you change ports via `configure`, the banner is rebuilt automatically.
+The banner is installed to `/etc/profile.d/pimiproxy-banner.sh` (for login shells via SSH) and sourced from `/etc/bash.bashrc` (for desktop terminals / non-login shells). Both are removed by the uninstaller. If you change ports via `configure`, the banner is rebuilt automatically.
 
 ### Check status
 
@@ -447,6 +454,29 @@ sudo python3 pimiproxy-core.py update
 ```
 
 Pulls the latest Docker images for all containers and recreates them. Safe to run at any time.
+
+### Test proxy connectivity
+
+```bash
+sudo python3 pimiproxy-core.py test                    # Test all proxy groups
+sudo python3 pimiproxy-core.py test --url https://example.com  # Test a single URL
+```
+
+### Export config
+
+```bash
+sudo python3 pimiproxy-core.py export                  # Export to current directory
+sudo python3 pimiproxy-core.py export /tmp/backup      # Export to a specific directory
+```
+
+Exports the user config JSON, cached provider YAML, and the final `config.yaml` for backup or debugging.
+
+### Switch system package mirrors
+
+```bash
+sudo python3 pimiproxy-core.py china-repos             # Switch to Aliyun mirrors
+sudo python3 pimiproxy-core.py standard-repos           # Restore original repos from backups
+```
 
 ### Refresh subscription (manual)
 

@@ -92,13 +92,13 @@ ping -c 10 <proxy-server-ip>
 
 ### Cause A — Provider requires a Clash-compatible User-Agent
 
-Many subscription APIs gate their response behind a `User-Agent` check and return a login page or error to unrecognised clients. Use `getapiconfig.py` to test the raw response your URL returns:
+Many subscription APIs gate their response behind a `User-Agent` check and return a login page or error to unrecognised clients. Use the built-in `debug` subcommand to test the raw response your URL returns:
 
 ```bash
-python3 getapiconfig.py
+sudo python3 pimiproxy-core.py debug
 ```
 
-Paste your URL when prompted. The script sends the request with `User-Agent: Clash-Verge/1.0 (clash-verge-rev; mihomo)` and saves the full response to `raw_debug_output.yaml`. Open that file and check whether it contains a `proxies:` block. If the file contains HTML or a plain-text error message, the URL is wrong or the provider is rejecting the request.
+Paste your URL when prompted (or pass it directly as an argument). The command sends a request with `User-Agent: Clash-Verge/1.0 (clash-verge-rev; mihomo)`, reports the status code, content type, and how many proxies/groups/rules were found in the response, then saves the full response to `raw_debug_output.yaml`. Open that file and check whether it contains a `proxies:` block. If the file contains HTML or a plain-text error message, the URL is wrong or the provider is rejecting the request.
 
 ### Cause B — URL is not a Clash API URL
 
@@ -113,9 +113,9 @@ If your provider offers multiple export formats, look specifically for "Clash", 
 
 pimiproxy automatically strips `GEOIP,` rules from provider configs because they require the MaxMind MMDB database, which Mihomo downloads from GitHub on first run. On networks that can't reach GitHub this causes a startup crash. The stripped GEOIP rules are redundant when the provider already includes `IP-CIDR` entries for those regions — which most providers do. If you need GEOIP rules, add them manually via `configure` after install.
 
-### Cause D — Fetch failed silently during install
+### Cause D — Fetch failed or URL was skipped during install
 
-If the subscription fetch failed at install time, Mihomo starts with no proxies. Re-fetch manually:
+The installer validates the provider URL at install time and checks that it contains proxies. If you skipped the provider prompt or the fetch failed, Mihomo starts with no proxies. Re-fetch manually:
 
 ```bash
 sudo python3 pimiproxy-core.py refresh
@@ -129,7 +129,9 @@ sudo python3 pimiproxy-core.py refresh
 
 ### Cause
 
-Mihomo's config sets DNS to listen on `0.0.0.0:53`. On many modern Debian/Ubuntu systems, `systemd-resolved` already occupies port 53.
+Mihomo's config sets DNS to listen on `0.0.0.0:53`. On many modern Debian/Ubuntu/Fedora systems, `systemd-resolved` already occupies port 53.
+
+> **Note:** The installer now automatically disables the systemd-resolved stub listener during install (on systems that have it). This section is only relevant if the conflict reappears after an OS update or manual change.
 
 ### Resolution
 
@@ -314,7 +316,7 @@ pimiproxy keeps a structured copy of the full configuration in `/opt/pimiproxy/.
 sudo python3 pimiproxy-core.py configure
 ```
 
-Choose option 6 (Save and apply) — this rewrites `config.yaml` from the JSON source and restarts Mihomo.
+Choose option 9 (Save and apply) — this rewrites `config.yaml` from the JSON source and restarts Mihomo.
 
 If `.pimiproxy-config.json` is also missing or corrupt, you can re-run the full installer. It will overwrite the existing install with fresh prompts:
 
@@ -327,7 +329,7 @@ To inspect what pimiproxy thinks the current config is without making changes:
 ```bash
 sudo python3 pimiproxy-core.py configure
 # Choose option 4 (Show current config)
-# Choose option 7 (Exit without saving)
+# Choose option 10 (Exit without saving)
 ```
 
 ---
@@ -363,16 +365,26 @@ Should be `allow-lan: true`. If it's `false`, other devices cannot connect.
 
 ### Check 4 — Firewall
 
-Most distributions don't enable a firewall by default, but if `ufw` or `iptables` rules have been added:
+The installer automatically opens ports 7890, 8080, 8585, and 9090 in firewalld during install (on systems that use firewalld, such as Fedora). If you are using a different firewall or the rules were removed:
 
 ```bash
+# Check firewalld
+sudo firewall-cmd --list-ports
+
+# Check ufw
 sudo ufw status
+
+# Check iptables directly
 sudo iptables -L INPUT -n | grep 7890
 ```
 
 If port 7890 is blocked, allow it:
 
 ```bash
+# firewalld
+sudo firewall-cmd --permanent --zone=public --add-port=7890/tcp && sudo firewall-cmd --reload
+
+# ufw
 sudo ufw allow 7890/tcp
 ```
 

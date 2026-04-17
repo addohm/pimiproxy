@@ -56,9 +56,13 @@ Once installed, any device on your network can route its traffic through the SBC
 |-----------------|---------|
 | `pimiproxy.sh` | One-command bootstrap — detects distro, installs all prerequisites, then launches `pimiproxy-core.py` |
 | `pimiproxy-core.py` | Main installer and management tool — see subcommands below |
+| `pimiproxy-ultralite.sh` | Bootstrap for the ultralite (Docker-free) variant |
+| `pimiproxy-ultralite-core.py` | Ultralite installer — runs Mihomo as a native systemd service, no Docker/web UI |
 | `pimiproxy-api/` | Django REST API container — manages config, auth, and Mihomo restarts |
 | `pimiproxy-ui/` | React + Nginx frontend container — browser-based management UI |
 | `docker-images/` | *(optional)* Pre-pulled `.tar.gz` image archives for offline install |
+| `bin/` | *(optional)* Mihomo release binaries for offline/ultralite installs |
+| `test-proxy.sh` | Standalone proxy connectivity test script |
 
 The `.tar.gz` archives are not included in the repository. See [docs/INSTRUCTIONS.md](docs/INSTRUCTIONS.md) for how to prepare them.
 
@@ -72,7 +76,7 @@ The `.tar.gz` archives are not included in the repository. See [docs/INSTRUCTION
 sudo ./pimiproxy.sh
 ```
 
-This detects your distro, installs Python, Docker, avahi-daemon, and raspi-config if needed, then launches the installer automatically.
+This detects your distro, installs essential tools (curl, iproute2, procps), Python, cron, Docker, avahi-daemon, and raspi-config if needed, then launches the installer automatically.
 
 **Option B — Python script directly (if prerequisites are already installed):**
 
@@ -82,7 +86,7 @@ sudo python3 pimiproxy-core.py install
 
 Press Enter through all prompts to accept defaults. See [docs/INSTRUCTIONS.md](docs/INSTRUCTIONS.md) for the full walkthrough.
 
-**Installing from mainland China?** The installer will ask whether the device is in China. Answer yes to route the Docker CE installation through Aliyun's mirror instead of the default upstream servers.
+**Installing from mainland China?** The installer will ask whether the device is in China. Answer yes to switch system package repositories (apt/dnf/pacman) and Docker CE to Aliyun mirrors. Use the `china-repos` and `standard-repos` subcommands to switch mirrors after install.
 
 ---
 
@@ -147,11 +151,15 @@ sudo python3 pimiproxy-core.py <subcommand>
 | `configure` | Interactive menu: provider URL, proxy groups, rules, ports, secret, dashboard |
 | `refresh` | Re-fetch provider URL and restart Mihomo |
 | `status` | Show container health, provider info, and run a live proxy connectivity test |
+| `test [--url URL]` | Test proxy groups for connectivity; use `--url` to test a single URL |
 | `logs [service]` | Tail live container logs (default: mihomo; also: dashboard, pimiproxy-api, pimiproxy-ui) |
 | `restart [service]` | Restart one container or all |
 | `update` | Pull latest Docker images and recreate containers |
-| `hostname <name>` | Change the system hostname, restart avahi-daemon, and optionally reboot |
+| `hostname <name>` | Change the system hostname (max 24 chars, alphanumeric + hyphens), restart avahi-daemon, and optionally reboot |
 | `debug [url]` | Fetch a provider URL with the Clash User-Agent and inspect the response |
+| `export [dir]` | Export user config, cached provider YAML, and final config.yaml to a directory |
+| `standard-repos` | Restore original system package repositories from backups |
+| `china-repos` | Switch system package repositories (apt/dnf/pacman) to Aliyun mirrors |
 
 ---
 
@@ -191,6 +199,10 @@ sudo python3 pimiproxy-core.py refresh
 # Check status and test the proxy
 sudo python3 pimiproxy-core.py status
 
+# Test proxy groups for connectivity
+sudo python3 pimiproxy-core.py test
+sudo python3 pimiproxy-core.py test --url https://example.com
+
 # View logs
 sudo python3 pimiproxy-core.py logs                  # Mihomo logs
 sudo python3 pimiproxy-core.py logs dashboard        # Dashboard logs
@@ -210,6 +222,14 @@ sudo python3 pimiproxy-core.py hostname newname
 # Debug a provider URL
 sudo python3 pimiproxy-core.py debug
 sudo python3 pimiproxy-core.py debug https://provider.example.com/api?token=abc123
+
+# Export config for backup or debugging
+sudo python3 pimiproxy-core.py export
+sudo python3 pimiproxy-core.py export /tmp/pimiproxy-export
+
+# Switch system repos to Aliyun mirrors (China) or restore originals
+sudo python3 pimiproxy-core.py china-repos
+sudo python3 pimiproxy-core.py standard-repos
 
 # All device traffic is always tunneled through the proxy via TUN mode.
 # No manual on/off toggle is needed.
