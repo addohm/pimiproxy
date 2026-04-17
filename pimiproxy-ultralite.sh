@@ -297,17 +297,26 @@ case "$ARCH" in
     *)             BIN_NAME="mihomo-${ARCH}"  ;;
 esac
 
+# Map arch to GitHub release naming patterns for .gz detection
+case "$ARCH" in
+    aarch64|arm64) _GZ_PATTERN="arm64\|aarch64" ;;
+    armv7l|armhf)  _GZ_PATTERN="armv7" ;;
+    x86_64|amd64)  _GZ_PATTERN="amd64\|x86_64" ;;
+    *)             _GZ_PATTERN="$ARCH" ;;
+esac
+
 if [[ -f "${SCRIPT_DIR}/bin/${BIN_NAME}" ]]; then
     info "Found: bin/${BIN_NAME}"
-    elif [[ -f "${SCRIPT_DIR}/bin/mihomo" ]]; then
+elif [[ -f "${SCRIPT_DIR}/bin/mihomo" ]]; then
     info "Found: bin/mihomo (generic)"
-    elif [[ -f "/usr/local/bin/mihomo" ]]; then
+elif [[ -f "/usr/local/bin/mihomo" ]]; then
     info "Found: /usr/local/bin/mihomo (already installed)"
+elif ls "${SCRIPT_DIR}"/bin/*.gz 2>/dev/null | grep -qi "$_GZ_PATTERN"; then
+    info "Found compressed .gz archive in bin/ — will auto-extract during install."
 else
     warn "No mihomo binary found for arch '${ARCH}' (expected bin/${BIN_NAME})."
     warn "Download the matching release from https://github.com/MetaCubeX/mihomo/releases"
-    warn "decompress the .gz file, rename it to '${BIN_NAME}', and place it in bin/."
-    warn "The installer will fail at the binary-copy step if the file is not present."
+    warn "Place the .gz file in bin/ — it will be decompressed automatically during install."
 fi
 
 # =============================================================================

@@ -719,15 +719,42 @@ def _host_arch() -> str:
 def _find_mihomo_binary() -> "Path | None":
     arch       = _host_arch()
     script_dir = Path(__file__).resolve().parent
+    bin_dir    = script_dir / "bin"
+
+    # Direct matches (already decompressed and named correctly)
     candidates = [
-        script_dir / "bin" / f"mihomo-{arch}",
-        script_dir / "bin" / "mihomo",
+        bin_dir / f"mihomo-{arch}",
+        bin_dir / "mihomo",
         Path("/opt/pimiproxy-lite/bin") / f"mihomo-{arch}",
         Path("/usr/local/bin/mihomo"),
     ]
     for p in candidates:
         if p.exists():
             return p
+
+    # Map host arch to GitHub release naming conventions
+    _gz_arch_map = {
+        "x86_64":  ["amd64", "x86_64"],
+        "aarch64": ["arm64", "aarch64"],
+        "armv7l":  ["armv7", "armv7l"],
+    }
+    patterns = _gz_arch_map.get(arch, [arch])
+
+    # Look for compressed .gz files in bin/ and auto-extract
+    if bin_dir.exists():
+        for gz in sorted(bin_dir.glob("*.gz")):
+            name_lower = gz.name.lower()
+            if not any(p in name_lower for p in patterns):
+                continue
+            # Found a matching .gz — decompress it
+            import gzip as _gzip
+            target = bin_dir / f"mihomo-{arch}"
+            info(f"Decompressing {gz.name} → mihomo-{arch}")
+            with _gzip.open(gz, "rb") as f_in:
+                target.write_bytes(f_in.read())
+            target.chmod(0o755)
+            return target
+
     return None
 
 
