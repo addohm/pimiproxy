@@ -90,7 +90,7 @@ if [[ $DO_BINS -eq 1 ]]; then
     echo
 
     # Check current version
-    CURRENT=$(ls "$BIN_DIR"/mihomo-linux-amd64-*.gz 2>/dev/null | grep -oP 'v[\d.]+' | head -1 || true)
+    CURRENT=$(ls "$BIN_DIR"/mihomo-linux-amd64-*.gz 2>/dev/null | grep -oP 'v\d+\.\d+\.\d+' | head -1 || true)
     if [[ -n "$CURRENT" && "$CURRENT" == "$TAG" ]]; then
         ok "Already up to date (${TAG})"
     else
