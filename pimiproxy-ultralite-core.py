@@ -246,6 +246,11 @@ def do_set_hostname():
     if len(sys.argv) < 3 or not sys.argv[2].strip():
         die("Usage: sudo python3 pimiproxy-ultralite.py hostname <new-hostname>")
     name = sys.argv[2].strip()
+    if len(name) > 24:
+        die(f"Hostname too long ({len(name)} chars). Max 24 characters.")
+    if not re.match(r'^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$', name):
+        die("Hostname must contain only letters, digits, and hyphens, "
+            "and cannot start or end with a hyphen.")
     step(f"Setting hostname to '{name}'")
     set_hostname(name)
 
@@ -1239,11 +1244,24 @@ def do_install():
 
     # ── prompts ───────────────────────────────────────────────────────────────
     step("Configuration")
+
+    def _ask_hostname(default):
+        while True:
+            val = ask("Hostname", default)
+            if len(val) > 24:
+                warn(f"Hostname too long ({len(val)} chars). Max 24 characters.")
+                continue
+            if not re.match(r'^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$', val):
+                warn("Hostname must contain only letters, digits, and hyphens,")
+                warn("and cannot start or end with a hyphen.")
+                continue
+            return val
+
     if express:
-        hostname_new = ask("Hostname", hostname_new)
+        hostname_new = _ask_hostname(hostname_new)
     else:
         install_dir  = ask("Install directory", install_dir)
-        hostname_new = ask("Hostname",          hostname_new)
+        hostname_new = _ask_hostname(hostname_new)
         api_port     = ask("Mihomo API port",   api_port)
         mixed_port   = ask("Mixed proxy port",  mixed_port)
         api_secret   = ask_secret("API secret", api_secret)
@@ -1258,7 +1276,24 @@ def do_install():
     print("    sudo python3 pimiproxy-ultralite.py configure")
     print("  " + "─" * 42)
     print()
-    subscription_url = input("  Provider URL [leave blank to skip]: ").strip()
+    while True:
+        subscription_url = input("  Provider URL [leave blank to skip]: ").strip()
+        if not subscription_url:
+            break
+        if not subscription_url.startswith(("http://", "https://")):
+            warn("URL must start with http:// or https://")
+            continue
+        print()
+        _test = fetch_subscription(subscription_url)
+        if _test:
+            info("Provider URL validated — proxies found.")
+            break
+        else:
+            warn("Could not fetch a valid Clash config from that URL.")
+            if not confirm("Use it anyway?", default=False):
+                subscription_url = ""
+                continue
+            break
 
     # ── hostname ──────────────────────────────────────────────────────────────
     step("Hostname")
