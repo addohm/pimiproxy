@@ -80,7 +80,7 @@ This detects your distro, installs essential tools (curl, iproute2, procps), Pyt
 **Option B — Python script directly (if prerequisites are already installed):**
 
 ```bash
-sudo python3 pimiproxy-core.py install
+sudo ./pimiproxy.sh install
 ```
 
 Press Enter through all prompts to accept defaults. See [docs/INSTRUCTIONS.md](docs/INSTRUCTIONS.md) for the full walkthrough.
@@ -137,10 +137,10 @@ The same port accepts both HTTP and SOCKS5 connections.
 
 ## Subcommands
 
-All CLI management is done through `pimiproxy-core.py`:
+All CLI management is done through `pimiproxy.sh`:
 
 ```bash
-sudo python3 pimiproxy-core.py <subcommand>
+sudo ./pimiproxy.sh <subcommand>
 ```
 
 | Subcommand / Flag | Description |
@@ -165,7 +165,7 @@ sudo python3 pimiproxy-core.py <subcommand>
 ## Status and connectivity test
 
 ```bash
-sudo python3 pimiproxy-core.py status
+sudo ./pimiproxy.sh status
 ```
 
 Shows:
@@ -187,7 +187,7 @@ pimiproxy uses a two-layer config model:
 If you provided a provider URL at install time, proxies and groups are available immediately. The subscription is refreshed automatically each night via a cron job. To refresh manually:
 
 ```bash
-sudo python3 pimiproxy-core.py refresh
+sudo ./pimiproxy.sh refresh
 ```
 
 ---
@@ -196,39 +196,39 @@ sudo python3 pimiproxy-core.py refresh
 
 ```bash
 # Check status and test the proxy
-sudo python3 pimiproxy-core.py status
+sudo ./pimiproxy.sh status
 
 # Test proxy groups for connectivity
-sudo python3 pimiproxy-core.py test
-sudo python3 pimiproxy-core.py test --url https://example.com
+sudo ./pimiproxy.sh test
+sudo ./pimiproxy.sh test --url https://example.com
 
 # View logs
-sudo python3 pimiproxy-core.py logs                  # Mihomo logs
-sudo python3 pimiproxy-core.py logs dashboard        # Dashboard logs
-sudo python3 pimiproxy-core.py logs pimiproxy-api    # API logs
-sudo python3 pimiproxy-core.py logs pimiproxy-ui     # UI logs
+sudo ./pimiproxy.sh logs                  # Mihomo logs
+sudo ./pimiproxy.sh logs dashboard        # Dashboard logs
+sudo ./pimiproxy.sh logs pimiproxy-api    # API logs
+sudo ./pimiproxy.sh logs pimiproxy-ui     # UI logs
 
 # Restart containers
-sudo python3 pimiproxy-core.py restart               # All containers
-sudo python3 pimiproxy-core.py restart mihomo        # Mihomo only
+sudo ./pimiproxy.sh restart               # All containers
+sudo ./pimiproxy.sh restart mihomo        # Mihomo only
 
 # Update to latest images
-sudo python3 pimiproxy-core.py update
+sudo ./pimiproxy.sh update
 
 # Change hostname
-sudo python3 pimiproxy-core.py hostname newname
+sudo ./pimiproxy.sh hostname newname
 
 # Debug a provider URL
-sudo python3 pimiproxy-core.py debug
-sudo python3 pimiproxy-core.py debug https://provider.example.com/api?token=abc123
+sudo ./pimiproxy.sh debug
+sudo ./pimiproxy.sh debug https://provider.example.com/api?token=abc123
 
 # Export config for backup or debugging
-sudo python3 pimiproxy-core.py export
-sudo python3 pimiproxy-core.py export /tmp/pimiproxy-export
+sudo ./pimiproxy.sh export
+sudo ./pimiproxy.sh export /tmp/pimiproxy-export
 
 # Switch system repos to Aliyun mirrors (China) or restore originals
-sudo python3 pimiproxy-core.py china-repos
-sudo python3 pimiproxy-core.py standard-repos
+sudo ./pimiproxy.sh china-repos
+sudo ./pimiproxy.sh standard-repos
 
 # All device traffic is always tunneled through the proxy via TUN mode.
 # No manual on/off toggle is needed.
@@ -239,7 +239,7 @@ sudo python3 pimiproxy-core.py standard-repos
 ## Uninstalling
 
 ```bash
-sudo python3 pimiproxy-core.py uninstall
+sudo ./pimiproxy.sh uninstall
 ```
 
 This stops containers, removes images, deletes all installed files, clears routing rules, and optionally resets the hostname and removes avahi-daemon.
@@ -253,7 +253,7 @@ If you provided a provider URL at install time, your proxy groups and rules are 
 If you skipped the provider prompt, the default config passes all traffic through directly (`MATCH,DIRECT`). Add a provider later via the management UI at `http://pimiproxy.lan:8585`, or via CLI:
 
 ```bash
-sudo python3 pimiproxy-core.py configure
+sudo ./pimiproxy.sh configure
 ```
 
 Choose option 1 to set the URL, then option 5 to fetch it immediately.

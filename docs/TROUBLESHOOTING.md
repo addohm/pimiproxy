@@ -95,7 +95,7 @@ ping -c 10 <proxy-server-ip>
 Many subscription APIs gate their response behind a `User-Agent` check and return a login page or error to unrecognised clients. Use the built-in `debug` subcommand to test the raw response your URL returns:
 
 ```bash
-sudo python3 pimiproxy-core.py debug
+sudo ./pimiproxy.sh debug
 ```
 
 Paste your URL when prompted (or pass it directly as an argument). The command sends a request with `User-Agent: Clash-Verge/1.0 (clash-verge-rev; mihomo)`, reports the status code, content type, and how many proxies/groups/rules were found in the response, then saves the full response to `raw_debug_output.yaml`. Open that file and check whether it contains a `proxies:` block. If the file contains HTML or a plain-text error message, the URL is wrong or the provider is rejecting the request.
@@ -118,7 +118,7 @@ pimiproxy automatically strips `GEOIP,` rules from provider configs because they
 The installer validates the provider URL at install time and checks that it contains proxies. If you skipped the provider prompt or the fetch failed, Mihomo starts with no proxies. Re-fetch manually:
 
 ```bash
-sudo python3 pimiproxy-core.py refresh
+sudo ./pimiproxy.sh refresh
 ```
 
 ---
@@ -185,7 +185,7 @@ cd /opt/pimiproxy && docker compose logs --tail=50 mihomo
 |-------------|-------|-----|
 | `bind: address already in use` on port 53 | systemd-resolved conflict | See [section 3](#3-dns-port-53-conflict) |
 | `bind: address already in use` on port 7890/9090 | Port conflict | See [section 5](#5-port-already-in-use) |
-| `failed to get GeoIP data` or MMDB errors | Geo data files missing from config directory | Copy `geoip.metadb`, `geosite.dat`, `country.mmdb` from `docker-images/` to `/opt/pimiproxy/config/`, then restart Mihomo. The installer does this automatically; if upgrading an older install, re-run `sudo python3 pimiproxy-core.py install` to trigger the copy. |
+| `failed to get GeoIP data` or MMDB errors | Geo data files missing from config directory | Copy `geoip.metadb`, `geosite.dat`, `country.mmdb` from `docker-images/` to `/opt/pimiproxy/config/`, then restart Mihomo. The installer does this automatically; if upgrading an older install, re-run `sudo ./pimiproxy.sh install` to trigger the copy. |
 | `no such file or directory` for config | Config path misconfigured | Confirm `/opt/pimiproxy/config/config.yaml` exists |
 | Container exits immediately with no log | Privileged mode blocked | Confirm Docker daemon is running as root and the container spec has `privileged: true` |
 
@@ -198,7 +198,7 @@ cat /opt/pimiproxy/docker-compose.yml
 The mihomo service should have `network_mode: host` and `privileged: true`. If either is missing, re-run the installer to regenerate it:
 
 ```bash
-sudo python3 pimiproxy-core.py install
+sudo ./pimiproxy.sh install
 ```
 
 ---
@@ -215,13 +215,13 @@ sudo ss -tulpn | grep -E ':(7890|8080|9090)'
 
 ### Options
 
-1. **Change the pimiproxy port** — run `sudo python3 pimiproxy-core.py configure`, but note that port changes require editing the compose file and metadata manually or re-running install with a different port.
+1. **Change the pimiproxy port** — run `sudo ./pimiproxy.sh configure`, but note that port changes require editing the compose file and metadata manually or re-running install with a different port.
 
 2. **Stop the conflicting service** — identify the process from the `ss` output and stop or disable it.
 
 3. **Re-run install with a different port** — if pimiproxy isn't yet in use, just re-run:
    ```bash
-   sudo python3 pimiproxy-core.py install
+   sudo ./pimiproxy.sh install
    ```
    and enter a different port at the relevant prompt.
 
@@ -246,7 +246,7 @@ sudo chmod 755 /etc/cron.daily/pimiproxy-refresh
 ### Check 2 — Is a subscription URL configured?
 
 ```bash
-sudo python3 pimiproxy-core.py configure
+sudo ./pimiproxy.sh configure
 ```
 
 Choose option 1 to check the current subscription URL. If it's blank, the refresh script will exit immediately without fetching anything.
@@ -254,7 +254,7 @@ Choose option 1 to check the current subscription URL. If it's blank, the refres
 ### Check 3 — Run the refresh manually to see errors
 
 ```bash
-sudo python3 pimiproxy-core.py refresh
+sudo ./pimiproxy.sh refresh
 ```
 
 This is the same command the cron job runs. Any fetch errors will print to the terminal.
@@ -313,7 +313,7 @@ The dashboard secret must match exactly. It is case-sensitive.
 pimiproxy keeps a structured copy of the full configuration in `/opt/pimiproxy/.pimiproxy-config.json`. As long as that file is intact, you can regenerate `config.yaml` from it by running configure and saving:
 
 ```bash
-sudo python3 pimiproxy-core.py configure
+sudo ./pimiproxy.sh configure
 ```
 
 Choose option 9 (Save and apply) — this rewrites `config.yaml` from the JSON source and restarts Mihomo.
@@ -321,13 +321,13 @@ Choose option 9 (Save and apply) — this rewrites `config.yaml` from the JSON s
 If `.pimiproxy-config.json` is also missing or corrupt, you can re-run the full installer. It will overwrite the existing install with fresh prompts:
 
 ```bash
-sudo python3 pimiproxy-core.py install
+sudo ./pimiproxy.sh install
 ```
 
 To inspect what pimiproxy thinks the current config is without making changes:
 
 ```bash
-sudo python3 pimiproxy-core.py configure
+sudo ./pimiproxy.sh configure
 # Choose option 4 (Show current config)
 # Choose option 10 (Exit without saving)
 ```
@@ -409,7 +409,7 @@ However, some apps — particularly games built on the **Unity engine** — use 
 You can confirm this is the cause by checking Mihomo's logs while the app is open:
 
 ```bash
-sudo python3 pimiproxy-core.py logs
+sudo ./pimiproxy.sh logs
 ```
 
 If the app generates zero log entries while other apps show activity, it is bypassing the proxy.
@@ -426,7 +426,7 @@ Instead of using an explicit proxy setting, configure the **device's WiFi gatewa
 2. Switch IP settings from **DHCP** to **Static**.
 3. Fill in the fields:
    - **IP address:** assign a static IP outside your router's DHCP range (e.g. `192.168.1.200`)
-   - **Gateway:** the SBC's LAN IP address (find it with `sudo python3 pimiproxy-core.py status` or check the login banner)
+   - **Gateway:** the SBC's LAN IP address (find it with `sudo ./pimiproxy.sh status` or check the login banner)
    - **DNS:** your router's IP, or the Pi's IP if you want Mihomo to handle DNS
    - **Subnet mask / Prefix:** match your network (typically `255.255.255.0` / `24`)
 4. Remove any explicit proxy setting — it is no longer needed.

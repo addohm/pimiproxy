@@ -64,9 +64,9 @@ spin() {
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_SCRIPT="${SCRIPT_DIR}/pimiproxy-ultralite-core.py"
 
-PIMIPROXY_CMD="${1:-install}"
+PIMIPROXY_CMD="${1:-}"
 
-if [[ "$PIMIPROXY_CMD" == "-h" || "$PIMIPROXY_CMD" == "--help" ]]; then
+if [[ -z "$PIMIPROXY_CMD" || "$PIMIPROXY_CMD" == "-h" || "$PIMIPROXY_CMD" == "--help" ]]; then
     cat <<'EOF'
 Usage: sudo ./pimiproxy-ultralite.sh [subcommand]
 

@@ -285,7 +285,7 @@ def dhcp_renew():
 def do_set_hostname():
     """Subcommand: pimiproxy-core.py hostname <new-hostname>"""
     if len(sys.argv) < 3 or not sys.argv[2].strip():
-        die("Usage: sudo python3 pimiproxy-core.py hostname <new-hostname>")
+        die("Usage: sudo ./pimiproxy.sh hostname <new-hostname>")
     name = sys.argv[2].strip()
     if len(name) > 24:
         die(f"Hostname too long ({len(name)} chars). Max 24 characters.")
@@ -756,7 +756,7 @@ def build_config(cfg: dict) -> str:
         lines.append(s)
 
     L("# Mihomo config — managed by pimiproxy")
-    L("# Edit via the pimiproxy web UI or run:  sudo python3 pimiproxy-core.py configure"
+    L("# Edit via the pimiproxy web UI or run:  sudo ./pimiproxy.sh configure"
       )
     L()
     L(f"external-controller: 0.0.0.0:{api_port}")
@@ -1145,7 +1145,7 @@ def build_banner(cfg: dict, meta: dict) -> str:
     L(f'printf "  ${{_C}}API${{_N}}        →  http://{hostname}.lan:{api_port}\\n"')
     L(f'printf "  ${{_B}}${{_C}}Proxy${{_N}}      →  ${{_B}}{hostname}.lan:{mixed_port}  (HTTP/SOCKS5)${{_N}}\\n"')
     L('printf "%s\\n" "$_S"')
-    L('printf "  %s\\n" "${_D}pimiproxy-core.py [status|logs|configure|debug]${_N}"')
+    L('printf "  %s\\n" "${_D}pimiproxy.sh [status|test|logs|configure|debug]${_N}"')
     L('printf "%s\\n\\n" "$_S"')
 
     return "\n".join(lines) + "\n"
@@ -1223,7 +1223,7 @@ def do_status():
         info("Proxy is working correctly.")
     else:
         warn("Proxy test failed — check Mihomo logs:")
-        warn("  sudo python3 pimiproxy-core.py logs")
+        warn("  sudo ./pimiproxy.sh logs")
 
     # ── hardware ──────────────────────────────────────────────────────────────
     step("Hardware")
@@ -2381,7 +2381,7 @@ def do_install():
     print("  This must be a Clash API URL — not a regular VPN config file,")
     print("  not an app download link. If unsure, leave blank. You can add")
     print("  it later via the web UI or by running:")
-    print("    sudo python3 pimiproxy-core.py configure")
+    print("    sudo ./pimiproxy.sh configure")
     print("  " + "─" * 42)
     print()
     while True:
@@ -2648,7 +2648,7 @@ def do_install():
             warn(
                 "Subscription fetch failed — Mihomo will start with no proxies."
             )
-            warn("Run after install:  sudo python3 pimiproxy-core.py refresh")
+            warn("Run after install:  sudo ./pimiproxy.sh refresh")
 
     cfg_text = build_config(cfg)
     (install_path / "config" / "config.yaml").write_text(cfg_text)
@@ -2785,7 +2785,7 @@ def do_install():
     print(f"  {B}{C2}Proxy{N}      →  {B}{hostname_new}.lan:{mixed_port}  (HTTP/SOCKS5){N}")
     print(f"  {Y}Login{N}      →  API secret: {B}{api_secret}{N}")
     print(SEP)
-    print(f"  {D}pimiproxy-core.py [configure|status|logs|debug]{N}")
+    print(f"  {D}pimiproxy.sh [status|test|logs|configure|debug]{N}")
     print(SEP)
     print()
 
@@ -3318,8 +3318,8 @@ _TAKES_ARG = {"hostname", "logs", "restart", "debug", "export", "test"}
 
 def main():
     if os.geteuid() != 0:
-        print("Error: pimiproxy-core.py must be run as root.")
-        print("       sudo python3 pimiproxy-core.py [command]")
+        print("Error: must be run as root.")
+        print("       sudo ./pimiproxy.sh [command]")
         sys.exit(1)
 
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
@@ -3327,15 +3327,12 @@ def main():
     cmd = args[0] if args else "install"
     if cmd not in COMMANDS:
         simple = "|".join(k for k in COMMANDS if k not in _TAKES_ARG)
-        print(f"Usage: sudo python3 pimiproxy-core.py [{simple}]")
-        print(
-            "       sudo python3 pimiproxy-core.py logs     [mihomo|dashboard]"
-        )
-        print(
-            "       sudo python3 pimiproxy-core.py restart  [mihomo|dashboard]"
-        )
-        print("       sudo python3 pimiproxy-core.py hostname <new-hostname>")
-        print("       sudo python3 pimiproxy-core.py debug    [url]")
+        print(f"Usage: sudo ./pimiproxy.sh [{simple}]")
+        print("       sudo ./pimiproxy.sh logs     [mihomo|dashboard]")
+        print("       sudo ./pimiproxy.sh restart  [mihomo|dashboard]")
+        print("       sudo ./pimiproxy.sh hostname <new-hostname>")
+        print("       sudo ./pimiproxy.sh test     [--url URL]")
+        print("       sudo ./pimiproxy.sh debug    [url]")
         sys.exit(1)
     try:
         if cmd == "install":

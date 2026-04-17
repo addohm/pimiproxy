@@ -3,7 +3,7 @@
 pimiproxy-ultralite — install / uninstall / configure
 Docker-free variant: installs mihomo as a native systemd service.
 Supports Debian, Ubuntu, Fedora, Arch, openSUSE, Alpine, and derivatives.
-Run as root: sudo python3 pimiproxy-ultralite.py [install|uninstall|configure]
+Run as root: sudo ./pimiproxy-ultralite.sh [install|uninstall|configure]
 """
 
 import os
@@ -22,7 +22,7 @@ from pathlib import Path
 # =============================================================================
 if os.geteuid() != 0:
     sys.exit(
-        "Run as root:  sudo python3 pimiproxy-ultralite.py [install|uninstall|configure]"
+        "Run as root:  sudo ./pimiproxy-ultralite.sh [install|uninstall|configure]"
     )
 
 
@@ -244,7 +244,7 @@ def dhcp_renew():
 
 def do_set_hostname():
     if len(sys.argv) < 3 or not sys.argv[2].strip():
-        die("Usage: sudo python3 pimiproxy-ultralite.py hostname <new-hostname>")
+        die("Usage: sudo ./pimiproxy-ultralite.sh hostname <new-hostname>")
     name = sys.argv[2].strip()
     if len(name) > 24:
         die(f"Hostname too long ({len(name)} chars). Max 24 characters.")
@@ -422,7 +422,7 @@ def build_config(cfg: dict) -> str:
         lines.append(s)
 
     L("# Mihomo config — managed by pimiproxy-ultralite")
-    L("# Edit via:  sudo python3 pimiproxy-ultralite.py configure")
+    L("# Edit via:  sudo ./pimiproxy-ultralite.sh configure")
     L()
     L(f"external-controller: 0.0.0.0:{api_port}")
     L(f'secret: "{api_secret}"')
@@ -668,7 +668,7 @@ def build_banner(cfg: dict, meta: dict) -> str:
     L(f'printf "  ${{_C}}API${{_N}}        →  http://{hostname}.lan:{api_port}\\n"')
     L(f'printf "  ${{_B}}${{_C}}Proxy${{_N}}      →  ${{_B}}{hostname}.lan:{mixed_port}  (HTTP/SOCKS5)${{_N}}\\n"')
     L('printf "%s\\n" "$_S"')
-    L('printf "  %s\\n" "${_D}pimiproxy-ultralite.py [status|logs|configure|debug]${_N}"')
+    L('printf "  %s\\n" "${_D}pimiproxy-ultralite.sh [status|logs|configure|debug]${_N}"')
     L('printf "%s\\n\\n" "$_S"')
 
     return "\n".join(lines) + "\n"
@@ -820,7 +820,7 @@ def do_status():
         info("Proxy is working correctly.")
     else:
         warn("Proxy test failed — check Mihomo logs:")
-        warn("  sudo python3 pimiproxy-ultralite.py logs")
+        warn("  sudo ./pimiproxy-ultralite.sh logs")
 
     # ── hardware ──────────────────────────────────────────────────────────────
     step("Hardware")
@@ -1551,7 +1551,7 @@ def do_install():
     print("    https://provider.example.com/api?token=abc123")
     print()
     print("  Leave blank to skip — add later via:")
-    print("    sudo python3 pimiproxy-ultralite.py configure")
+    print("    sudo ./pimiproxy-ultralite.sh configure")
     print("  " + "─" * 42)
     print()
     while True:
@@ -1681,7 +1681,7 @@ def do_install():
             cfg["subscription_rules_yaml"]   = blocks.get("rules",        "")
         else:
             warn("Subscription fetch failed — Mihomo will start with no proxies.")
-            warn("Run after install:  sudo python3 pimiproxy-ultralite.py refresh")
+            warn("Run after install:  sudo ./pimiproxy-ultralite.sh refresh")
 
     (install_path / "config" / "config.yaml").write_text(build_config(cfg))
     (install_path / ".pimiproxy-config.json").write_text(json.dumps(cfg, indent=2))
@@ -1795,7 +1795,7 @@ def do_install():
     print(f"  {B}{C2}Proxy{N}  →  {B}{hostname_new}.lan:{mixed_port}  (HTTP/SOCKS5){N}")
     print(f"  {Y}Login{N}  →  API secret: {B}{api_secret}{N}")
     print(SEP)
-    print(f"  {D}pimiproxy-ultralite.py [configure|status|logs|debug]{N}")
+    print(f"  {D}pimiproxy-ultralite.sh [configure|status|logs|debug]{N}")
     print(SEP)
     print()
 
@@ -2078,7 +2078,7 @@ def do_rule_list():
 
 def do_rule_add():
     if len(sys.argv) < 3 or not sys.argv[2].strip():
-        die('Usage: sudo python3 pimiproxy-ultralite.py rule-add "TYPE,value,target"')
+        die('Usage: sudo ./pimiproxy-ultralite.sh rule-add "TYPE,value,target"')
     rule                             = sys.argv[2].strip()
     install_dir, ext_cfg_path, cfg   = _load_cfg_for_rules()
     cfg.setdefault("rules", []).append(rule)
@@ -2088,7 +2088,7 @@ def do_rule_add():
 
 def do_rule_remove():
     if len(sys.argv) < 3 or not sys.argv[2].strip().isdigit():
-        die("Usage: sudo python3 pimiproxy-ultralite.py rule-remove <index>  (1-based)")
+        die("Usage: sudo ./pimiproxy-ultralite.sh rule-remove <index>  (1-based)")
     index                            = int(sys.argv[2].strip()) - 1
     install_dir, ext_cfg_path, cfg   = _load_cfg_for_rules()
     rules                            = cfg.get("rules", [])
@@ -2282,14 +2282,14 @@ def main():
 
     if cmd not in COMMANDS:
         simple = "|".join(k for k in COMMANDS if k not in _TAKES_ARG)
-        print(f"Usage: sudo python3 pimiproxy-ultralite.py [{simple}]")
-        print("       sudo python3 pimiproxy-ultralite.py logs")
-        print("       sudo python3 pimiproxy-ultralite.py restart")
-        print("       sudo python3 pimiproxy-ultralite.py hostname <new-hostname>")
-        print("       sudo python3 pimiproxy-ultralite.py debug    [url]")
-        print("       sudo python3 pimiproxy-ultralite.py export   [output-dir]")
-        print('       sudo python3 pimiproxy-ultralite.py rule-add "TYPE,value,target"')
-        print("       sudo python3 pimiproxy-ultralite.py rule-remove <index>")
+        print(f"Usage: sudo ./pimiproxy-ultralite.sh [{simple}]")
+        print("       sudo ./pimiproxy-ultralite.sh logs")
+        print("       sudo ./pimiproxy-ultralite.sh restart")
+        print("       sudo ./pimiproxy-ultralite.sh hostname <new-hostname>")
+        print("       sudo ./pimiproxy-ultralite.sh debug    [url]")
+        print("       sudo ./pimiproxy-ultralite.sh export   [output-dir]")
+        print('       sudo ./pimiproxy-ultralite.sh rule-add "TYPE,value,target"')
+        print("       sudo ./pimiproxy-ultralite.sh rule-remove <index>")
         sys.exit(1)
 
     try:
