@@ -81,6 +81,39 @@ PYTHON_SCRIPT="${SCRIPT_DIR}/pimiproxy-core.py"
 
 PIMIPROXY_CMD="${1:-install}"
 
+if [[ "$PIMIPROXY_CMD" == "-h" || "$PIMIPROXY_CMD" == "--help" ]]; then
+    cat <<'EOF'
+Usage: sudo ./pimiproxy.sh [subcommand]
+
+Bootstrap & install:
+  install             Install pimiproxy (default if no subcommand given)
+                      Detects distro, installs prerequisites (Python, Docker,
+                      curl, cron, avahi), then launches the interactive installer.
+
+All other subcommands are passed through to pimiproxy-core.py:
+  uninstall           Stop containers, remove images, delete all files
+  configure           Interactive menu: provider URL, groups, rules, ports
+  refresh             Re-fetch provider URL and restart Mihomo
+  status              Container health, TUN state, proxy connectivity test
+  test [--url URL]    Test all proxy groups, or a single URL with rule info
+  logs [service]      Tail container logs (mihomo, dashboard, pimiproxy-api, pimiproxy-ui)
+  restart [service]   Restart one container or all
+  update              Pull latest Docker images and recreate containers
+  hostname <name>     Change hostname (max 24 chars, alphanumeric + hyphens)
+  debug [url]         Fetch a provider URL with Clash User-Agent and inspect
+  export [dir]        Export config to a directory
+  china-repos         Switch system package repos to Aliyun mirrors
+  standard-repos      Restore original system package repos from backups
+
+Examples:
+  sudo ./pimiproxy.sh                              # install with defaults
+  sudo ./pimiproxy.sh status                       # check proxy health
+  sudo ./pimiproxy.sh test --url https://youtube.com
+  sudo ./pimiproxy.sh logs mihomo
+EOF
+    exit 0
+fi
+
 # Non-install commands skip the full bootstrap and pass straight through to Python.
 # This lets users run e.g. `sudo ./pimiproxy.sh logs` instead of invoking
 # pimiproxy-core.py directly.

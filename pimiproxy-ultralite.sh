@@ -66,6 +66,42 @@ PYTHON_SCRIPT="${SCRIPT_DIR}/pimiproxy-ultralite-core.py"
 
 PIMIPROXY_CMD="${1:-install}"
 
+if [[ "$PIMIPROXY_CMD" == "-h" || "$PIMIPROXY_CMD" == "--help" ]]; then
+    cat <<'EOF'
+Usage: sudo ./pimiproxy-ultralite.sh [subcommand]
+
+Bootstrap & install:
+  install             Install pimiproxy-ultralite (default if no subcommand given)
+                      Detects distro, installs prerequisites (Python, curl, cron,
+                      avahi), checks for mihomo binary, then launches the installer.
+                      No Docker required — runs Mihomo as a native systemd service.
+
+All other subcommands are passed through to pimiproxy-ultralite-core.py:
+  uninstall           Stop Mihomo, remove all files
+  configure           Interactive menu: provider URL, rules, ports
+  refresh             Re-fetch provider URL and restart Mihomo
+  status              Mihomo service state, TUN state, proxy connectivity test
+  test [--url URL]    Test all proxy groups, or a single URL with rule info
+  logs                Tail Mihomo service logs
+  restart             Restart Mihomo service
+  hostname <name>     Change hostname (max 24 chars, alphanumeric + hyphens)
+  debug [url]         Fetch a provider URL with Clash User-Agent and inspect
+  export [dir]        Export config to a directory
+  rule-list           List user-defined rules
+  rule-add "RULE"     Add a rule (e.g. "DOMAIN-SUFFIX,example.com,Proxy")
+  rule-remove <index> Remove a rule by index
+  china-repos         Switch system package repos to Aliyun mirrors
+  standard-repos      Restore original system package repos from backups
+
+Examples:
+  sudo ./pimiproxy-ultralite.sh                    # install with defaults
+  sudo ./pimiproxy-ultralite.sh status             # check proxy health
+  sudo ./pimiproxy-ultralite.sh test --url https://youtube.com
+  sudo ./pimiproxy-ultralite.sh rule-add "DOMAIN-SUFFIX,example.com,DIRECT"
+EOF
+    exit 0
+fi
+
 # Non-install commands skip the full bootstrap and pass straight through to Python.
 # This lets users run e.g. `sudo ./pimiproxy-ultralite.sh logs` instead of invoking
 # pimiproxy-ultralite-core.py directly.
