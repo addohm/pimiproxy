@@ -62,7 +62,6 @@ Once installed, any device on your network can route its traffic through the SBC
 | `pimiproxy-ui/` | React + Nginx frontend container — browser-based management UI |
 | `docker-images/` | *(optional)* Pre-pulled `.tar.gz` image archives for offline install |
 | `bin/` | *(optional)* Mihomo release binaries for offline/ultralite installs |
-| `test-proxy.sh` | Standalone proxy connectivity test script |
 
 The `.tar.gz` archives are not included in the repository. See [docs/INSTRUCTIONS.md](docs/INSTRUCTIONS.md) for how to prepare them.
 
