@@ -7,19 +7,24 @@ set -euo pipefail
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
     cat <<'EOF'
-Usage: test-proxy.sh [host:port]
+Usage: test-proxy.sh [options] [host:port]
 
 Test proxy connectivity by sending requests through each proxy group
 (DIRECT, General, AI, Google/Youtube, Netflix, International Media,
 Apple, Online Storage) and reporting the results.
 
 Arguments:
-  host:port    Proxy address to test (default: 127.0.0.1:7890)
+  host:port          Proxy address to test (default: 127.0.0.1:7890)
+
+Options:
+  --url <url>        Test a single URL instead of the full group suite
+  -h, --help         Show this help message
 
 Examples:
-  ./test-proxy.sh                      # test local proxy
-  ./test-proxy.sh pimiproxy.lan:7890   # test remote proxy by hostname
-  ./test-proxy.sh 10.0.0.240:7890      # test remote proxy by IP
+  ./test-proxy.sh                                  # test all groups on local proxy
+  ./test-proxy.sh pimiproxy.lan:7890               # test all groups on remote proxy
+  ./test-proxy.sh --url https://www.github.com     # test a single URL
+  ./test-proxy.sh 10.0.0.240:7890 --url https://x.com
 
 Output:
   ✓  green     request succeeded (2xx/3xx)
@@ -29,7 +34,17 @@ EOF
     exit 0
 fi
 
-PROXY="${1:-127.0.0.1:7890}"
+# ── Parse arguments ──────────────────────────────────────────────────────────
+PROXY="127.0.0.1:7890"
+SINGLE_URL=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --url) shift; SINGLE_URL="${1:-}"; [[ -z "$SINGLE_URL" ]] && { echo "Error: --url requires a URL"; exit 1; } ;;
+        *)     PROXY="$1" ;;
+    esac
+    shift
+done
 PROXY_URL="http://${PROXY}"
 TIMEOUT=10
 
@@ -104,6 +119,23 @@ if [[ "$_check" != "204" ]]; then
 fi
 echo "  ${G}✓${N}  Proxy responding"
 echo
+
+# ── Single URL mode ──────────────────────────────────────────────────────────
+if [[ -n "$SINGLE_URL" ]]; then
+    echo "  ${B}Single URL test${N}"
+    echo "${SEP}"
+    test_url "Custom" "$SINGLE_URL"
+    echo
+    echo "${SEP}"
+    if [[ $fail -eq 0 ]]; then
+        echo "  ${G}${B}Test passed.${N}"
+    else
+        echo "  ${R}${B}Test failed.${N}"
+    fi
+    echo "${SEP}"
+    echo
+    exit 0
+fi
 
 # ── DIRECT (China — should bypass proxy) ─────────────────────────────────────
 echo "  ${B}DIRECT${N} ${D}(China sites — routed direct, no proxy)${N}"
