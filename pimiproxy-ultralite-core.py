@@ -513,14 +513,6 @@ def build_config(cfg: dict) -> str:
         L()
         for line in sub_groups.splitlines():
             L(line)
-        L('  - name: "🧭 Meta Quest"')
-        L('    type: select')
-        L('    proxies:')
-        L('      - "DIRECT"')
-        if _sub_group_names:
-            L(f'      - {yaml_quote(_sub_group_names[0])}')
-        for name in _sub_proxy_names:
-            L(f'      - {yaml_quote(name)}')
         for g in user_groups:
             _write_group(g)
         L()
@@ -530,37 +522,9 @@ def build_config(cfg: dict) -> str:
         L("proxy-groups:")
         for g in user_groups:
             _write_group(g)
-        _quest_proxies = ["DIRECT"] + [g["name"] for g in user_groups]
-        L('  - name: "🧭 Meta Quest"')
-        L('    type: select')
-        L('    proxies:')
-        for p in _quest_proxies:
-            L(f'      - {yaml_quote(p)}')
         L()
 
     # ── rules ─────────────────────────────────────────────────────────────────
-    _quest_rules = [
-        "DOMAIN-SUFFIX,meta.com,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,oculus.com,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,oculuscdn.com,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,facebook.com,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,fbcdn.net,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,facebook.net,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,instagram.com,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,lesmills.com,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,lesmillsplus.com,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,lesmillsondemand.com,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,brightcove.com,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,brightcove.net,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,bcovlive.io,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,boltdns.net,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,odderslab.com,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,cognitive3d.com,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,facebook-hardware.com,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,unity3d.com,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,golfplusvr.com,🧭 Meta Quest",
-    ]
-
     if sub_rules:
         rule_indent = "  "
         for line in sub_rules.splitlines():
@@ -570,8 +534,6 @@ def build_config(cfg: dict) -> str:
                 break
         L()
         L("rules:")
-        for r in _quest_rules:
-            L(f"{rule_indent}- {r}")
         for r in user_rules:
             L(f"{rule_indent}- {r}")
         for line in sub_rules.splitlines():
@@ -593,8 +555,6 @@ def build_config(cfg: dict) -> str:
             else:
                 user_rules = ["MATCH,DIRECT"]
         L("rules:")
-        for r in _quest_rules:
-            L(f"  - {r}")
         for r in user_rules:
             L(f"  - {r}")
         L()
