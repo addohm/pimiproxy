@@ -194,7 +194,7 @@ If you have a proxy provider service, paste your Clash-compatible API URL here. 
 Examples of what this looks like:
 ```
 https://provider.example.com/api/v1/client/subscribe?token=abc123
-https://api.wannaflix.link/apiv4.php?token=abc123
+https://another-provider.example.com/clash?token=abc123
 ```
 
 If you provide a URL, the installer will generate a complete working config with:

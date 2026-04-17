@@ -88,11 +88,11 @@ test_url "DIRECT" "http://www.baidu.com"
 test_url "DIRECT" "https://www.bilibili.com"
 echo
 
-# ── Wannaflix (general international) ────────────────────────────────────────
-echo "  ${B}Wannaflix${N} ${D}(general international traffic)${N}"
+# ── General (general international) ────────────────────────────────────────
+echo "  ${B}General${N} ${D}(general international traffic)${N}"
 echo "${SEP}"
-test_url "Wannaflix" "https://www.google.com"
-test_url "Wannaflix" "https://www.twitter.com"
+test_url "General" "https://www.google.com"
+test_url "General" "https://www.twitter.com"
 echo
 
 # ── AI ───────────────────────────────────────────────────────────────────────
