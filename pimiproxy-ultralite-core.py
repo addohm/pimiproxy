@@ -837,6 +837,135 @@ def do_status():
 
 
 # =============================================================================
+# TEST (proxy group connectivity)
+# =============================================================================
+_TEST_GROUPS = [
+    ("DIRECT",       "China — routed direct",    [
+        "http://www.baidu.com",
+        "https://www.bilibili.com",
+    ]),
+    ("General",      "general international",     [
+        "https://www.google.com",
+        "https://www.twitter.com",
+    ]),
+    ("AI",           "OpenAI, Anthropic, Copilot", [
+        "https://www.openai.com",
+        "https://claude.ai",
+    ]),
+    ("Google/Youtube", None,                       [
+        "https://www.youtube.com",
+        "https://mail.google.com",
+    ]),
+    ("Netflix",      None,                         [
+        "https://www.netflix.com",
+    ]),
+    ("Intl Media",   "international media",        [
+        "https://www.bbc.co.uk",
+        "https://www.reddit.com",
+    ]),
+    ("Apple",        None,                         [
+        "https://www.apple.com",
+    ]),
+    ("Storage",      "online storage",             [
+        "https://www.dropbox.com",
+        "https://drive.google.com",
+    ]),
+]
+
+
+def do_test():
+    import time
+    import urllib.request
+
+    meta = read_meta()
+    mixed_port = meta.get("mixed_port", "7890")
+    proxy_addr = f"http://127.0.0.1:{mixed_port}"
+
+    single_url = None
+    for i, arg in enumerate(sys.argv[2:], start=2):
+        if arg == "--url" and i + 1 < len(sys.argv):
+            single_url = sys.argv[i + 1]
+            break
+        if not arg.startswith("--") and arg.startswith("http"):
+            single_url = arg
+            break
+
+    banner("pimiproxy proxy test", C.CYAN)
+    print(f"  Proxy: {C.BOLD}127.0.0.1:{mixed_port}{C.NC}")
+    print()
+
+    handler = urllib.request.ProxyHandler({"http": proxy_addr, "https": proxy_addr})
+    opener = urllib.request.build_opener(handler)
+    try:
+        with opener.open("http://www.gstatic.com/generate_204", timeout=5) as r:
+            if r.status != 204:
+                raise Exception(f"Expected 204, got {r.status}")
+        info("Proxy responding.")
+    except Exception as e:
+        die(f"Proxy not responding: {e}")
+
+    print()
+
+    passed = 0
+    failed = 0
+
+    def _test(group: str, url: str):
+        nonlocal passed, failed
+        t0 = time.monotonic()
+        try:
+            with opener.open(url, timeout=10) as r:
+                code = r.status
+        except urllib.error.HTTPError as e:
+            code = e.code
+        except Exception:
+            code = 0
+        ms = (time.monotonic() - t0) * 1000
+
+        if code == 0:
+            failed += 1
+            print(f"  {C.RED}✗{C.NC}  {group:<20}  {url:<30}  {C.RED}TIMEOUT{C.NC}")
+        elif code == 403:
+            passed += 1
+            print(f"  {C.YELLOW}~{C.NC}  {group:<20}  {url:<30}  "
+                  f"{C.YELLOW}{code}{C.NC} {C.DIM}{ms:.0f}ms (reached server){C.NC}")
+        elif 200 <= code < 400:
+            passed += 1
+            print(f"  {C.GREEN}✓{C.NC}  {group:<20}  {url:<30}  "
+                  f"{C.GREEN}{code}{C.NC} {C.DIM}{ms:.0f}ms{C.NC}")
+        else:
+            failed += 1
+            print(f"  {C.RED}✗{C.NC}  {group:<20}  {url:<30}  "
+                  f"{C.RED}{code}{C.NC} {C.DIM}{ms:.0f}ms{C.NC}")
+
+    SEP = f"  {C.DIM}{'─' * 58}{C.NC}"
+
+    if single_url:
+        print(f"  {C.BOLD}Single URL test{C.NC}")
+        print(SEP)
+        _test("Custom", single_url)
+    else:
+        for group_name, desc, urls in _TEST_GROUPS:
+            label = f"{C.BOLD}{group_name}{C.NC}"
+            if desc:
+                label += f" {C.DIM}({desc}){C.NC}"
+            print(f"  {label}")
+            print(SEP)
+            for url in urls:
+                _test(group_name, url)
+            print()
+
+    total = passed + failed
+    print(SEP)
+    if failed == 0:
+        print(f"  {C.GREEN}{C.BOLD}All {total} tests passed.{C.NC}")
+    else:
+        print(f"  {C.BOLD}{passed}/{total} passed{C.NC}, {C.RED}{failed} failed{C.NC}")
+        print(f"  {C.DIM}Failures are typically caused by provider node issues, not pimiproxy.{C.NC}")
+    print(SEP)
+    print()
+
+
+# =============================================================================
 # LOGS
 # =============================================================================
 def do_logs():
@@ -1990,11 +2119,12 @@ COMMANDS = {
     "rule-list":    do_rule_list,
     "rule-add":     do_rule_add,
     "rule-remove":  do_rule_remove,
+    "test":          do_test,
     "standard-repos": do_standard_repos,
     "china-repos":   do_china_repos,
 }
 
-_TAKES_ARG = {"hostname", "debug", "export", "rule-add", "rule-remove"}
+_TAKES_ARG = {"hostname", "debug", "export", "rule-add", "rule-remove", "test"}
 
 
 def main():
