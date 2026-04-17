@@ -39,14 +39,30 @@ Once installed, any device on your network can route its traffic through the SBC
 - Internet access (for pulling Docker images if not using offline archives)
 - Root / sudo access
 
-### Tested platforms
+### Platform compatibility
 
-| Platform | Status |
-|----------|--------|
-| Raspberry Pi OS (64-bit) | ✅ Working |
-| Ubuntu (x86_64) | 🔄 In progress |
-| Fedora | 🔄 In progress |
-| Arch Linux | ⬜ Untested |
+Pre-built release archives are produced for both the full (Docker) and
+ultralite (native binary) variants. Availability depends on whether
+upstream Docker images publish the target platform — ultralite has
+broader arch coverage because it ships a single self-contained binary.
+
+| Architecture | Full variant | Ultralite variant | Example hardware |
+|---|---|---|---|
+| `amd64` (x86_64) | ✅ Available | ✅ Available | Intel/AMD PCs, most VMs, x86 mini-PCs |
+| `arm64` (aarch64) | ✅ Available | ✅ Available | Raspberry Pi 4/5, modern 64-bit SBCs |
+| `armv7` | ❌ N/A (metacubexd missing) | ✅ Available | Raspberry Pi 3, older 32-bit ARM SBCs |
+| `386` (x86 32-bit) | ❌ N/A (metacubexd missing) | ✅ Available | Legacy x86 PCs |
+
+### Tested distros
+
+| Distro | Full | Ultralite |
+|---|---|---|
+| Raspberry Pi OS (arm64 / Debian) | ✅ Working | ✅ Working |
+| Xubuntu / Ubuntu 25.10 (x86_64) | ✅ Working | ✅ Working |
+| Fedora 43 Xfce (x86_64) | ✅ Working | ✅ Working |
+| Arch Linux (x86_64) | ✅ Working | ✅ Working |
+| openSUSE | ⬜ Untested | ⬜ Untested |
+| Alpine | ⬜ Untested | ⬜ Untested |
 
 ---
 

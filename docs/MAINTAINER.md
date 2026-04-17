@@ -51,10 +51,11 @@ pimiproxy codebase. For end-user installation and usage see
 │   ├── geoip.metadb
 │   ├── geosite.dat
 │   └── country.mmdb
-├── releases/                     # Output of build-releases.sh (gitignored)
-├── rebuild.sh                    # Build pimiproxy-api/ui Docker images
-├── update-upstream.sh            # Pull latest mihomo bins + upstream Docker images
-├── build-releases.sh             # Package everything into release archives
+├── releases/                     # Output of 3_build-releases.sh (gitignored)
+├── scripts/                      # Developer/maintainer helper scripts
+│   ├── 1_update-upstream.sh      # Pull latest mihomo bins + upstream Docker images
+│   ├── 2_rebuild.sh              # Build pimiproxy-api/ui Docker images
+│   └── 3_build-releases.sh       # Package everything into release archives
 ├── CLAUDE.md                     # Instructions for Claude Code sessions
 └── docs/
     ├── INSTRUCTIONS.md           # End-user install & usage guide
@@ -221,38 +222,38 @@ ssh addohm@pimiproxy.lan "sudo cat /opt/pimiproxy/.pimiproxy-meta.json"
 Two scripts handle image lifecycle. Both are dev-machine-only
 (gitignored).
 
-### `rebuild.sh` — build pimiproxy-api and pimiproxy-ui
+### `scripts/2_rebuild.sh` — build pimiproxy-api and pimiproxy-ui
 
 Multi-arch (arm64 + amd64), saves as a single tarball per image with
 `image:arm64` and `image:amd64` tags.
 
 ```bash
-./rebuild.sh              # build both, sync to default target
-./rebuild.sh --api        # build pimiproxy-api only
-./rebuild.sh --ui         # build pimiproxy-ui only
-./rebuild.sh --third-party    # pull + save mihomo/metacubexd/zashboard
-./rebuild.sh --sync-only      # rsync source without rebuilding
+./scripts/2_rebuild.sh              # build both, sync to default target
+./scripts/2_rebuild.sh --api        # build pimiproxy-api only
+./scripts/2_rebuild.sh --ui         # build pimiproxy-ui only
+./scripts/2_rebuild.sh --third-party    # pull + save mihomo/metacubexd/zashboard
+./scripts/2_rebuild.sh --sync-only      # rsync source without rebuilding
 
 # On the target:
-./rebuild.sh --deploy         # load both images, recreate containers
-./rebuild.sh --deploy-api
-./rebuild.sh --deploy-ui
+./scripts/2_rebuild.sh --deploy         # load both images, recreate containers
+./scripts/2_rebuild.sh --deploy-api
+./scripts/2_rebuild.sh --deploy-ui
 ```
 
 Override the sync target:
 ```bash
-./rebuild.sh --target user@host
+./scripts/2_rebuild.sh --target user@host
 # or
-PIMIPROXY_TARGET=user@host ./rebuild.sh
+PIMIPROXY_TARGET=user@host ./scripts/2_rebuild.sh
 ```
 
-### `update-upstream.sh` — fetch latest upstream
+### `scripts/1_update-upstream.sh` — fetch latest upstream
 
 ```bash
-./update-upstream.sh                # bins + images (all)
-./update-upstream.sh --bins         # mihomo release binaries only
-./update-upstream.sh --images       # Docker images only
-./update-upstream.sh --dry-run      # show what would happen
+./scripts/1_update-upstream.sh                # bins + images (all)
+./scripts/1_update-upstream.sh --bins         # mihomo release binaries only
+./scripts/1_update-upstream.sh --images       # Docker images only
+./scripts/1_update-upstream.sh --dry-run      # show what would happen
 ```
 
 Downloads latest mihomo release from GitHub (arm64/amd64/armv7 `.gz`
@@ -280,12 +281,12 @@ architecture at install time and retags it as the canonical image name.
 ## 6. Release process
 
 ```bash
-./update-upstream.sh              # fetch latest mihomo + upstream Docker images
-./rebuild.sh                      # build pimiproxy-api + pimiproxy-ui
-./build-releases.sh               # package all archives
+./scripts/1_update-upstream.sh              # fetch latest mihomo + upstream Docker images
+./scripts/2_rebuild.sh                      # build pimiproxy-api + pimiproxy-ui
+./scripts/3_build-releases.sh               # package all archives
 ```
 
-`build-releases.sh` produces per-arch archives in `releases/`:
+`scripts/3_build-releases.sh` produces per-arch archives in `releases/`:
 
 | Archive | Variant | Arch |
 |---|---|---|
@@ -298,7 +299,7 @@ architecture at install time and retags it as the canonical image name.
 Full archives are ~175 MB (Docker images are heavy). Ultralite archives
 are ~12 MB.
 
-`build-releases.sh` extracts the single-arch image from each multi-arch
+`scripts/3_build-releases.sh` extracts the single-arch image from each multi-arch
 tarball via `docker load` + `docker save <image>:<arch>` so the release
 only contains what the target architecture needs.
 
@@ -524,16 +525,26 @@ default, not a fallback.
 
 ## 12. Release archive matrix
 
-Produced by `./build-releases.sh`. All archives land in `releases/`
+Produced by `./scripts/3_build-releases.sh`. All archives land in `releases/`
 (gitignored).
 
-| Archive | Variant | Arch | Size |
+Up to 8 archives are produced — one per variant × arch combination.
+Arches without a required image or binary are skipped silently.
+
+| Archive | Variant | Arch | Approx size |
 |---|---|---|---|
-| `pimiproxy-arm64.tar.gz` | Full | arm64 | ~175 MB |
-| `pimiproxy-amd64.tar.gz` | Full | amd64 | ~177 MB |
-| `pimiproxy-ultralite-arm64.tar.gz` | Ultralite | arm64 | ~12 MB |
+| `pimiproxy-amd64.tar.gz` | Full | amd64 (x86_64) | ~177 MB |
+| `pimiproxy-arm64.tar.gz` | Full | arm64 (aarch64) | ~175 MB |
+| `pimiproxy-armv7.tar.gz` | Full | armv7 (32-bit ARM) | ~170 MB* |
+| `pimiproxy-386.tar.gz` | Full | 386 (32-bit x86) | ~170 MB* |
 | `pimiproxy-ultralite-amd64.tar.gz` | Ultralite | amd64 | ~13 MB |
+| `pimiproxy-ultralite-arm64.tar.gz` | Ultralite | arm64 | ~12 MB |
 | `pimiproxy-ultralite-armv7.tar.gz` | Ultralite | armv7 | ~12 MB |
+| `pimiproxy-ultralite-386.tar.gz` | Ultralite | 386 | ~13 MB |
+
+*armv7/386 full archives require the upstream Docker images to publish
+those platforms. If any one image is missing the variant, the archive
+is skipped.
 
 ### What's inside each archive
 
@@ -568,18 +579,21 @@ pimiproxy-ultralite/
     └── country.mmdb
 ```
 
-### No armv7 full variant
+### armv7 and 386 availability
 
-armv7 SBCs (Pi 3 and older) don't have the headroom for Docker +
-4 containers. Those users should use ultralite. If you want to ship an
-armv7 full variant, you'd need to:
+The build scripts target four architectures: `amd64`, `arm64`, `armv7`,
+`386`. Not all upstream Docker images publish every platform variant —
+`scripts/1_update-upstream.sh` tries each platform and silently skips
+those that aren't available. `scripts/3_build-releases.sh` then only
+produces archives for arches where every required image tag exists.
 
-1. Add `--platform linux/arm/v7` build targets to `rebuild.sh`
-2. Add armv7 pulls to `update-upstream.sh` for the third-party images
-3. Add an `armv7` case to `build-releases.sh`'s `_build_full`
+For the ultralite variant, mihomo ships binaries for all four
+architectures from its GitHub releases. Ultralite archives are produced
+for any arch that has a matching binary in `bin/`.
 
-Be prepared for ~200 MB archive size and questionable runtime
-performance on the target.
+Running armv7/386 Docker containers on older/slower hardware is viable
+but noticeably slower than native ultralite — users on Pi 3 or similar
+should prefer ultralite when possible.
 
 ---
 
@@ -588,7 +602,7 @@ performance on the target.
 - Commit after each completed task (not batched). Write descriptive
   messages that explain *why*, not just *what*.
 - `.gitignore` covers: `releases/`, `docker-images/*.tar.gz`, `bin/*.gz`,
-  `__pycache__`, `node_modules`, and the dev-only `rebuild.sh`.
+  `__pycache__`, `node_modules`, and the dev-only `scripts/2_rebuild.sh`.
 - Historical references to `clash-system` only appear in
   `CHANGELOG.md` — anywhere else is stale.
 - Provider names (`Wannaflix` etc.) should never appear in

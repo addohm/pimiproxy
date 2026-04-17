@@ -9,12 +9,12 @@
 #   sudo ./pimiproxy.sh [install|uninstall|configure]
 #
 # Offline image preparation (run on a machine with internet + Docker):
-#   Use rebuild.sh --third-party to pull mihomo/metacubexd/zashboard for both
+#   Use scripts/2_rebuild.sh --third-party to pull mihomo/metacubexd/zashboard for both
 #   arm64 and amd64 and save them as multi-arch tarballs. Archives contain both
 #   <image>:arm64 and <image>:amd64 tags; pimiproxy-core.py picks the right one.
 #
-#   ./rebuild.sh --third-party   # mihomo.tar.gz, metacubexd.tar.gz, zashboard.tar.gz
-#   ./rebuild.sh                 # pimiproxy-api.tar.gz, pimiproxy-ui.tar.gz
+#   ./scripts/2_rebuild.sh --third-party   # mihomo.tar.gz, metacubexd.tar.gz, zashboard.tar.gz
+#   ./scripts/2_rebuild.sh                 # pimiproxy-api.tar.gz, pimiproxy-ui.tar.gz
 #
 #   pimiproxy-api and pimiproxy-ui can also be built from source at install time.
 # =============================================================================
