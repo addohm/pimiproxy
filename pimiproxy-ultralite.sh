@@ -67,38 +67,45 @@ PYTHON_SCRIPT="${SCRIPT_DIR}/pimiproxy-ultralite-core.py"
 PIMIPROXY_CMD="${1:-}"
 
 if [[ -z "$PIMIPROXY_CMD" || "$PIMIPROXY_CMD" == "-h" || "$PIMIPROXY_CMD" == "--help" ]]; then
-    cat <<'EOF'
-Usage: sudo ./pimiproxy-ultralite.sh [subcommand]
+    echo -e "
+${CYAN}${BOLD}  pimiproxy-ultralite${NC}  ${YELLOW}(no Docker required)${NC}
+${BOLD}  ──────────────────────────────────────────${NC}
 
-Bootstrap & install:
-  install             Install pimiproxy-ultralite (default if no subcommand given)
-                      Detects distro, installs prerequisites (Python, curl, cron,
-                      avahi), checks for mihomo binary, then launches the installer.
-                      No Docker required — runs Mihomo as a native systemd service.
+  ${BOLD}Usage:${NC}  sudo ./pimiproxy-ultralite.sh <subcommand>
 
-All other subcommands are passed through to pimiproxy-ultralite-core.py:
-  uninstall           Stop Mihomo, remove all files
-  configure           Interactive menu: provider URL, rules, ports
-  refresh             Re-fetch provider URL and restart Mihomo
-  status              Mihomo service state, TUN state, proxy connectivity test
-  test [--url URL]    Test all proxy groups, or a single URL with rule info
-  logs                Tail Mihomo service logs
-  restart             Restart Mihomo service
-  hostname <name>     Change hostname (max 24 chars, alphanumeric + hyphens)
-  debug [url]         Fetch a provider URL with Clash User-Agent and inspect
-  export [dir]        Export config to a directory
-  rule-list           List user-defined rules
-  rule-add "RULE"     Add a rule (e.g. "DOMAIN-SUFFIX,example.com,Proxy")
-  rule-remove <index> Remove a rule by index
-  china-repos         Switch system package repos to Aliyun mirrors
-  standard-repos      Restore original system package repos from backups
+${CYAN}  Setup${NC}
+  ${BOLD}  install${NC}              Detect distro, install prerequisites, launch installer
+  ${BOLD}  uninstall${NC}            Stop Mihomo, remove all files
 
-Examples:
-  sudo ./pimiproxy-ultralite.sh                    # install with defaults
-  sudo ./pimiproxy-ultralite.sh status             # check proxy health
-  sudo ./pimiproxy-ultralite.sh test --url https://youtube.com
-  sudo ./pimiproxy-ultralite.sh rule-add "DOMAIN-SUFFIX,example.com,DIRECT"
-EOF
+${CYAN}  Day-to-day${NC}
+  ${BOLD}  status${NC}               Mihomo service state, TUN state, connectivity test
+  ${BOLD}  test${NC} [--url URL]     Test all proxy groups, or a single URL with rule info
+  ${BOLD}  logs${NC}                 Tail Mihomo service logs
+  ${BOLD}  restart${NC}              Restart Mihomo service
+  ${BOLD}  configure${NC}            Interactive menu: provider URL, rules, ports
+
+${CYAN}  Rules${NC}
+  ${BOLD}  rule-list${NC}            List user-defined rules
+  ${BOLD}  rule-add${NC} \"RULE\"      Add a rule (e.g. \"DOMAIN-SUFFIX,example.com,Proxy\")
+  ${BOLD}  rule-remove${NC} <index>  Remove a rule by index
+
+${CYAN}  Maintenance${NC}
+  ${BOLD}  refresh${NC}              Re-fetch provider URL and restart Mihomo
+  ${BOLD}  hostname${NC} <name>      Change hostname (max 24 chars, a-z 0-9 hyphens)
+  ${BOLD}  debug${NC} [url]          Fetch a provider URL with Clash User-Agent
+  ${BOLD}  export${NC} [dir]         Export config to a directory
+
+${CYAN}  Mirrors${NC}
+  ${BOLD}  china-repos${NC}          Switch system package repos to Aliyun
+  ${BOLD}  standard-repos${NC}       Restore original system package repos
+
+${BOLD}  ──────────────────────────────────────────${NC}
+${CYAN}  Examples${NC}
+    sudo ./pimiproxy-ultralite.sh install
+    sudo ./pimiproxy-ultralite.sh status
+    sudo ./pimiproxy-ultralite.sh test --url https://youtube.com
+    sudo ./pimiproxy-ultralite.sh rule-add \"DOMAIN-SUFFIX,example.com,DIRECT\"
+"
     exit 0
 fi
 

@@ -82,35 +82,41 @@ PYTHON_SCRIPT="${SCRIPT_DIR}/pimiproxy-core.py"
 PIMIPROXY_CMD="${1:-}"
 
 if [[ -z "$PIMIPROXY_CMD" || "$PIMIPROXY_CMD" == "-h" || "$PIMIPROXY_CMD" == "--help" ]]; then
-    cat <<'EOF'
-Usage: sudo ./pimiproxy.sh [subcommand]
+    echo -e "
+${CYAN}${BOLD}  pimiproxy${NC}
+${BOLD}  ──────────────────────────────────────────${NC}
 
-Bootstrap & install:
-  install             Install pimiproxy (default if no subcommand given)
-                      Detects distro, installs prerequisites (Python, Docker,
-                      curl, cron, avahi), then launches the interactive installer.
+  ${BOLD}Usage:${NC}  sudo ./pimiproxy.sh <subcommand>
 
-All other subcommands are passed through to pimiproxy-core.py:
-  uninstall           Stop containers, remove images, delete all files
-  configure           Interactive menu: provider URL, groups, rules, ports
-  refresh             Re-fetch provider URL and restart Mihomo
-  status              Container health, TUN state, proxy connectivity test
-  test [--url URL]    Test all proxy groups, or a single URL with rule info
-  logs [service]      Tail container logs (mihomo, dashboard, pimiproxy-api, pimiproxy-ui)
-  restart [service]   Restart one container or all
-  update              Pull latest Docker images and recreate containers
-  hostname <name>     Change hostname (max 24 chars, alphanumeric + hyphens)
-  debug [url]         Fetch a provider URL with Clash User-Agent and inspect
-  export [dir]        Export config to a directory
-  china-repos         Switch system package repos to Aliyun mirrors
-  standard-repos      Restore original system package repos from backups
+${CYAN}  Setup${NC}
+  ${BOLD}  install${NC}              Detect distro, install prerequisites, launch installer
+  ${BOLD}  uninstall${NC}            Stop containers, remove images, delete all files
 
-Examples:
-  sudo ./pimiproxy.sh                              # install with defaults
-  sudo ./pimiproxy.sh status                       # check proxy health
-  sudo ./pimiproxy.sh test --url https://youtube.com
-  sudo ./pimiproxy.sh logs mihomo
-EOF
+${CYAN}  Day-to-day${NC}
+  ${BOLD}  status${NC}               Container health, TUN state, connectivity test
+  ${BOLD}  test${NC} [--url URL]     Test all proxy groups, or a single URL with rule info
+  ${BOLD}  logs${NC} [service]       Tail container logs (mihomo, dashboard, api, ui)
+  ${BOLD}  restart${NC} [service]    Restart one container or all
+  ${BOLD}  configure${NC}            Interactive menu: provider URL, groups, rules, ports
+
+${CYAN}  Maintenance${NC}
+  ${BOLD}  refresh${NC}              Re-fetch provider URL and restart Mihomo
+  ${BOLD}  update${NC}               Pull latest Docker images and recreate containers
+  ${BOLD}  hostname${NC} <name>      Change hostname (max 24 chars, a-z 0-9 hyphens)
+  ${BOLD}  debug${NC} [url]          Fetch a provider URL with Clash User-Agent
+  ${BOLD}  export${NC} [dir]         Export config to a directory
+
+${CYAN}  Mirrors${NC}
+  ${BOLD}  china-repos${NC}          Switch system package repos to Aliyun
+  ${BOLD}  standard-repos${NC}       Restore original system package repos
+
+${BOLD}  ──────────────────────────────────────────${NC}
+${CYAN}  Examples${NC}
+    sudo ./pimiproxy.sh install
+    sudo ./pimiproxy.sh status
+    sudo ./pimiproxy.sh test --url https://youtube.com
+    sudo ./pimiproxy.sh logs mihomo
+"
     exit 0
 fi
 
