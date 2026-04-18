@@ -584,7 +584,7 @@ def build_mihomo_service(install_dir: str) -> str:
     L("[Service]")
     L("Type=simple")
     L(f"ExecStart=/usr/local/bin/mihomo -d {install_dir}/config")
-    L("Restart=unless-stopped")
+    L("Restart=always")
     L("RestartSec=3")
     L("LimitNOFILE=65535")
     L("AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE")
@@ -702,6 +702,8 @@ def _find_mihomo_binary() -> "Path | None":
     # Map host arch to GitHub release naming conventions
     _gz_arch_map = {
         "x86_64":  ["amd64", "x86_64"],
+        "i686":    ["386", "i686", "i386"],
+        "i386":    ["386", "i386", "i686"],
         "aarch64": ["arm64", "aarch64"],
         "armv7l":  ["armv7", "armv7l"],
     }
@@ -1643,6 +1645,11 @@ def do_install():
     dest_bin = Path("/usr/local/bin/mihomo")
     shutil.copy2(binary, dest_bin)
     dest_bin.chmod(0o755)
+    # On SELinux systems (Fedora/RHEL), copied files inherit the source context
+    # (often user_tmp_t) which prevents systemd from executing them. Restore
+    # the standard bin_t context so the mihomo service can start.
+    if shutil.which("restorecon"):
+        run(["restorecon", str(dest_bin)], silent=True, check=False)
     info(f"Installed: {dest_bin}  (from {binary.name})")
 
     # ── directories + geodata ─────────────────────────────────────────────────
