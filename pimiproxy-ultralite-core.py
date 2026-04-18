@@ -2021,8 +2021,9 @@ def do_uninstall():
         BYPASS_SERVICE_PATH.unlink()
         run(["systemctl", "daemon-reload"], silent=True, check=False)
         info("Removed legacy bypass service.")
-    run(["iptables", "-t", "mangle", "-D", "OUTPUT", "-j", "MARK", "--set-mark", "666"],
-        check=False, silent=True)
+    if shutil.which("iptables"):
+        run(["iptables", "-t", "mangle", "-D", "OUTPUT", "-j", "MARK", "--set-mark", "666"],
+            check=False, silent=True)
 
     # ── hostname ──────────────────────────────────────────────────────────────
     step("Hostname")
