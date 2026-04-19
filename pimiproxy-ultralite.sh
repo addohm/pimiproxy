@@ -197,7 +197,7 @@ Components: main restricted universe multiverse
 Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
 SRCEOF
                     ;;
-                    debian|raspbian)
+                    debian)
                         cat > /etc/apt/sources.list.d/aliyun-system.sources <<SRCEOF
 Types: deb
 URIs: https://mirrors.aliyun.com/debian
@@ -210,6 +210,18 @@ URIs: https://mirrors.aliyun.com/debian-security
 Suites: ${CODENAME}-security
 Components: main contrib non-free non-free-firmware
 Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+SRCEOF
+                    ;;
+                    raspbian)
+                        # Raspbian uses its own keyring and a different mirror path.
+                        # Aliyun does not mirror raspbian-security; the upstream
+                        # repo ships security updates in the main pool.
+                        cat > /etc/apt/sources.list.d/aliyun-system.sources <<SRCEOF
+Types: deb
+URIs: https://mirrors.aliyun.com/raspbian/raspbian
+Suites: ${CODENAME}
+Components: main contrib non-free non-free-firmware rpi
+Signed-By: /usr/share/keyrings/raspbian-archive-keyring.gpg
 SRCEOF
                     ;;
                 esac

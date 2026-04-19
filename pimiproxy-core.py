@@ -3236,6 +3236,14 @@ def _write_china_repos_apt():
             f"Components: main restricted universe multiverse\n"
             f"Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n"
         )
+    elif distro_id == "raspbian":
+        aliyun.write_text(
+            f"Types: deb\n"
+            f"URIs: https://mirrors.aliyun.com/raspbian/raspbian\n"
+            f"Suites: {codename}\n"
+            f"Components: main contrib non-free non-free-firmware rpi\n"
+            f"Signed-By: /usr/share/keyrings/raspbian-archive-keyring.gpg\n"
+        )
     else:
         aliyun.write_text(
             f"Types: deb\n"

@@ -2209,6 +2209,12 @@ def do_china_repos():
                 f"Suites: {codename} {codename}-updates {codename}-security\n"
                 f"Components: main restricted universe multiverse\n"
                 f"Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n")
+        elif distro_id == "raspbian":
+            aliyun.write_text(
+                f"Types: deb\nURIs: https://mirrors.aliyun.com/raspbian/raspbian\n"
+                f"Suites: {codename}\n"
+                f"Components: main contrib non-free non-free-firmware rpi\n"
+                f"Signed-By: /usr/share/keyrings/raspbian-archive-keyring.gpg\n")
         else:
             aliyun.write_text(
                 f"Types: deb\nURIs: https://mirrors.aliyun.com/debian\n"

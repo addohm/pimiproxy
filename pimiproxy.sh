@@ -315,7 +315,7 @@ Components: main restricted universe multiverse
 Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
 SRCEOF
                             ;;
-                            debian|raspbian)
+                            debian)
                                 # Debian: main + updates from /debian, security from /debian-security
                                 cat > /etc/apt/sources.list.d/aliyun-system.sources <<SRCEOF
 Types: deb
@@ -329,6 +329,16 @@ URIs: https://mirrors.aliyun.com/debian-security
 Suites: ${CODENAME}-security
 Components: main contrib non-free non-free-firmware
 Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+SRCEOF
+                            ;;
+                            raspbian)
+                                # Raspbian has its own keyring and mirror path
+                                cat > /etc/apt/sources.list.d/aliyun-system.sources <<SRCEOF
+Types: deb
+URIs: https://mirrors.aliyun.com/raspbian/raspbian
+Suites: ${CODENAME}
+Components: main contrib non-free non-free-firmware rpi
+Signed-By: /usr/share/keyrings/raspbian-archive-keyring.gpg
 SRCEOF
                             ;;
                         esac
