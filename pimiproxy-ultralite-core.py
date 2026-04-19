@@ -600,6 +600,98 @@ BYPASS_SERVICE_PATH = Path("/etc/systemd/system/pimiproxy-bypass.service")
 
 
 # =============================================================================
+# CLASH-SYSTEM (advanced: toggle host-traffic bypass)
+# =============================================================================
+# Default behaviour: all host traffic flows through Mihomo via TUN
+# (auto-route installs the ip rules that catch it).
+#
+# `clash-system off` marks host OUTPUT with fwmark 888 and adds an ip rule at
+# priority 5000 that routes marked packets to the main table — bypassing TUN.
+# Mihomo's own outbound traffic uses mark 666 (set via routing-mark in the
+# config), so it's never confused with our bypass mark. Gateway clients
+# (e.g. Meta Quest using the Pi as their DHCP gateway) are always proxied
+# because their traffic hits FORWARD, not OUTPUT — we don't mangle FORWARD.
+#
+# Intentionally NOT auto-enabled on boot. Default behaviour is unchanged from
+# before this feature returned — advanced users invoke it explicitly.
+
+CLASH_SYSTEM_PATH = Path("/usr/local/bin/clash-system")
+
+
+def build_clash_system() -> str:
+    return r"""#!/usr/bin/env bash
+# clash-system — toggle host-traffic bypass
+# Gateway clients (forwarded via this device) are always proxied.
+set -euo pipefail
+
+[[ $EUID -eq 0 ]] || exec sudo "$0" "$@"
+
+MARK=888
+RULE_PRIO=5000
+
+G=$'\033[0;32m'; Y=$'\033[1;33m'; R=$'\033[0;31m'; D=$'\033[2m'; B=$'\033[1m'; N=$'\033[0m'
+
+MARK_HEX=$(printf '0x%x' "$MARK")
+
+iface_up()        { [[ -d /sys/class/net/mihomo ]]; }
+mark_is_set()     { iptables -t mangle -C OUTPUT -j MARK --set-mark $MARK 2>/dev/null; }
+rule_is_set()     { ip rule show | grep -qE "^${RULE_PRIO}:.*fwmark ${MARK_HEX}.*lookup main"; }
+snat_is_set()     { iptables -t nat -C POSTROUTING -m mark --mark $MARK -j MASQUERADE 2>/dev/null; }
+ensure_rule()     { rule_is_set || ip rule add fwmark "$MARK" lookup main priority "$RULE_PRIO"; }
+remove_rule()     { while rule_is_set; do ip rule del fwmark "$MARK" lookup main priority "$RULE_PRIO" 2>/dev/null || break; done; }
+set_mark()        { mark_is_set || iptables -t mangle -A OUTPUT -j MARK --set-mark $MARK; }
+unset_mark()      { while mark_is_set; do iptables -t mangle -D OUTPUT -j MARK --set-mark $MARK 2>/dev/null || break; done; }
+# MASQUERADE is required: after re-route, the packet inherits the TUN's source
+# IP (198.18.0.1). That source isn't routable outside the Pi, so we rewrite
+# it to the outgoing interface's address on POSTROUTING.
+set_snat()        { snat_is_set || iptables -t nat -A POSTROUTING -m mark --mark $MARK -j MASQUERADE; }
+unset_snat()      { while snat_is_set; do iptables -t nat -D POSTROUTING -m mark --mark $MARK -j MASQUERADE 2>/dev/null || break; done; }
+
+case "${1:-}" in
+    on)
+        iface_up || { echo "${R}✗${N}  mihomo TUN interface not found — is the service running?" >&2; exit 1; }
+        unset_mark
+        unset_snat
+        remove_rule
+        echo "${G}✓${N}  clash-system: ${B}on${N}  ${D}(host traffic routes through proxy — default)${N}"
+    ;;
+    off)
+        iface_up || { echo "${R}✗${N}  mihomo TUN interface not found — is the service running?" >&2; exit 1; }
+        ensure_rule
+        set_mark
+        set_snat
+        echo "${Y}○${N}  clash-system: ${B}off${N}  ${D}(host traffic goes direct; gateway clients still proxied)${N}"
+    ;;
+    status)
+        if mark_is_set; then
+            echo "${Y}○${N}  clash-system: ${B}off${N}  ${D}(host traffic direct)${N}"
+        else
+            echo "${G}✓${N}  clash-system: ${B}on${N}  ${D}(host traffic via proxy)${N}"
+        fi
+        iface_up && echo "   TUN interface: ${G}up${N}" || echo "   TUN interface: ${R}down${N}"
+    ;;
+    *)
+        cat <<EOF
+${B}clash-system${N} — toggle host-traffic bypass for pimiproxy
+
+${B}Usage:${N}  sudo clash-system [on|off|status]
+
+  ${B}on${N}       Host traffic routes through Mihomo ${D}(default){N}
+  ${B}off${N}      Host traffic bypasses Mihomo (goes direct)
+  ${B}status${N}   Show current state
+
+${D}Gateway clients (devices using this host as their DHCP gateway, e.g.
+Meta Quest) are always proxied regardless of this setting.${N}
+
+${D}State is not persisted across reboots; reboot resets to on.${N}
+EOF
+        exit 1
+    ;;
+esac
+"""
+
+
+# =============================================================================
 # LOGIN BANNER
 # =============================================================================
 BANNER_PATH = Path("/etc/profile.d/pimiproxy-banner.sh")
@@ -1714,9 +1806,26 @@ def do_install():
     run(["sysctl", "-w", "net.ipv4.ip_forward=1"], silent=True)
     info("IP forwarding enabled (persistent via /etc/sysctl.d/99-pimiproxy.conf).")
 
+    # Allow gateway clients (Meta Quest etc.) to reach Mihomo's TUN.
+    # Distros with restrictive default FORWARD policy (or Docker installed,
+    # which sets policy DROP) would otherwise drop forwarded packets.
+    if shutil.which("iptables"):
+        with Spinner("Configuring FORWARD for gateway clients"):
+            # Clear any previous rule before re-adding (idempotent across reinstalls)
+            run(["iptables", "-D", "FORWARD", "-o", "mihomo", "-j", "ACCEPT"],
+                check=False, silent=True)
+            run(["iptables", "-D", "FORWARD", "-i", "mihomo", "-j", "ACCEPT"],
+                check=False, silent=True)
+            run(["iptables", "-I", "FORWARD", "-o", "mihomo", "-j", "ACCEPT"],
+                check=False, silent=True)
+            run(["iptables", "-I", "FORWARD", "-i", "mihomo", "-j", "ACCEPT"],
+                check=False, silent=True)
+        info("FORWARD rules installed (gateway clients → TUN).")
+
     # ── refresh script + wrapper + cron ───────────────────────────────────────
     step("Wrapper + refresh script")
-    script_dest = install_path / "pimiproxy-ultralite.py"
+    # Keep the "-core" suffix so the wrapper script can find it
+    script_dest = install_path / "pimiproxy-ultralite-core.py"
     shutil.copy2(__file__, script_dest)
     info(f"Core script copied to {script_dest}.")
 
@@ -1760,6 +1869,12 @@ def do_install():
         "arch":        arch,
     }
     write_meta(meta)
+
+    # ── clash-system (advanced: toggle host-traffic bypass) ──────────────────
+    step("clash-system utility")
+    CLASH_SYSTEM_PATH.write_text(build_clash_system())
+    CLASH_SYSTEM_PATH.chmod(0o755)
+    info(f"Installed {CLASH_SYSTEM_PATH}  (advanced: sudo clash-system [on|off|status])")
 
     # ── login banner ──────────────────────────────────────────────────────────
     step("Login banner")
@@ -2009,12 +2124,28 @@ def do_uninstall():
         _symlink.unlink()
         info(f"Removed {_symlink}")
 
-    # Clean up legacy clash-system if present from older installs
+    # Remove clash-system script and any active bypass rules
     cs = Path("/usr/local/bin/clash-system")
     if cs.exists():
-        run([str(cs), "off"], check=False, silent=True)
+        # Flip it back to 'on' first so any active bypass mark/rule gets cleared
+        run([str(cs), "on"], check=False, silent=True)
         cs.unlink()
-        info("Removed legacy /usr/local/bin/clash-system")
+        info("Removed /usr/local/bin/clash-system")
+    # Belt-and-suspenders: clear any leftover bypass ip rule or iptables mark
+    if shutil.which("ip"):
+        run(["ip", "rule", "del", "fwmark", "888", "lookup", "main",
+             "priority", "5000"], check=False, silent=True)
+    if shutil.which("iptables"):
+        run(["iptables", "-t", "mangle", "-D", "OUTPUT",
+             "-j", "MARK", "--set-mark", "888"], check=False, silent=True)
+        run(["iptables", "-t", "nat", "-D", "POSTROUTING",
+             "-m", "mark", "--mark", "888", "-j", "MASQUERADE"],
+            check=False, silent=True)
+        # FORWARD rules installed for gateway clients
+        run(["iptables", "-D", "FORWARD", "-o", "mihomo", "-j", "ACCEPT"],
+            check=False, silent=True)
+        run(["iptables", "-D", "FORWARD", "-i", "mihomo", "-j", "ACCEPT"],
+            check=False, silent=True)
 
     cron_path = Path("/etc/cron.daily/pimiproxy-refresh")
     if cron_path.exists():

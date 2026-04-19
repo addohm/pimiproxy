@@ -1068,6 +1068,91 @@ def build_compose(cfg: dict) -> str:
 BYPASS_SERVICE_PATH = Path("/etc/systemd/system/pimiproxy-bypass.service")
 
 
+# =============================================================================
+# CLASH-SYSTEM (advanced: toggle host-traffic bypass)
+# =============================================================================
+# See pimiproxy-ultralite-core.py for full rationale. In short:
+# - Default: host traffic flows through Mihomo via TUN (auto-route installs
+#   the ip rules that catch it).
+# - `clash-system off` installs fwmark 888 on OUTPUT + ip rule at priority
+#   5000 → main table, plus MASQUERADE on POSTROUTING (so the source IP
+#   doesn't stay as the TUN's 198.18.0.1 when leaving the physical interface).
+# - Gateway clients (Meta Quest etc. using this host as their DHCP gateway)
+#   hit FORWARD, not OUTPUT — so they're never marked 888 and continue
+#   routing through Mihomo regardless of the toggle.
+
+CLASH_SYSTEM_PATH = Path("/usr/local/bin/clash-system")
+
+
+def build_clash_system() -> str:
+    return r"""#!/usr/bin/env bash
+# clash-system — toggle host-traffic bypass
+# Gateway clients (forwarded via this device) are always proxied.
+set -euo pipefail
+
+[[ $EUID -eq 0 ]] || exec sudo "$0" "$@"
+
+MARK=888
+RULE_PRIO=5000
+MARK_HEX=$(printf '0x%x' "$MARK")
+
+G=$'\033[0;32m'; Y=$'\033[1;33m'; R=$'\033[0;31m'; D=$'\033[2m'; B=$'\033[1m'; N=$'\033[0m'
+
+iface_up()        { [[ -d /sys/class/net/mihomo ]]; }
+mark_is_set()     { iptables -t mangle -C OUTPUT -j MARK --set-mark $MARK 2>/dev/null; }
+rule_is_set()     { ip rule show | grep -qE "^${RULE_PRIO}:.*fwmark ${MARK_HEX}.*lookup main"; }
+snat_is_set()     { iptables -t nat -C POSTROUTING -m mark --mark $MARK -j MASQUERADE 2>/dev/null; }
+ensure_rule()     { rule_is_set || ip rule add fwmark "$MARK" lookup main priority "$RULE_PRIO"; }
+remove_rule()     { while rule_is_set; do ip rule del fwmark "$MARK" lookup main priority "$RULE_PRIO" 2>/dev/null || break; done; }
+set_mark()        { mark_is_set || iptables -t mangle -A OUTPUT -j MARK --set-mark $MARK; }
+unset_mark()      { while mark_is_set; do iptables -t mangle -D OUTPUT -j MARK --set-mark $MARK 2>/dev/null || break; done; }
+set_snat()        { snat_is_set || iptables -t nat -A POSTROUTING -m mark --mark $MARK -j MASQUERADE; }
+unset_snat()      { while snat_is_set; do iptables -t nat -D POSTROUTING -m mark --mark $MARK -j MASQUERADE 2>/dev/null || break; done; }
+
+case "${1:-}" in
+    on)
+        iface_up || { echo "${R}✗${N}  mihomo TUN interface not found — is the container running?" >&2; exit 1; }
+        unset_mark
+        unset_snat
+        remove_rule
+        echo "${G}✓${N}  clash-system: ${B}on${N}  ${D}(host traffic routes through proxy — default)${N}"
+    ;;
+    off)
+        iface_up || { echo "${R}✗${N}  mihomo TUN interface not found — is the container running?" >&2; exit 1; }
+        ensure_rule
+        set_mark
+        set_snat
+        echo "${Y}○${N}  clash-system: ${B}off${N}  ${D}(host traffic goes direct; gateway clients still proxied)${N}"
+    ;;
+    status)
+        if mark_is_set; then
+            echo "${Y}○${N}  clash-system: ${B}off${N}  ${D}(host traffic direct)${N}"
+        else
+            echo "${G}✓${N}  clash-system: ${B}on${N}  ${D}(host traffic via proxy)${N}"
+        fi
+        iface_up && echo "   TUN interface: ${G}up${N}" || echo "   TUN interface: ${R}down${N}"
+    ;;
+    *)
+        cat <<EOF
+${B}clash-system${N} — toggle host-traffic bypass for pimiproxy
+
+${B}Usage:${N}  sudo clash-system [on|off|status]
+
+  ${B}on${N}       Host traffic routes through Mihomo ${D}(default){N}
+  ${B}off${N}      Host traffic bypasses Mihomo (goes direct)
+  ${B}status${N}   Show current state
+
+${D}Gateway clients (devices using this host as their DHCP gateway, e.g.
+Meta Quest) are always proxied regardless of this setting.${N}
+
+${D}State is not persisted across reboots; reboot resets to on.${N}
+EOF
+        exit 1
+    ;;
+esac
+"""
+
+
 def build_banner(cfg: dict, meta: dict) -> str:
     """
     Generate /etc/profile.d/pimiproxy-banner.sh — displayed on interactive
@@ -2743,6 +2828,27 @@ def do_install():
         "IP forwarding enabled (persistent via /etc/sysctl.d/99-pimiproxy.conf)."
     )
 
+    # Allow gateway clients (Meta Quest etc.) to reach Mihomo's TUN.
+    # Docker sets FORWARD policy DROP; without this rule, forwarded packets
+    # from LAN devices using this host as their gateway would be dropped.
+    if shutil.which("iptables"):
+        with Spinner("Configuring FORWARD for gateway clients"):
+            run(["iptables", "-D", "FORWARD", "-o", "mihomo", "-j", "ACCEPT"],
+                check=False, silent=True)
+            run(["iptables", "-D", "FORWARD", "-i", "mihomo", "-j", "ACCEPT"],
+                check=False, silent=True)
+            run(["iptables", "-I", "FORWARD", "-o", "mihomo", "-j", "ACCEPT"],
+                check=False, silent=True)
+            run(["iptables", "-I", "FORWARD", "-i", "mihomo", "-j", "ACCEPT"],
+                check=False, silent=True)
+        info("FORWARD rules installed (gateway clients → TUN).")
+
+    # ── clash-system (advanced: toggle host-traffic bypass) ──────────────────
+    step("clash-system utility")
+    CLASH_SYSTEM_PATH.write_text(build_clash_system())
+    CLASH_SYSTEM_PATH.chmod(0o755)
+    info(f"Installed {CLASH_SYSTEM_PATH}  (advanced: sudo clash-system [on|off|status])")
+
     # ── login banner ──────────────────────────────────────────────────────────
     step("Login banner")
 
@@ -3065,12 +3171,28 @@ def do_uninstall():
         _symlink.unlink()
         info(f"Removed {_symlink}")
 
-    # Clean up legacy clash-system if present from older installs
+    # Remove clash-system script and any active bypass rules
     cs = Path("/usr/local/bin/clash-system")
     if cs.exists():
-        run([str(cs), "off"], check=False, silent=True)
+        # Flip to 'on' first so any active mark/rule gets cleared
+        run([str(cs), "on"], check=False, silent=True)
         cs.unlink()
-        info("Removed legacy /usr/local/bin/clash-system")
+        info("Removed /usr/local/bin/clash-system")
+    # Belt-and-suspenders: clear any leftover rules
+    if shutil.which("ip"):
+        run(["ip", "rule", "del", "fwmark", "888", "lookup", "main",
+             "priority", "5000"], check=False, silent=True)
+    if shutil.which("iptables"):
+        run(["iptables", "-t", "mangle", "-D", "OUTPUT",
+             "-j", "MARK", "--set-mark", "888"], check=False, silent=True)
+        run(["iptables", "-t", "nat", "-D", "POSTROUTING",
+             "-m", "mark", "--mark", "888", "-j", "MASQUERADE"],
+            check=False, silent=True)
+        # FORWARD rules for gateway clients
+        run(["iptables", "-D", "FORWARD", "-o", "mihomo", "-j", "ACCEPT"],
+            check=False, silent=True)
+        run(["iptables", "-D", "FORWARD", "-i", "mihomo", "-j", "ACCEPT"],
+            check=False, silent=True)
 
     cron_path = Path("/etc/cron.daily/pimiproxy-refresh")
     if cron_path.exists():
