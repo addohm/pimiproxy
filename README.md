@@ -64,6 +64,17 @@ broader arch coverage because it ships a single self-contained binary.
 | openSUSE | ⬜ Untested | ⬜ Untested |
 | Alpine | ⬜ Untested | ⬜ Untested |
 
+### Package Options
+
+| Archive | mihomo | metacubexd | zashboard | pimiproxy-api | pimiproxy-ui |
+|---|:---:|:---:|:---:|:---:|:---:|
+| `pimiproxy-amd64` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `pimiproxy-arm64` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `pimiproxy-armv7` | ✅ | ❌ | ✅ | ✅ | ✅ |
+| `pimiproxy-ultralite-amd64` | ✅ | — | — | — | — |
+| `pimiproxy-ultralite-arm64` | ✅ | — | — | — | — |
+| `pimiproxy-ultralite-armv7` | ✅ | — | — | — | — |
+| `pimiproxy-ultralite-386` | ✅ | — | — | — | — |
 ---
 
 ## Project files
@@ -85,19 +96,13 @@ The `.tar.gz` archives are not included in the repository. See [docs/INSTRUCTION
 
 ## Quick start
 
-**Option A — Bootstrap (recommended, handles all prerequisites):**
-
-```bash
-sudo ./pimiproxy.sh
-```
-
-This detects your distro, installs essential tools (curl, iproute2, procps), Python, cron, Docker, avahi-daemon, and raspi-config if needed, then launches the installer automatically.
-
-**Option B — Python script directly (if prerequisites are already installed):**
+**Bootstrap (recommended, handles all prerequisites):**
 
 ```bash
 sudo ./pimiproxy.sh install
 ```
+
+This detects your distro, installs essential tools (curl, iproute2, procps), Python, cron, Docker, avahi-daemon, and raspi-config if needed, then launches the installer automatically.
 
 Press Enter through all prompts to accept defaults. See [docs/INSTRUCTIONS.md](docs/INSTRUCTIONS.md) for the full walkthrough.
 
@@ -126,11 +131,13 @@ After install:
 
 | Interface | Default URL |
 |-----------|-------------|
-| Management UI | `http://pimiproxy.lan:8585` |
-| Dashboard (Metacubexd) | `http://pimiproxy.lan:8080` |
-| Mihomo API | `http://pimiproxy.lan:9090` |
+| Management UI | `http://[HOSTNAME].lan:8585` |
+| Dashboard (Metacubexd) | `http://[HOSTNAME].lan:8080` |
+| Mihomo API | `http://[HOSTNAME].lan:9090` |
 
-If your router doesn't use `.lan`, try mDNS: `http://pimiproxy.local:8585`
+If your router doesn't use `.lan`, try mDNS: `http://[HOSTNAME].local:8585`
+
+Alternatively, you can use your devices IP: `http://[DEVICE_IP]:9090`
 
 **Management UI login:** use your API secret (default: `pimiproxy`).
 
@@ -143,7 +150,7 @@ On any device connected to the same network as the SBC, open **proxy settings** 
 | Field | Value |
 |-------|-------|
 | Proxy type | HTTP or SOCKS5 |
-| Host | `10.0.0.240` *(your SBC's IP)* |
+| Host | `192.168.1.100` *(your SBC's IP)* |
 | Port | `7890` |
 | Username / Password | *(leave blank)* |
 
