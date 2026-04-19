@@ -2247,15 +2247,32 @@ def do_china_repos():
         info("System repos switched to Aliyun. Run 'standard-repos' to undo.")
 
     elif distro == "arch":
-        step("Switching pacman mirrorlist to Aliyun")
+        _id = ""
+        if Path("/etc/os-release").exists():
+            for line in Path("/etc/os-release").read_text().splitlines():
+                if line.startswith("ID="):
+                    _id = line.split("=", 1)[1].strip().strip('"')
+                    break
+        is_arch32 = _id in ("arch32", "archlinux32")
+
+        step("Switching pacman mirrorlist")
         ml = Path("/etc/pacman.d/mirrorlist")
         bak = ml.with_suffix(".bak")
         if not bak.exists() and ml.exists():
             shutil.copy2(ml, bak)
-        ml.write_text("Server = https://mirrors.aliyun.com/archlinux/$repo/os/$arch\n")
+        if is_arch32:
+            ml.write_text(
+                "Server = https://mirror.yandex.ru/archlinux32/$arch/$repo\n"
+                "Server = https://de.mirror.archlinux32.org/$arch/$repo\n"
+                "Server = https://mirror.archlinux32.org/$arch/$repo\n"
+            )
+            info("Using archlinux32 mirrors (Yandex + fallbacks).")
+        else:
+            ml.write_text("Server = https://mirrors.aliyun.com/archlinux/$repo/os/$arch\n")
+            info("Using Aliyun mirror.")
         with Spinner("Syncing package database"):
             run(["pacman", "-Sy", "--noconfirm"], check=False)
-        info("Mirrorlist switched to Aliyun. Run 'standard-repos' to undo.")
+        info("Mirrorlist switched. Run 'standard-repos' to undo.")
 
     else:
         warn(f"china-repos is not supported on {distro}.")

@@ -231,11 +231,25 @@ SRCEOF
                 done'
         ;;
         pacman)
-            spin "Configuring Aliyun pacman mirror"  bash -c '
+            spin "Configuring pacman mirror"  bash -c '
+                DISTRO_ID="$(. /etc/os-release && echo "$ID")"
                 [[ -f /etc/pacman.d/mirrorlist ]] && \
                     cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.bak
-                echo "Server = https://mirrors.aliyun.com/archlinux/\$repo/os/\$arch" \
-                    > /etc/pacman.d/mirrorlist'
+                case "$DISTRO_ID" in
+                    arch32|archlinux32)
+                        # Aliyun does not mirror archlinux32; use Russian + fallbacks
+                        # that are reachable from China
+                        cat > /etc/pacman.d/mirrorlist <<EOM
+Server = https://mirror.yandex.ru/archlinux32/\$arch/\$repo
+Server = https://de.mirror.archlinux32.org/\$arch/\$repo
+Server = https://mirror.archlinux32.org/\$arch/\$repo
+EOM
+                    ;;
+                    *)
+                        echo "Server = https://mirrors.aliyun.com/archlinux/\$repo/os/\$arch" \
+                            > /etc/pacman.d/mirrorlist
+                    ;;
+                esac'
         ;;
     esac
 fi

@@ -353,11 +353,23 @@ SRCEOF
                         done'
                 ;;
                 pacman)
-                    spin "Switching system repos to Aliyun"  bash -c '
+                    spin "Switching pacman mirror"  bash -c '
+                        DISTRO_ID="$(. /etc/os-release && echo "$ID")"
                         [[ -f /etc/pacman.d/mirrorlist ]] && \
                             cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.bak
-                        echo "Server = https://mirrors.aliyun.com/archlinux/\$repo/os/\$arch" \
-                            > /etc/pacman.d/mirrorlist
+                        case "$DISTRO_ID" in
+                            arch32|archlinux32)
+                                cat > /etc/pacman.d/mirrorlist <<EOM
+Server = https://mirror.yandex.ru/archlinux32/\$arch/\$repo
+Server = https://de.mirror.archlinux32.org/\$arch/\$repo
+Server = https://mirror.archlinux32.org/\$arch/\$repo
+EOM
+                            ;;
+                            *)
+                                echo "Server = https://mirrors.aliyun.com/archlinux/\$repo/os/\$arch" \
+                                    > /etc/pacman.d/mirrorlist
+                            ;;
+                        esac
                         pacman -Sy --noconfirm'
                 ;;
             esac
