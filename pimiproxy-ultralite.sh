@@ -61,8 +61,13 @@ spin() {
 
 [[ $EUID -eq 0 ]] || die "Run as root:  sudo bash $0 [install|uninstall|configure]"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve symlinks so /usr/local/bin/pimiproxy-ultralite → real path works.
+SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 PYTHON_SCRIPT="${SCRIPT_DIR}/pimiproxy-ultralite-core.py"
+
+# Signal to pimiproxy-ultralite-core.py that it's being invoked via the wrapper.
+export PIMIPROXY_VIA_WRAPPER=1
 
 PIMIPROXY_CMD="${1:-}"
 

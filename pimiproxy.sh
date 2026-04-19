@@ -76,8 +76,15 @@ timed_step() {
 
 [[ $EUID -eq 0 ]] || die "Run as root:  sudo bash $0 [install|uninstall|configure]"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve symlinks so /usr/local/bin/pimiproxy → /opt/pimiproxy/pimiproxy.sh
+# still finds pimiproxy-core.py in the correct directory.
+SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 PYTHON_SCRIPT="${SCRIPT_DIR}/pimiproxy-core.py"
+
+# Signal to pimiproxy-core.py that it's being invoked via the wrapper.
+# The core script prints a warning if this is missing.
+export PIMIPROXY_VIA_WRAPPER=1
 
 PIMIPROXY_CMD="${1:-}"
 

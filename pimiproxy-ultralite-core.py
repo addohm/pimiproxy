@@ -1714,18 +1714,39 @@ def do_install():
     run(["sysctl", "-w", "net.ipv4.ip_forward=1"], silent=True)
     info("IP forwarding enabled (persistent via /etc/sysctl.d/99-pimiproxy.conf).")
 
-    # ── refresh script + cron ─────────────────────────────────────────────────
-    step("Refresh script")
+    # ── refresh script + wrapper + cron ───────────────────────────────────────
+    step("Wrapper + refresh script")
     script_dest = install_path / "pimiproxy-ultralite.py"
     shutil.copy2(__file__, script_dest)
-    info(f"Script copied to {script_dest}.")
+    info(f"Core script copied to {script_dest}.")
+
+    # Copy the wrapper script if available, and symlink for global access
+    _wrapper_src = Path(__file__).resolve().parent / "pimiproxy-ultralite.sh"
+    wrapper_dest = install_path / "pimiproxy-ultralite.sh"
+    if _wrapper_src.exists():
+        shutil.copy2(_wrapper_src, wrapper_dest)
+        wrapper_dest.chmod(0o755)
+        info(f"Wrapper copied to {wrapper_dest}.")
+
+        _symlink = Path("/usr/local/bin/pimiproxy-ultralite")
+        if _symlink.is_symlink() or _symlink.exists():
+            _symlink.unlink()
+        _symlink.symlink_to(wrapper_dest)
+        info(f"Symlink: {_symlink} → {wrapper_dest}")
 
     cron_path = Path("/etc/cron.daily/pimiproxy-refresh")
-    cron_path.write_text(
-        "#!/usr/bin/env bash\n"
-        "# pimiproxy-ultralite subscription auto-refresh\n"
-        f'exec python3 "{script_dest}" refresh-cron\n'
-    )
+    if _wrapper_src.exists():
+        cron_path.write_text(
+            "#!/usr/bin/env bash\n"
+            "# pimiproxy-ultralite subscription auto-refresh\n"
+            f'exec "{wrapper_dest}" refresh-cron\n'
+        )
+    else:
+        cron_path.write_text(
+            "#!/usr/bin/env bash\n"
+            "# pimiproxy-ultralite subscription auto-refresh\n"
+            f'exec python3 "{script_dest}" refresh-cron\n'
+        )
     cron_path.chmod(0o755)
     info("Daily refresh cron installed.")
 
@@ -1981,6 +2002,12 @@ def do_uninstall():
     if install_dir.exists():
         shutil.rmtree(install_dir)
         info(f"Removed {install_dir}")
+
+    # Remove the /usr/local/bin/pimiproxy-ultralite symlink
+    _symlink = Path("/usr/local/bin/pimiproxy-ultralite")
+    if _symlink.is_symlink() or _symlink.exists():
+        _symlink.unlink()
+        info(f"Removed {_symlink}")
 
     # Clean up legacy clash-system if present from older installs
     cs = Path("/usr/local/bin/clash-system")
@@ -2311,6 +2338,13 @@ _TAKES_ARG = {"hostname", "debug", "export", "rule-add", "rule-remove", "test"}
 
 
 def main():
+    # Warn if invoked directly instead of through the wrapper.
+    if os.environ.get("PIMIPROXY_VIA_WRAPPER") != "1":
+        print(f"{C.YELLOW}  ⚠{C.NC}  pimiproxy-ultralite-core.py should be run via the wrapper:")
+        print(f"     {C.BOLD}sudo pimiproxy-ultralite {' '.join(sys.argv[1:]) or '<command>'}{C.NC}")
+        print(f"     (or {C.DIM}sudo /opt/pimiproxy-lite/pimiproxy-ultralite.sh <command>{C.NC})")
+        print()
+
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     cmd  = args[0] if args else "install"
 
