@@ -95,6 +95,13 @@ Download the archive that matches your device's CPU architecture. Run
 | `armv7l` | ARM 32-bit (Pi 3) | `pimiproxy-armv7.tar.gz` | `pimiproxy-ultralite-armv7.tar.gz` |
 | `i686` | x86 32-bit | *(not available)* | `pimiproxy-ultralite-386.tar.gz` |
 
+> **Raspberry Pi note:** some Pi 4 images (particularly 32-bit Raspbian
+> Lite) ship a **64-bit kernel with 32-bit userspace**. On those systems
+> `uname -m` returns `aarch64` but `dpkg --print-architecture` returns
+> `armhf`. Always use `uname -m` as your guide — the `arm64` archive is
+> the correct pick because mihomo runs under the kernel, and a 64-bit
+> kernel can execute 64-bit binaries regardless of userspace.
+
 Archive sizes are roughly:
 
 | Archive | Size |
