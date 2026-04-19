@@ -1,583 +1,447 @@
-# pimiproxy — Installation & Usage Instructions
+# pimiproxy — User Guide
+
+A step-by-step guide to installing and using pimiproxy on your device.
+If you want a technical overview or to contribute to the project, see
+[MAINTAINER.md](MAINTAINER.md) instead.
+
+---
+
+## What you'll end up with
+
+A small Linux device (Raspberry Pi, a mini-PC, a spare laptop, or a
+virtual machine) that acts as a proxy server for every other device on
+your home network. Point your phone, computer, console, or VR headset at
+that device on port `7890` and its internet traffic will be routed
+through your Clash/Mihomo subscription.
+
+Two flavours:
+
+- **Full** — includes a web dashboard and a browser-based management UI.
+  Requires Docker. Good for arm64 (Pi 4/5) or amd64 (PC/mini-PC).
+- **Ultralite** — no Docker, no web UI. Just Mihomo as a systemd service
+  and a CLI. Good for armv7 (Pi 3), older/low-power hardware, or users
+  who prefer minimal installs.
 
 ---
 
 ## Table of contents
 
 1. [Before you begin](#1-before-you-begin)
-2. [Preparing offline image archives (optional)](#2-preparing-offline-image-archives-optional)
-3. [Running the installer](#3-running-the-installer)
-4. [Installer prompts explained](#4-installer-prompts-explained)
-5. [Connecting devices to the proxy](#5-connecting-devices-to-the-proxy)
-6. [Accessing the dashboard](#6-accessing-the-dashboard)
-7. [Web management UI](#7-web-management-ui)
-8. [Configuring proxy groups and rules](#8-configuring-proxy-groups-and-rules)
-9. [Day-to-day management](#9-day-to-day-management)
-10. [Uninstalling](#10-uninstalling)
-11. [Troubleshooting](#11-troubleshooting)
+2. [Pick the right archive](#2-pick-the-right-archive)
+3. [Transfer the archive to your device](#3-transfer-the-archive-to-your-device)
+4. [Extract and run the installer](#4-extract-and-run-the-installer)
+5. [Answer the installer prompts](#5-answer-the-installer-prompts)
+6. [Connect a device to the proxy](#6-connect-a-device-to-the-proxy)
+7. [Access the dashboard (full variant only)](#7-access-the-dashboard-full-variant-only)
+8. [Access the web management UI (full variant only)](#8-access-the-web-management-ui-full-variant-only)
+9. [Everyday CLI commands](#9-everyday-cli-commands)
+10. [Testing that it works](#10-testing-that-it-works)
+11. [Meta Quest / gateway-mode devices](#11-meta-quest--gateway-mode-devices)
+12. [Uninstalling](#12-uninstalling)
+13. [Troubleshooting](#13-troubleshooting)
 
 ---
 
 ## 1. Before you begin
 
-**On the SBC:**
-- Supported OS: Raspberry Pi OS, Debian, Ubuntu, Fedora, Arch, openSUSE, Alpine, or any compatible derivative
-- SBC is connected to your network via ethernet (recommended) or WiFi
-- You know the SBC's IP address — check your router's device list, or run `hostname -I` on the SBC
-- You have SSH access or a keyboard/monitor connected
+You'll need:
 
-**On your network:**
-- The SBC's IP should ideally be static, or reserved in your router's DHCP settings so it doesn't change. pimiproxy does not configure a static IP for you.
+- **A device** to run pimiproxy on, with a supported OS:
+  - Raspberry Pi OS (64-bit preferred)
+  - Debian 12 / 13, Ubuntu 24.04+, Xubuntu, Lubuntu
+  - Fedora 41+, Arch Linux, Arch Linux 32
+- **Root access** on that device (`sudo` works).
+- **A Clash/Mihomo subscription URL** from your VPN provider — the one
+  that looks like `https://provider.example.com/api?token=abc123`.
+  This is NOT the same as a `.ovpn` file or a WireGuard config.
+- **The device's IP address.** Run `hostname -I` on the device, or check
+  your router's device list. Write it down — you'll need it.
 
----
-
-## 2. Preparing offline image archives (optional)
-
-If your SBC has limited or no internet access, you can pre-build or pre-pull the Docker images on another machine and transfer them to the SBC.
-
-### Third-party images (pulled from registries)
-
-Run the following on your other machine (must have Docker installed and QEMU binfmt set up for arm64 cross-builds):
-
-```bash
-# Pull for arm64
-docker pull --platform linux/arm64 ghcr.io/metacubex/mihomo:latest
-docker pull --platform linux/arm64 ghcr.io/metacubex/metacubexd:latest
-docker pull --platform linux/arm64 ghcr.io/zephyruso/zashboard:latest
-
-# Save to compressed archives in the docker-images/ directory
-docker save ghcr.io/metacubex/mihomo:latest     | gzip > docker-images/mihomo.tar.gz
-docker save ghcr.io/metacubex/metacubexd:latest  | gzip > docker-images/metacubexd.tar.gz
-docker save ghcr.io/zephyruso/zashboard:latest   | gzip > docker-images/zashboard.tar.gz
-```
-
-### pimiproxy-api and pimiproxy-ui (built from source)
-
-These two images are built locally from the `pimiproxy-api/` and `pimiproxy-ui/` source directories. If the SBC cannot run `docker build` (e.g. no internet access for base image pulls), build them on your other machine and save the result:
-
-```bash
-# Enable arm64 cross-build support (one-time setup)
-docker run --privileged --rm tonistiigi/binfmt --install arm64
-
-# Build for arm64
-docker build --platform linux/arm64 -t pimiproxy-api:latest ./pimiproxy-api/
-docker build --platform linux/arm64 -t pimiproxy-ui:latest  ./pimiproxy-ui/
-
-# Save to compressed archives
-docker save pimiproxy-api:latest | gzip > docker-images/pimiproxy-api.tar.gz
-docker save pimiproxy-ui:latest  | gzip > docker-images/pimiproxy-ui.tar.gz
-```
-
-### Transfer to the SBC
-
-```bash
-rsync -avz docker-images/ user@pimiproxy.lan:~/pimiproxy/docker-images/
-```
-
-Place all `.tar.gz` archives in the `docker-images/` subdirectory alongside `pimiproxy-core.py`. If archives are present when the installer runs, they will be loaded from disk instead of pulled or built from source.
-
-### Geodata files (bundled with pimiproxy)
-
-`geoip.metadb`, `geosite.dat`, and `country.mmdb` should also be placed in `docker-images/`. The installer copies them to `/opt/pimiproxy/config/` so Mihomo has them available without needing network access to GitHub. These files are required for GEOSITE and GEOIP rule matching. `geo-auto-update: false` is set in all generated configs — Mihomo will never attempt to download or update them at runtime.
+> **This installer assumes a fresh OS install.** It modifies the
+> hostname, DNS config, firewall rules, and on China-mirror mode the
+> system package sources. Don't run it on a machine you're using for
+> other purposes.
 
 ---
 
-## 3. Running the installer
+## 2. Pick the right archive
 
-SSH into your SBC (or open a terminal on it directly) and navigate to the directory containing the pimiproxy files.
+Download the archive that matches your device's CPU architecture. Run
+`uname -m` on the device to find out:
 
-### Option A — Bootstrap (recommended)
+| `uname -m` output | CPU | Full archive | Ultralite archive |
+|---|---|---|---|
+| `x86_64` | Intel/AMD 64-bit | `pimiproxy-amd64.tar.gz` | `pimiproxy-ultralite-amd64.tar.gz` |
+| `aarch64` | ARM 64-bit (Pi 4/5) | `pimiproxy-arm64.tar.gz` | `pimiproxy-ultralite-arm64.tar.gz` |
+| `armv7l` | ARM 32-bit (Pi 3) | `pimiproxy-armv7.tar.gz` | `pimiproxy-ultralite-armv7.tar.gz` |
+| `i686` | x86 32-bit | *(not available)* | `pimiproxy-ultralite-386.tar.gz` |
 
-The bootstrap script detects your distro, installs essential tools (curl, iproute2, procps), Python 3, cron, Docker (via the official `get.docker.com` installer), avahi-daemon, and raspi-config automatically, then launches the Python installer. This is the easiest path and works on Debian, Ubuntu, Fedora, Arch, openSUSE, Alpine, and their derivatives.
+Archive sizes are roughly:
 
-```bash
-sudo ./pimiproxy.sh
-```
-
-Pass a subcommand to control what happens after prerequisites are confirmed:
-
-```bash
-sudo ./pimiproxy.sh install     # default
-sudo ./pimiproxy.sh uninstall
-sudo ./pimiproxy.sh configure
-```
-
-### Option B — Python script directly
-
-If Python 3, Docker + Compose, cron, and avahi-daemon are already installed:
-
-```bash
-sudo ./pimiproxy.sh install
-```
-
-The script will walk you through a series of prompts. Press **Enter** at each one to accept the default value shown in brackets.
-
-To uninstall later:
-
-```bash
-sudo ./pimiproxy.sh uninstall
-```
-
-### Installing from mainland China
-
-Docker's package servers (`download.docker.com`) and standard distro repositories are frequently blocked or unreachable from mainland China. If `pimiproxy.sh` needs to install Docker CE, it will ask:
-
-```
-  Is this device located in China? (use Aliyun mirrors for Docker CE) [y/N]:
-```
-
-Answer **y** to switch system package repositories (apt/dnf/pacman) and Docker CE to Aliyun mirrors. On Debian/Ubuntu, apt sources are replaced with `mirrors.aliyun.com` (with a separate `/debian-security` mirror path for Debian security updates). On Fedora, core repos are switched to Aliyun base URLs and third-party repos (cisco-openh264 etc.) are disabled. On Arch, the mirrorlist is replaced with Aliyun. This question only appears during install. Everything else — image pulls, subscription fetches, runtime traffic — is unaffected and routes through whatever proxy you configure.
-
-After install, you can switch mirrors at any time:
-
-```bash
-sudo ./pimiproxy.sh china-repos      # Switch to Aliyun mirrors
-sudo ./pimiproxy.sh standard-repos    # Restore original repos from backups
-```
-
-### Supported platforms
-
-| Distro family | Package manager | Docker package |
-|---|---|---|
-| Debian / Raspberry Pi OS / Ubuntu / Mint | apt | `docker.io` (distro repo) or Docker CE via official repo |
-| Fedora / RHEL / CentOS / Rocky / Alma | dnf | `docker-ce` via Docker CE repo |
-| Arch / Manjaro / EndeavourOS | pacman | `docker` (community repo) or Docker CE via `get.docker.com` |
-| openSUSE | zypper | `docker-ce` via Docker CE repo |
-| Alpine | apk | `docker-ce` via Docker CE repo |
-
-The installer detects your distro automatically from `/etc/os-release` and selects the correct package manager and package names. No manual configuration is required.
+| Archive | Size |
+|---|---|
+| Any full variant | ~120–180 MB |
+| Any ultralite variant | ~12 MB |
 
 ---
 
-## 4. Installer prompts explained
+## 3. Transfer the archive to your device
 
-### Install directory
-**Default: `/opt/pimiproxy`**
+### If you have SSH access
 
-Where all pimiproxy files live — the Docker Compose file, Mihomo config, and install metadata. Leave this as the default unless you have a specific reason to change it.
-
-### Hostname
-**Default: `pimiproxy` (or the current hostname if the device has already been renamed)**
-
-Sets the SBC's system hostname. Limited to 24 characters, alphanumeric and hyphens only. After install the SBC will be reachable as `<hostname>.lan` on routers that assign `.lan` hostnames via DHCP/DNS, and as `<hostname>.local` via mDNS on devices that support it.
-
-If the device's hostname is already something other than a generic default (`raspberrypi`, `localhost`, `debian`, `ubuntu`, `alarm`), the installer will pre-fill the prompt with the existing name — press Enter to keep it unchanged.
-
-If the hostname is changed during install, you will be asked at the end whether you want to reboot. A reboot is the easiest way to ensure the router registers the new hostname via DHCP. The `.local` mDNS name is available immediately without a reboot.
-
-You can also change the hostname at any time after install:
+From your computer:
 
 ```bash
-sudo ./pimiproxy.sh hostname <new-hostname>
+scp pimiproxy-amd64.tar.gz user@device-ip:/tmp/
 ```
 
-This updates the system hostname, automatically restarts avahi-daemon so `.local` takes effect immediately, and prompts you to reboot for the `.lan` name to propagate.
+Replace `pimiproxy-amd64.tar.gz` with your archive filename and
+`user@device-ip` with your device's username and IP (e.g. `pi@10.0.0.240`).
 
-### Dashboard port
-**Default: `8080`**
+### If the device has a browser
 
-The port the web dashboard is served on. Open `http://<sbc-ip>:8080` in a browser to access it.
+Open a browser on the device, download the archive, and move it to
+`/tmp`:
 
-### Mihomo API port
-**Default: `9090`**
-
-The port the Mihomo API listens on. The dashboard communicates with Mihomo through this port. You generally do not need to change this unless something else on the SBC is already using 9090.
-
-### Mixed proxy port
-**Default: `7890`**
-
-The port other devices use to connect to the proxy. This is the port you enter in proxy settings on phones, computers, etc. It accepts both HTTP and SOCKS5 connections on the same port.
-
-### API secret
-**Default: `pimiproxy`**
-
-A password used by the dashboard to authenticate with the Mihomo API. The secret is shown in the install summary at the end of the install process. You will be prompted to enter it in the dashboard on first load. Change it to something stronger if the SBC is accessible outside your home network.
-
-### Provider URL
-**Default: none (optional)**
-
-If you have a proxy provider service, paste your Clash-compatible API URL here. This must be a **Clash/Mihomo API URL** — the kind your provider gives you specifically for use with Clash, Mihomo, or compatible clients. It is not a regular VPN config file, an app download link, or a WireGuard/OpenVPN config.
-
-Examples of what this looks like:
-```
-https://provider.example.com/api/v1/client/subscribe?token=abc123
-https://another-provider.example.com/clash?token=abc123
+```bash
+sudo mv ~/Downloads/pimiproxy-amd64.tar.gz /tmp/
 ```
 
-If you provide a URL, the installer will fetch it immediately and validate that it contains proxies before proceeding. The installer will generate a complete working config with:
-- A `select` group — pick a server manually from the dashboard
-- An `Auto - Fastest` group — automatically uses the lowest-latency server
-- LAN and private IP bypass rules so local traffic never goes through the proxy
-- Daily automatic refresh of the server list from your provider
+### USB stick
 
-If you leave it blank, the proxy will still run but will pass all traffic through directly (no upstream provider). You can add a subscription later by running `sudo ./pimiproxy.sh configure`.
-
-### Dashboard choice
-**Default: `1` (Metacubexd)**
-
-Two dashboard options are available:
-
-| Option | Description |
-|--------|-------------|
-| **Metacubexd** | Clean, standard dashboard. Good for most users. |
-| **Zashboard** | More detailed, power-user focused. More controls and stats. |
-
-Both connect to the same Mihomo instance. You can switch between them at any time without reinstalling — use option 8 in the `configure` menu.
+Copy the archive to a USB drive, plug it into the device, and copy it
+off — or mount it and use it directly.
 
 ---
 
-## 5. Connecting devices to the proxy
+## 4. Extract and run the installer
 
-The proxy is available immediately after install. Devices connect by setting their **proxy settings** — not their WiFi/network settings. The device stays connected to the network normally; you are only telling it to route application traffic through the SBC.
+SSH into your device (or open a terminal on it), then:
 
-**The proxy address for all devices (default settings):**
+```bash
+cd /tmp && tar xzf pimiproxy-amd64.tar.gz
+```
+
+Replace the filename with your archive's name. You'll get a folder —
+either `pimiproxy/` (full) or `pimiproxy-ultralite/` (ultralite).
+
+Now launch the installer:
+
+```bash
+sudo ./pimiproxy/pimiproxy.sh install
+```
+
+Or for the ultralite variant:
+
+```bash
+sudo ./pimiproxy-ultralite/pimiproxy-ultralite.sh install
+```
+
+The installer takes a few minutes the first time. It installs
+prerequisites (Python, Docker if full, cron, avahi), configures the
+firewall, loads the Mihomo binary or Docker images, and starts
+everything up.
+
+---
+
+## 5. Answer the installer prompts
+
+You'll see a handful of prompts. Here's what each one asks and what to
+put:
+
+### "Is this device located in China?"
+
+Answer **y** if you're in mainland China. This switches system package
+sources to Aliyun (so `apt`/`dnf`/`pacman` work without a VPN) and uses
+Aliyun for Docker. Answer **n** anywhere else.
+
+### "Install mode"
+
+- **1 — Express** (recommended): asks only for hostname and provider
+  URL, uses defaults for everything else.
+- **2 — Advanced**: walks through every option (install directory,
+  ports, API secret, dashboard choice).
+
+Pick **1** unless you have a specific reason not to.
+
+### "Hostname"
+
+The name this device will answer to on your network. Defaults to
+`pimiproxy`. After install you'll be able to reach it at
+`pimiproxy.lan` or `pimiproxy.local`.
+
+- Max 24 characters.
+- Letters, digits, and hyphens only.
+- Can't start or end with a hyphen.
+
+Press Enter to accept the default, or type a new name.
+
+### "Provider URL"
+
+Paste your Clash/Mihomo subscription URL here. It looks like:
+
+```
+https://some-provider.example.com/api/v1/client/subscribe?token=abcdef
+```
+
+The installer fetches the URL to make sure it returns a valid config.
+If it can't, it'll ask **"Use it anyway?"** — answer **n** to try a
+different URL, or **y** to continue (useful if the subscription is
+temporarily down but you know the URL is correct).
+
+You can also leave it blank and add it later via `configure`.
+
+### "Reboot now?" (only if hostname changed)
+
+If you gave the device a new hostname, the router might still know it
+by the old name until the DHCP lease renews. Reboot to refresh, or
+answer **n** and the mDNS name (`<hostname>.local`) will work
+immediately anyway.
+
+---
+
+## 6. Connect a device to the proxy
+
+On any device on the same network (laptop, phone, game console,
+whatever), open its **proxy settings** — NOT Wi-Fi or network settings.
 
 | Field | Value |
-|-------|-------|
-| Host / Server | Your SBC's IP address, e.g. `10.0.0.240` |
+|---|---|
+| Proxy type | HTTP or SOCKS5 |
+| Host | Your pimiproxy device IP (e.g. `10.0.0.240`) or `pimiproxy.lan` |
 | Port | `7890` |
-| Type | HTTP or SOCKS5 (both work on the same port) |
-| Username | *(leave blank)* |
-| Password | *(leave blank)* |
+| Username/Password | *(leave blank)* |
 
-### Windows
+The same port accepts both HTTP and SOCKS5 traffic.
 
-Settings → Network & Internet → Proxy → Manual proxy setup
-
-Turn on "Use a proxy server", enter the host and port, save.
-
-### macOS
-
-System Settings → Network → select your connection → Details → Proxies
-
-Enable "Web Proxy (HTTP)" and/or "SOCKS Proxy", enter host and port.
-
-### iPhone / iPad
-
-Settings → Wi-Fi → tap the `ⓘ` next to your network → Configure Proxy → Manual
-
-Enter the server and port.
-
-### Android
-
-Settings → Wi-Fi → long press your network → Modify network → Advanced options → Proxy → Manual
-
-Enter the hostname and port.
-
-### Linux (system-wide)
-
-Varies by desktop environment. In GNOME: Settings → Network → Network Proxy → Manual.
-
-Or set environment variables for terminal sessions:
-
-```bash
-export http_proxy="http://10.0.0.240:7890"
-export https_proxy="http://10.0.0.240:7890"
-export all_proxy="socks5://10.0.0.240:7890"
-```
+Browse a couple of sites to confirm it's working.
 
 ---
 
-## 6. Accessing the dashboard
+## 7. Access the dashboard (full variant only)
 
-Open a browser and navigate to:
+The dashboard shows live traffic, which rule matched each connection,
+latency to each proxy node, and lets you switch which server a proxy
+group uses.
+
+Open in any browser on your network:
 
 ```
 http://pimiproxy.lan:8080
 ```
 
-If `.lan` doesn't resolve, try mDNS (most non-Android devices):
-
-```
-http://pimiproxy.local:8080
-```
-
-Or by IP directly:
+Replace `pimiproxy` with whatever hostname you chose. If `.lan` doesn't
+work, try `.local`, or use the IP:
 
 ```
 http://10.0.0.240:8080
 ```
 
-On first load the dashboard will ask for the API backend address and secret:
+When it asks for the **API URL** and **secret**:
 
-- **API URL:** `http://pimiproxy.lan:9090` (or `http://10.0.0.240:9090`)
-- **Secret:** `pimiproxy` (or whatever you set during install)
+- **API URL**: `http://pimiproxy.lan:9090` (or the IP equivalent)
+- **Secret**: whatever the installer set as the API secret (default is
+  `pimiproxy` — shown at the end of the install)
 
-The dashboard shows live connections, traffic speed, active rules, and lets you switch proxy modes and groups without restarting Mihomo.
+### What you can do in the dashboard
 
----
-
-## 7. Web management UI
-
-pimiproxy includes a browser-based management UI for managing proxy groups, rules, and the provider URL — no SSH required.
-
-**Default URL:** `http://pimiproxy.lan:8585`
-
-Log in with your API secret (default: `pimiproxy`).
-
-The UI has five tabs:
-
-| Tab | Description |
-|-----|-------------|
-| **Overview** | Container status, proxy count, and provider info |
-| **Groups** | View provider groups (read-only) and manage your own groups |
-| **Rules** | Manage your rules (drag to reorder); provider rules shown below as read-only |
-| **Check URL** | Test whether a URL is reachable through the proxy. Shows HTTP status, latency, and the live Mihomo routing decision (matched rule, proxy chain) |
-| **Settings** | Provider URL, manual refresh, port info |
-
-The UI is served by two Docker containers (`pimiproxy-api` and `pimiproxy-ui`) that are built and started as part of the install. If they are not running, use option 11 in the `configure` menu to build or rebuild them:
-
-```bash
-sudo ./pimiproxy.sh configure
-# choose option 11
-```
+- **Overview** — live upload/download, memory, active connections.
+- **Proxies** — tap a proxy group to switch its active node. Useful for
+  picking a server in a specific region, or fallback when the default
+  node is slow.
+- **Rules** — see the rule list (read-only in the dashboard).
+- **Connections** — live list of every connection Mihomo is handling,
+  with the matched rule and chosen proxy.
+- **Logs** — Mihomo's log output.
 
 ---
 
-## 8. Configuring proxy groups and rules
+## 8. Access the web management UI (full variant only)
 
-Use the interactive configurator to manage your subscription URL, proxy groups, rules, ports, API secret, and dashboard choice:
+The management UI is separate from the dashboard. It's for editing
+pimiproxy's config — adding custom rules and proxy groups on top of
+what your provider ships.
 
-```bash
-sudo ./pimiproxy.sh configure
+```
+http://pimiproxy.lan:8585
 ```
 
-### Configure mode menu
+**Login:** use the same API secret (default `pimiproxy`).
 
-| Option | Description |
-|--------|-------------|
-| 1) Manage provider URL | Add or change your Clash/Mihomo API URL |
-| 2) Manage proxy groups | Add or remove proxy groups |
-| 3) Manage rules | Add, remove, or reorder routing rules |
-| 4) Show current config | Print the live config.yaml to screen |
-| 5) Refresh provider now | Re-fetch server list and restart Mihomo |
-| 6) Change API secret | Update the dashboard API password |
-| 7) Change ports | Change dashboard, API, proxy, or UI ports |
-| 8) Switch dashboard | Swap between Metacubexd and Zashboard |
-| 9) Save and apply | Write changes and optionally restart containers |
-| 10) Exit without saving | Discard all changes |
-| 11) Enable / rebuild web management UI | Build or reload the pimiproxy-api and pimiproxy-ui containers |
+### What's in the UI
 
-**Proxy groups** — add groups that control how traffic is routed:
+- **Overview** — proxy engine status, system proxy toggle (if
+  applicable), proxy count, provider info.
+- **Groups** — add your own proxy groups on top of the provider's.
+- **Rules** — add your own routing rules (applied with higher priority
+  than provider rules).
+- **Settings** — provider URL, manual refresh, port summary.
 
-| Type | Behaviour |
-|------|-----------|
-| `select` | You pick a server manually in the dashboard |
-| `url-test` | Automatically uses the fastest server |
-| `fallback` | Uses the first available server |
-| `load-balance` | Spreads connections across servers |
+Changes saved in the UI apply immediately — the Mihomo container
+restarts automatically.
 
-**Rules** — control which traffic goes where. Rules are evaluated top to bottom:
+---
 
-| Example | Meaning |
-|---------|---------|
-| `DOMAIN-SUFFIX,google.com,Proxy` | Send Google traffic via Proxy group |
-| `IP-CIDR,192.168.0.0/16,DIRECT` | Keep LAN traffic direct |
-| `MATCH,Proxy` | Send everything else via Proxy (catch-all) |
+## 9. Everyday CLI commands
 
-**Presets** — common rule sets available in one step: LAN bypass, local hostname bypass, and catch-all options.
+Run these on the device itself (SSH or local terminal). All commands
+use the wrapper script — you don't need to call Python directly.
 
-**Port changes** — changing the dashboard port rebuilds `docker-compose.yml` and recreates the dashboard container on save. Changing the API or proxy port rebuilds `config.yaml` and restarts Mihomo.
-
-**Dashboard switch** — pulls or loads the new dashboard image and rebuilds `docker-compose.yml`. The container is recreated on save.
-
-After making changes, option 9 will ask whether to restart the affected containers immediately.
-
-To restart Mihomo manually after editing `/opt/pimiproxy/config/config.yaml` directly:
+### Full variant
 
 ```bash
-sudo ./pimiproxy.sh restart mihomo
+sudo ./pimiproxy.sh                          # show help
+sudo ./pimiproxy.sh status                   # container health + connectivity test
+sudo ./pimiproxy.sh test                     # test every proxy group
+sudo ./pimiproxy.sh test --url https://google.com  # test one URL, see matched rule
+sudo ./pimiproxy.sh refresh                  # re-fetch provider URL
+sudo ./pimiproxy.sh logs                     # tail Mihomo logs
+sudo ./pimiproxy.sh logs dashboard           # tail dashboard logs
+sudo ./pimiproxy.sh restart                  # restart all containers
+sudo ./pimiproxy.sh restart mihomo           # restart one container
+sudo ./pimiproxy.sh update                   # pull latest Docker images
+sudo ./pimiproxy.sh configure                # interactive config menu
+sudo ./pimiproxy.sh hostname newname         # change hostname
+```
+
+### Ultralite variant
+
+```bash
+sudo ./pimiproxy-ultralite.sh                            # show help
+sudo ./pimiproxy-ultralite.sh status                     # service + connectivity test
+sudo ./pimiproxy-ultralite.sh test                       # test every proxy group
+sudo ./pimiproxy-ultralite.sh test --url https://...     # test one URL
+sudo ./pimiproxy-ultralite.sh refresh                    # re-fetch provider URL
+sudo ./pimiproxy-ultralite.sh logs                       # tail Mihomo logs
+sudo ./pimiproxy-ultralite.sh restart                    # restart Mihomo
+sudo ./pimiproxy-ultralite.sh configure                  # interactive config menu
+sudo ./pimiproxy-ultralite.sh rule-list                  # list user rules
+sudo ./pimiproxy-ultralite.sh rule-add "DOMAIN-SUFFIX,example.com,DIRECT"
+sudo ./pimiproxy-ultralite.sh rule-remove 1              # remove rule by index
 ```
 
 ---
 
-## 9. Day-to-day management
+## 10. Testing that it works
 
-### Login banner
-
-A status banner is displayed automatically on every interactive SSH or terminal login:
-
-```
-  pimiproxy
-  ──────────────────────────────────────────
-  Proxy engine    ●  running
-  TUN mode        ●  always on
-  Proxies loaded     47
-  AES hardware    ●  available
-  ──────────────────────────────────────────
-  Dashboard  →  http://pimiproxy.lan:8080
-  UI         →  http://pimiproxy.lan:8585
-  API        →  http://pimiproxy.lan:9090
-  Proxy      →  pimiproxy.lan:7890  (HTTP/SOCKS5)
-  ──────────────────────────────────────────
-  pimiproxy-core.py [status|logs|configure|debug]
-  ──────────────────────────────────────────
-```
-
-The AES line shows green `●  available` when the CPU has hardware AES acceleration, or yellow `○  software fallback — higher latency` when it does not. This is checked once at install time and baked into the banner — it won't change unless you reinstall.
-
-The banner is installed to `/etc/profile.d/pimiproxy-banner.sh` (for login shells via SSH) and sourced from `/etc/bash.bashrc` (for desktop terminals / non-login shells). Both are removed by the uninstaller. If you change ports via `configure`, the banner is rebuilt automatically.
-
-### Check status
+### Quick health check
 
 ```bash
 sudo ./pimiproxy.sh status
 ```
 
-Shows container health, subscription info (URL and number of proxies loaded), and runs a live HTTP and HTTPS connectivity test through the proxy with latency results.
+You'll see:
 
-### View logs
+- **Containers** (full) or **Mihomo service** (ultralite) — should say
+  `up` or `active`.
+- **TUN interface** — should say `up`.
+- **Provider** — shows the URL and number of proxies loaded.
+- **Proxy connectivity test** — sends an HTTP and HTTPS request through
+  the proxy. Both should return `204` in a few hundred milliseconds.
+- **Endpoints** — summary of URLs and ports.
 
-```bash
-sudo ./pimiproxy.sh logs                   # Mihomo logs (default)
-sudo ./pimiproxy.sh logs dashboard         # Dashboard logs
-sudo ./pimiproxy.sh logs pimiproxy-api     # API container logs
-sudo ./pimiproxy.sh logs pimiproxy-ui      # UI container logs
-```
-
-Press Ctrl-C to stop the log stream.
-
-### Restart containers
+### Test a specific URL
 
 ```bash
-sudo ./pimiproxy.sh restart                # Restart all containers
-sudo ./pimiproxy.sh restart mihomo         # Restart Mihomo only
-sudo ./pimiproxy.sh restart dashboard      # Restart dashboard only
-sudo ./pimiproxy.sh restart pimiproxy-api  # Restart API only
-sudo ./pimiproxy.sh restart pimiproxy-ui   # Restart UI only
+sudo ./pimiproxy.sh test --url https://www.google.com
 ```
 
-### Update to latest images
+Output shows the HTTP status, latency, and the exact rule that matched
+the domain, including the proxy chain. Very useful for debugging why a
+domain is or isn't being proxied.
+
+### Test all proxy groups
 
 ```bash
-sudo ./pimiproxy.sh update
+sudo ./pimiproxy.sh test
 ```
 
-Pulls the latest Docker images for all containers and recreates them. Safe to run at any time.
+Exercises each group (DIRECT, General, AI, Google/Youtube, Netflix,
+International Media, Apple, Online Storage) with a representative
+domain. Colour-coded results:
 
-### Test proxy connectivity
-
-```bash
-sudo ./pimiproxy.sh test                    # Test all proxy groups
-sudo ./pimiproxy.sh test --url https://example.com  # Test a single URL
-```
-
-### Export config
-
-```bash
-sudo ./pimiproxy.sh export                  # Export to current directory
-sudo ./pimiproxy.sh export /tmp/backup      # Export to a specific directory
-```
-
-Exports the user config JSON, cached provider YAML, and the final `config.yaml` for backup or debugging.
-
-### Switch system package mirrors
-
-```bash
-sudo ./pimiproxy.sh china-repos             # Switch to Aliyun mirrors
-sudo ./pimiproxy.sh standard-repos           # Restore original repos from backups
-```
-
-### Refresh subscription (manual)
-
-The installer creates a daily cron job (`/etc/cron.daily/pimiproxy-refresh`) that automatically re-fetches your provider's server list and restarts Mihomo. To trigger a refresh manually:
-
-```bash
-sudo ./pimiproxy.sh refresh
-```
-
-### Change hostname
-
-```bash
-sudo ./pimiproxy.sh hostname <new-hostname>
-```
-
-Updates the system hostname, automatically restarts avahi-daemon so `.local` resolves immediately, and prompts you to reboot so the router registers the new `.lan` name via DHCP.
-
-### Edit config directly
-
-```bash
-sudo nano /opt/pimiproxy/config/config.yaml
-sudo ./pimiproxy.sh restart mihomo
-```
+- ✓ green — working
+- ~ yellow — reached the server but got a session-check error (normal
+  for Cloudflare-protected sites when tested via curl)
+- ✗ red — timeout or error (usually a provider node issue, not
+  pimiproxy)
 
 ---
 
-## 10. Uninstalling
+## 11. Meta Quest / gateway-mode devices
+
+Some apps (Unity-based VR games, certain TV apps) ignore system proxy
+settings entirely. For these, you route the whole device through
+pimiproxy by making pimiproxy the device's **gateway** instead of its
+proxy.
+
+Set the device's WiFi to **static IP** with these values:
+
+| Field | Value |
+|---|---|
+| IP address | Any unused IP on your subnet |
+| Subnet mask | `/24` (same as your router) |
+| Gateway | pimiproxy device IP |
+| DNS 1 | pimiproxy device IP |
+| DNS 2 | Your router IP (fallback) |
+
+On the full variant, after install you'll see a prompt:
+
+> **Next step:** Open the dashboard and select a proxy server for the
+> 🧭 Meta Quest group.
+
+Click **Proxies** in the dashboard, find **🧭 Meta Quest**, and pick a
+node. This is the group all gateway-mode traffic from those devices
+routes through.
+
+---
+
+## 12. Uninstalling
 
 ```bash
 sudo ./pimiproxy.sh uninstall
+# or
+sudo ./pimiproxy-ultralite.sh uninstall
 ```
 
-The uninstaller will:
+You'll be asked to confirm. Then the installer:
 
-1. Stop and remove all containers (mihomo, dashboard, pimiproxy-api, pimiproxy-ui)
-2. Remove the associated Docker images
-3. Delete `/opt/pimiproxy` and all contents (including `ui-secret.txt`)
-4. Remove the daily subscription refresh cron job (`/etc/cron.daily/pimiproxy-refresh`)
-5. Optionally reset the hostname back to `raspberrypi`
-6. Optionally remove avahi-daemon
+- Stops and removes all containers (full) or the mihomo service (ultralite).
+- Removes Docker images (full).
+- Removes the install directory (`/opt/pimiproxy` or `/opt/pimiproxy-lite`).
+- Removes the generated systemd units, cron job, and login banner.
+- Asks whether to reset the hostname to the original (typically
+  `raspberrypi` or your distro default).
+- Asks whether to remove avahi-daemon (say no if anything else on the
+  device uses mDNS).
+
+If you added China mirrors, run `standard-repos` *before* uninstalling
+if you want the original package sources back:
+
+```bash
+sudo ./pimiproxy.sh standard-repos
+```
 
 ---
 
-## 11. Troubleshooting
+## 13. Troubleshooting
 
-### Check if everything is working
+See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for common problems and fixes.
 
-```bash
-sudo ./pimiproxy.sh status
-```
+Quick answers:
 
-This is the first thing to run — it shows container state, tests the proxy with a real HTTP and HTTPS request, and prints all endpoint URLs in one place.
+**The dashboard/UI URL doesn't load.** Try the IP directly
+(`http://10.0.0.240:8080`) — if that works, it's a DNS/mDNS issue.
+Otherwise check `sudo ./pimiproxy.sh status`; a container may be down.
 
-### Dashboard won't load
+**Google/Twitter/YouTube are slow or time out.** It's almost always the
+provider's proxy node. Try switching to a different node in the
+dashboard under **Proxies**.
 
-- Confirm the containers are running: `sudo ./pimiproxy.sh status`
-- Try the IP address instead of the hostname: `http://10.0.0.240:8080`
-- Check firewall rules aren't blocking the port
+**I'm in China and packages won't install.** Did you answer yes to the
+"Is this device in China?" prompt? If not, run `sudo ./pimiproxy.sh
+china-repos` to switch system repos to Aliyun.
 
-### Hostname doesn't resolve
-
-- **`.lan`** resolves via your router's DNS once the SBC renews its DHCP lease. The fastest way to trigger this is to reboot (`sudo reboot`) or run `sudo ./pimiproxy.sh hostname <current-hostname>` which will prompt you to reboot.
-- **`.local`** resolves via mDNS (avahi). It can take up to 30 seconds to propagate after first boot. Some Android versions don't support `.local` — use `.lan` or the IP address instead.
-- Confirm avahi-daemon is running: `systemctl status avahi-daemon`
-- If neither resolves, use the IP address directly.
-
-### Proxy not working on a device
-
-- Run `sudo ./pimiproxy.sh status` — the proxy test will show exactly where it fails
-- Confirm you set proxy settings, not network/WiFi settings
-- Confirm the port is `7890`, not `9090` (that's the API, not the proxy)
-- Test from the SBC itself: `curl -x http://localhost:7890 https://example.com`
-- Check Mihomo logs: `sudo ./pimiproxy.sh logs`
-
-### Install fails with a Docker error
-
-- Confirm Docker is running: `systemctl status docker`
-- If using offline archives, confirm the `.tar.gz` files are in the same directory as `pimiproxy-core.py`
-- Try pulling manually to see the error: `docker pull --platform linux/arm64 ghcr.io/metacubex/mihomo:latest`
-
-### Subscription URL returns no proxies
-
-Some provider APIs only respond correctly when the client sends a Clash-compatible `User-Agent` header. Use the built-in `debug` subcommand to inspect the raw response:
-
-```bash
-sudo ./pimiproxy.sh debug
-```
-
-Paste your provider URL when prompted (or pass it directly as an argument). The command sends a request with `User-Agent: Clash-Verge/1.0 (clash-verge-rev; mihomo)`, reports the status code, content type, and how many proxies/groups/rules were found in the response, then saves the full response to `raw_debug_output.yaml` in the current directory.
-
-If the response contains proxies, re-run the installer or use option 1 → option 5 in `configure` to refresh. If it doesn't, the URL or token is wrong for Clash clients — check with your provider.
-
-### Changing ports or API secret after install
-
-Use the configure menu — no need to reinstall:
-
-```bash
-sudo ./pimiproxy.sh configure
-```
-
-- Option 6 to change the API secret
-- Option 7 to change any port
-- Option 8 to switch dashboard
-- Option 9 to save and apply
+**My hostname change didn't stick on the router.** Some routers cache
+DHCP leases for 24 hours. Reboot the router or wait for the lease to
+renew.
