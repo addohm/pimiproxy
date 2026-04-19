@@ -26,19 +26,37 @@ Two flavours:
 
 ## Table of contents
 
-1. [Before you begin](#1-before-you-begin)
-2. [Pick the right archive](#2-pick-the-right-archive)
-3. [Transfer the archive to your device](#3-transfer-the-archive-to-your-device)
-4. [Extract and run the installer](#4-extract-and-run-the-installer)
-5. [Answer the installer prompts](#5-answer-the-installer-prompts)
-6. [Connect a device to the proxy](#6-connect-a-device-to-the-proxy)
-7. [Access the dashboard (full variant only)](#7-access-the-dashboard-full-variant-only)
-8. [Access the web management UI (full variant only)](#8-access-the-web-management-ui-full-variant-only)
-9. [Everyday CLI commands](#9-everyday-cli-commands)
-10. [Testing that it works](#10-testing-that-it-works)
-11. [Meta Quest / gateway-mode devices](#11-meta-quest--gateway-mode-devices)
-12. [Uninstalling](#12-uninstalling)
-13. [Troubleshooting](#13-troubleshooting)
+- [pimiproxy — User Guide](#pimiproxy--user-guide)
+  - [What you'll end up with](#what-youll-end-up-with)
+  - [Table of contents](#table-of-contents)
+  - [1. Before you begin](#1-before-you-begin)
+  - [2. Pick the right archive](#2-pick-the-right-archive)
+  - [3. Transfer the archive to your device](#3-transfer-the-archive-to-your-device)
+    - [If you have SSH access](#if-you-have-ssh-access)
+    - [If the device has a browser](#if-the-device-has-a-browser)
+    - [USB stick](#usb-stick)
+  - [4. Extract and run the installer](#4-extract-and-run-the-installer)
+  - [5. Answer the installer prompts](#5-answer-the-installer-prompts)
+    - ["Is this device located in China?"](#is-this-device-located-in-china)
+    - ["Install mode"](#install-mode)
+    - ["Hostname"](#hostname)
+    - ["Provider URL"](#provider-url)
+    - ["Reboot now?" (only if hostname changed)](#reboot-now-only-if-hostname-changed)
+  - [6. Connect a device to the proxy](#6-connect-a-device-to-the-proxy)
+  - [7. Access the dashboard (full variant only)](#7-access-the-dashboard-full-variant-only)
+    - [What you can do in the dashboard](#what-you-can-do-in-the-dashboard)
+  - [8. Access the web management UI (full variant only)](#8-access-the-web-management-ui-full-variant-only)
+    - [What's in the UI](#whats-in-the-ui)
+  - [9. Everyday CLI commands](#9-everyday-cli-commands)
+    - [Full variant](#full-variant)
+    - [Ultralite variant](#ultralite-variant)
+  - [10. Testing that it works](#10-testing-that-it-works)
+    - [Quick health check](#quick-health-check)
+    - [Test a specific URL](#test-a-specific-url)
+    - [Test all proxy groups](#test-all-proxy-groups)
+  - [11. Meta Quest / gateway-mode devices](#11-meta-quest--gateway-mode-devices)
+  - [12. Uninstalling](#12-uninstalling)
+  - [13. Troubleshooting](#13-troubleshooting)
 
 ---
 
@@ -47,9 +65,10 @@ Two flavours:
 You'll need:
 
 - **A device** to run pimiproxy on, with a supported OS:
-  - Raspberry Pi OS (64-bit preferred)
+  - Raspberry Pi OS (32/64)
   - Debian 12 / 13, Ubuntu 24.04+, Xubuntu, Lubuntu
-  - Fedora 41+, Arch Linux, Arch Linux 32
+  - Fedora 41+
+  - Arch Linux, Arch Linux 32
 - **Root access** on that device (`sudo` works).
 - **A Clash/Mihomo subscription URL** from your VPN provider — the one
   that looks like `https://provider.example.com/api?token=abc123`.
@@ -82,6 +101,35 @@ Archive sizes are roughly:
 |---|---|
 | Any full variant | ~120–180 MB |
 | Any ultralite variant | ~12 MB |
+
+### What each archive includes
+
+Not every component is available for every architecture — some upstream
+projects don't publish every platform. The installer auto-selects
+whatever's available.
+
+| Archive | mihomo | metacubexd | zashboard | pimiproxy-api | pimiproxy-ui |
+|---|:---:|:---:|:---:|:---:|:---:|
+| `pimiproxy-amd64` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `pimiproxy-arm64` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `pimiproxy-armv7` | ✅ | ❌ | ✅ | ✅ | ✅ |
+| `pimiproxy-ultralite-amd64` | ✅ | — | — | — | — |
+| `pimiproxy-ultralite-arm64` | ✅ | — | — | — | — |
+| `pimiproxy-ultralite-armv7` | ✅ | — | — | — | — |
+| `pimiproxy-ultralite-386` | ✅ | — | — | — | — |
+
+Component roles:
+
+- **mihomo** — the proxy engine itself. Every variant has this.
+- **metacubexd** — the standard dashboard (port 8080). Missing on
+  `armv7` because upstream doesn't publish an armv7 build.
+- **zashboard** — alternative dashboard with more stats (same port).
+  Used automatically on `armv7` since metacubexd isn't available.
+- **pimiproxy-api** — backend for the management UI.
+- **pimiproxy-ui** — browser-based management UI (port 8585).
+
+Ultralite variants ship only mihomo as a native binary. No dashboard,
+no management UI, no Docker — everything is done via CLI.
 
 ---
 
