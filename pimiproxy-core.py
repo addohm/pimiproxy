@@ -2408,7 +2408,22 @@ def do_install():
                 continue
             break
 
-    if not express:
+    # Auto-detect available dashboard archives (some arches like armv7 only
+    # ship zashboard because metacubexd isn't published for those platforms).
+    _has_metacubexd = _find_archive("metacubexd.tar.gz") is not None
+    _has_zashboard = _find_archive("zashboard.tar.gz") is not None
+
+    if not _has_metacubexd and not _has_zashboard:
+        die("No dashboard archive found. Place metacubexd.tar.gz or "
+            "zashboard.tar.gz in docker-images/ and re-run.")
+
+    if not _has_metacubexd:
+        info("Metacubexd not available for this arch — using Zashboard.")
+        dash_choice = 2
+    elif not _has_zashboard:
+        info("Zashboard not available for this arch — using Metacubexd.")
+        dash_choice = 1
+    elif not express:
         print()
         dash_choice = choose("Dashboard", [
             "Metacubexd  (standard, default)",
