@@ -537,11 +537,14 @@ def build_config(cfg: dict) -> str:
         L("proxy-groups:")
         for g in user_groups:
             _write_group(g)
+        # Quest references DIRECT + every user group that actually exists, so
+        # the config parses even when user_groups is empty.
         L('  - name: "🧭 Meta Quest"')
         L('    type: select')
         L('    proxies:')
         L('      - "DIRECT"')
-        L('      - "Proxy"')
+        for g in user_groups:
+            L(f'      - {yaml_quote(g["name"])}')
         L()
 
     # ── Quest rules (always injected first) ───────────────────────────────────
