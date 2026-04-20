@@ -150,7 +150,8 @@ _build_full() {
              "$staging/pimiproxy/pimiproxy-api" \
              "$staging/pimiproxy/pimiproxy-ui"
 
-    cp "$ROOT_DIR/pimiproxy" "$ROOT_DIR/pimiproxy-core.py" "$staging/pimiproxy/"
+    cp "$ROOT_DIR/pimiproxy" "$ROOT_DIR/pimiproxy-core.py" \
+       "$ROOT_DIR/pimiproxy_common.py" "$staging/pimiproxy/"
     cp "$img_tmp"/*.tar.gz "$staging/pimiproxy/docker-images/"
     cp "$DOCKER_IMAGES/geoip.metadb" "$DOCKER_IMAGES/geosite.dat" "$DOCKER_IMAGES/country.mmdb" \
        "$staging/pimiproxy/docker-images/"
@@ -185,7 +186,7 @@ _build_ultralite() {
              "$staging/pimiproxy-ultralite/docker-images"
 
     cp "$ROOT_DIR/pimiproxy-ultralite" "$ROOT_DIR/pimiproxy-ultralite-core.py" \
-       "$staging/pimiproxy-ultralite/"
+       "$ROOT_DIR/pimiproxy_common.py" "$staging/pimiproxy-ultralite/"
     cp "$bin_match" "$staging/pimiproxy-ultralite/bin/"
     cp "$DOCKER_IMAGES/geoip.metadb" "$DOCKER_IMAGES/geosite.dat" "$DOCKER_IMAGES/country.mmdb" \
        "$staging/pimiproxy-ultralite/docker-images/"
