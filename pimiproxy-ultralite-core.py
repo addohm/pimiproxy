@@ -584,6 +584,15 @@ def build_mihomo_service(install_dir: str) -> str:
     L("[Service]")
     L("Type=simple")
     L(f"ExecStart=/usr/local/bin/mihomo -d {install_dir}/config")
+    # After Mihomo brings the TUN up, systemd-resolved (if present) auto-adds
+    # it as a DNS scope — which breaks getaddrinfo when clash-system is off
+    # (queries get fake-IPs instead of going to the real resolver). Strip it.
+    L("ExecStartPost=/bin/sh -c 'command -v resolvectl >/dev/null 2>&1 && "
+      "systemctl is-active systemd-resolved >/dev/null 2>&1 && "
+      "for i in $(seq 1 10); do [ -d /sys/class/net/mihomo ] && break; sleep 1; done && "
+      "resolvectl dns mihomo \"\" && "
+      "resolvectl default-route mihomo false && "
+      "resolvectl flush-caches || true'")
     L("Restart=always")
     L("RestartSec=3")
     L("LimitNOFILE=65535")
@@ -647,12 +656,26 @@ unset_mark()      { while mark_is_set; do iptables -t mangle -D OUTPUT -j MARK -
 set_snat()        { snat_is_set || iptables -t nat -A POSTROUTING -m mark --mark $MARK -j MASQUERADE; }
 unset_snat()      { while snat_is_set; do iptables -t nat -D POSTROUTING -m mark --mark $MARK -j MASQUERADE 2>/dev/null || break; done; }
 
+# On systems running systemd-resolved, the mihomo TUN gets auto-added as a
+# DNS scope when it comes up. That makes getaddrinfo return fake-IPs via
+# resolved even when our bypass is active. Strip it. Idempotent; safe to
+# call on systems without resolvectl.
+fix_resolved() {
+    command -v resolvectl >/dev/null 2>&1 || return 0
+    systemctl is-active systemd-resolved >/dev/null 2>&1 || return 0
+    iface_up || return 0
+    resolvectl dns mihomo "" 2>/dev/null || true
+    resolvectl default-route mihomo false 2>/dev/null || true
+    resolvectl flush-caches 2>/dev/null || true
+}
+
 case "${1:-}" in
     on)
         iface_up || { echo "${R}✗${N}  mihomo TUN interface not found — is the service running?" >&2; exit 1; }
         unset_mark
         unset_snat
         remove_rule
+        fix_resolved
         echo "${G}✓${N}  clash-system: ${B}on${N}  ${D}(host traffic routes through proxy — default)${N}"
     ;;
     off)
@@ -660,6 +683,7 @@ case "${1:-}" in
         ensure_rule
         set_mark
         set_snat
+        fix_resolved
         echo "${Y}○${N}  clash-system: ${B}off${N}  ${D}(host traffic goes direct; gateway clients still proxied)${N}"
     ;;
     status)

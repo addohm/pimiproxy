@@ -1109,12 +1109,24 @@ unset_mark()      { while mark_is_set; do iptables -t mangle -D OUTPUT -j MARK -
 set_snat()        { snat_is_set || iptables -t nat -A POSTROUTING -m mark --mark $MARK -j MASQUERADE; }
 unset_snat()      { while snat_is_set; do iptables -t nat -D POSTROUTING -m mark --mark $MARK -j MASQUERADE 2>/dev/null || break; done; }
 
+# On systemd-resolved systems, the mihomo TUN gets auto-added as a DNS scope.
+# That makes getaddrinfo return fake-IPs when our bypass is active. Strip it.
+fix_resolved() {
+    command -v resolvectl >/dev/null 2>&1 || return 0
+    systemctl is-active systemd-resolved >/dev/null 2>&1 || return 0
+    iface_up || return 0
+    resolvectl dns mihomo "" 2>/dev/null || true
+    resolvectl default-route mihomo false 2>/dev/null || true
+    resolvectl flush-caches 2>/dev/null || true
+}
+
 case "${1:-}" in
     on)
         iface_up || { echo "${R}✗${N}  mihomo TUN interface not found — is the container running?" >&2; exit 1; }
         unset_mark
         unset_snat
         remove_rule
+        fix_resolved
         echo "${G}✓${N}  clash-system: ${B}on${N}  ${D}(host traffic routes through proxy — default)${N}"
     ;;
     off)
@@ -1122,6 +1134,7 @@ case "${1:-}" in
         ensure_rule
         set_mark
         set_snat
+        fix_resolved
         echo "${Y}○${N}  clash-system: ${B}off${N}  ${D}(host traffic goes direct; gateway clients still proxied)${N}"
     ;;
     status)
@@ -2915,6 +2928,24 @@ def do_install():
 
     compose_run(compose, "up", "-d", "--force-recreate", cwd=install_path)
     info("Containers started.")
+
+    # On systemd-resolved systems, wait for mihomo TUN to come up and strip it
+    # from resolved's DNS scopes. Without this, getaddrinfo returns fake-IPs
+    # from mihomo instead of going to the real resolver — which breaks
+    # clash-system off (host bypass).
+    if shutil.which("resolvectl") and run_ok(
+            ["systemctl", "is-active", "--quiet", "systemd-resolved"]):
+        with Spinner("Configuring systemd-resolved for mihomo TUN"):
+            # Wait up to 15s for the mihomo interface to appear
+            for _ in range(15):
+                if Path("/sys/class/net/mihomo").exists():
+                    break
+                import time as _t; _t.sleep(1)
+            run(["resolvectl", "dns", "mihomo", ""], silent=True, check=False)
+            run(["resolvectl", "default-route", "mihomo", "false"],
+                silent=True, check=False)
+            run(["resolvectl", "flush-caches"], silent=True, check=False)
+        info("systemd-resolved: mihomo TUN removed from DNS scopes.")
 
     # ── summary ───────────────────────────────────────────────────────────────
     if shutil.which("hostname"):
