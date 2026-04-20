@@ -389,13 +389,17 @@ sudo pimiproxy-ultralite rule-remove 1               # remove rule by index
 
 By default, the device's own traffic goes through Mihomo. If you want it
 to go *direct* while keeping gateway-client traffic (Meta Quest etc.)
-proxied, use `clash-system`:
+proxied, use the `system` subcommand:
 
 ```bash
-sudo clash-system on        # default — host traffic routes through Mihomo
-sudo clash-system off       # host traffic goes direct (bypass)
-sudo clash-system status    # show current state
+sudo pimiproxy system on        # default — host traffic routes through Mihomo
+sudo pimiproxy system off       # host traffic goes direct (bypass)
+sudo pimiproxy system status    # show current state
 ```
+
+(Ultralite users: swap `pimiproxy` for `pimiproxy-ultralite`. The
+standalone `clash-system` binary at `/usr/local/bin/clash-system` is
+also installed and takes the same arguments.)
 
 The toggle is not persistent across reboots by default. To make a
 `clash-system off` state survive reboots, choose the advanced install

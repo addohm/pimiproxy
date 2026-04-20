@@ -267,9 +267,9 @@ sudo ./pimiproxy china-repos
 sudo ./pimiproxy standard-repos
 
 # Host-traffic toggle (advanced) — gateway clients always stay proxied
-sudo clash-system off     # host's own traffic bypasses Mihomo (direct)
-sudo clash-system on      # host back through Mihomo (default)
-sudo clash-system status
+sudo pimiproxy system off      # host's own traffic bypasses Mihomo (direct)
+sudo pimiproxy system on       # host back through Mihomo (default)
+sudo pimiproxy system status   # (or `sudo clash-system <action>` directly)
 ```
 
 ---

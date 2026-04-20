@@ -1,6 +1,12 @@
 ## [7.0.0] — 2026-04-20
 
 ### Added
+- **`pimiproxy system [on|off|status]` subcommand** — new main-CLI entry point for the host-traffic toggle. Dispatches to `/usr/local/bin/clash-system`, which remains installed and callable directly. Both variants expose the same subcommand.
+- **Shared `pimiproxy_common.py` module** — colour helpers, subprocess wrappers, Spinner, hostname/DHCP, YAML subscription parser, distro/pkg abstraction. Both `pimiproxy-core.py` and `pimiproxy-ultralite-core.py` import from it, eliminating ~400 lines of copy-paste and the drift class that caused the Quest-group regression.
+- **Login rate-limiting on `/api/login`** — 5 failed attempts per IP per 60-second window triggers a 5-minute lockout (429 with `Retry-After`). Successful login clears the counter. Per-Gunicorn-worker state; with the default 2 workers, real-world brute-force is capped well below anything practical.
+- **`OriginCheckMiddleware`** — CSRF defence for every mutating `/api/*` request. When the browser sends `Origin` or `Referer`, its host must match the request's own `Host` header; mismatches get 403. Curl/CLI scripts that omit both headers still pass through.
+- **`SESSION_COOKIE_SAMESITE = "Strict"`** — session cookies never attach to cross-site requests, closing the small window `OriginCheckMiddleware` can't cover.
+- **Auto-regenerating Django `SECRET_KEY`** — if `/pimiproxy/ui-secret.txt` goes missing (corrupted volume, manual delete), the container creates a fresh `secrets.token_urlsafe(50)` at startup with `0600` perms instead of refusing to boot or accepting a hardcoded default.
 - **`clash-system` utility restored** at `/usr/local/bin/clash-system` with `on|off|status` subcommands. Toggles host-originated traffic between "routes through Mihomo" (on, default) and "bypasses Mihomo / direct internet" (off). Gateway-client traffic (devices using this host as their DHCP gateway, e.g. Meta Quest) is *always* proxied regardless of the toggle because only the `OUTPUT` chain is mangled, not `FORWARD`. Implementation uses fwmark `888` (deliberately different from Mihomo's internal mark 666), ip rule at priority 5000, and a POSTROUTING MASQUERADE so packets exit with the correct source IP.
 - **Optional `pimiproxy-bypass.service`** — only installed when the ADVANCED install prompt *"Bypass proxy for this device's traffic on boot?"* is answered yes. Runs `clash-system off` after Mihomo's TUN comes up, persisting the bypass across reboots. Express install never asks and leaves the boot state as "on".
 - **systemd-resolved DNS scope fix** — when Mihomo's TUN comes up, `systemd-resolved` auto-uses it as a DNS scope, causing `getaddrinfo()` to return fake-IPs even when bypass is active. Installer now strips the mihomo link from resolved's DNS config (`resolvectl dns mihomo "" && default-route mihomo false && flush-caches`), and the mihomo systemd unit re-applies it via `ExecStartPost` after every start. No-op on systems without `systemd-resolved` (e.g. Pi).
@@ -15,9 +21,15 @@
 - **Banner double-display on Debian/Raspbian/Ubuntu** — SSH login reads both `/etc/profile` (sourcing `profile.d/pimiproxy-banner.sh`) AND `~/.bashrc` (which sources `/etc/bash.bashrc`, where the banner is also sourced so desktop terminals see it). Added a one-shot guard (`_PIMIPROXY_BANNER_SHOWN`) so it prints only once per shell session.
 - **Wrapper script not installed** — previously only `pimiproxy-core.py` was copied to the install dir, so `sudo /opt/pimiproxy/pimiproxy <cmd>` returned "command not found". The wrapper is now copied alongside the core script.
 - **Direct invocation of core script warns** — running `pimiproxy-core.py` directly (bypassing the wrapper) prints a warning pointing users at `sudo pimiproxy <cmd>`. Driven by `PIMIPROXY_VIA_WRAPPER=1` env var set by the wrapper.
+- **Quest group referenced a non-existent proxy group** — when installing without a subscription URL AND without user-defined proxy groups, the `🧭 Meta Quest` group fallback always appended `"Proxy"` / `"Provider"` to its proxies list, causing Mihomo to refuse the config with `'Proxy' not found`. Quest now references `DIRECT` plus every user group that actually exists.
+- **Hardcoded fallbacks removed for `api_secret` and `SECRET_KEY`** — the API used to fall back to the literal password `"pimiproxy"` when the config was missing, and to `"insecure-dev-key-replace-at-install"` when the secret file was missing. Both fallbacks now return deny-first (503 / auto-regen respectively).
+- **`ALLOWED_HOSTS` is env-var driven** (`PIMIPROXY_ALLOWED_HOSTS`) — still defaults to `*` because LAN IP access breaks any stricter default, but the real CSRF layer is now the Origin-check middleware.
+- **nginx passes `$http_host`** instead of `$host` to the API container — so `request.get_host()` includes the port and the Origin-check comparison matches browser-submitted requests.
+- **China-mirrors prompt skipped on reinstalls** — the ultralite wrapper asked the mirror question on every install; now it asks only when Python3 or avahi aren't already present. Matches the Full-variant behaviour (which already gated the prompt on missing Docker).
 
 ### Changed
-- **Default UX unchanged** — fresh installs still behave identically to 6.1.0: host traffic routes through Mihomo via TUN. The bypass is opt-in at install time (advanced mode) or at runtime (`sudo clash-system off`).
+- **Wrapper scripts renamed** — `pimiproxy.sh` → `pimiproxy` and `pimiproxy-ultralite.sh` → `pimiproxy-ultralite`. Post-install users already invoked them via the bare-name symlink (`/usr/local/bin/pimiproxy`); the in-tree file now matches. All docs, release archives, and installer copy steps updated.
+- **Default UX unchanged** — fresh installs still behave identically to 6.1.0: host traffic routes through Mihomo via TUN. The bypass is opt-in at install time (advanced mode) or at runtime (`sudo pimiproxy system off` / `sudo clash-system off`).
 
 ---
 

@@ -172,14 +172,19 @@ other.
 - `iptables FORWARD -i/-o mihomo -j ACCEPT` installed so gateway
   clients can reach TUN even when FORWARD policy is DROP (Docker)
 
-### Host-traffic toggle (`clash-system`)
+### Host-traffic toggle (`pimiproxy system` / `clash-system`)
 
 Advanced users can bypass Mihomo for host-originated traffic while
 keeping gateway clients proxied:
 
-- `sudo clash-system on` — host traffic through Mihomo (default)
-- `sudo clash-system off` — host traffic direct
-- `sudo clash-system status` — current state
+- `sudo pimiproxy system on` — host traffic through Mihomo (default)
+- `sudo pimiproxy system off` — host traffic direct
+- `sudo pimiproxy system status` — current state
+
+The `system` subcommand in the main CLI dispatches to the underlying
+`/usr/local/bin/clash-system` binary, which also accepts the same
+`on|off|status` arguments directly. Ultralite users run
+`pimiproxy-ultralite system ...` instead.
 
 Implementation (`/usr/local/bin/clash-system`):
 
