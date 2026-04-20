@@ -3,9 +3,18 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# SECRET_KEY is generated at install time and written to /pimiproxy/ui-secret.txt
+# SECRET_KEY is generated at install time and written to /pimiproxy/ui-secret.txt.
+# Refuse to start rather than fall back to a known default — a missing secret
+# file means the install is broken, not that dev-mode should silently take over.
 _secret_file = Path("/pimiproxy/ui-secret.txt")
-SECRET_KEY = _secret_file.read_text().strip() if _secret_file.exists() else "insecure-dev-key-replace-at-install"
+if not _secret_file.exists():
+    raise RuntimeError(
+        f"{_secret_file} is missing — reinstall pimiproxy or restore the file. "
+        "Refusing to start with an insecure fallback key."
+    )
+SECRET_KEY = _secret_file.read_text().strip()
+if not SECRET_KEY:
+    raise RuntimeError(f"{_secret_file} is empty — regenerate it with `openssl rand -hex 32`.")
 
 DEBUG = False
 ALLOWED_HOSTS = ["*"]

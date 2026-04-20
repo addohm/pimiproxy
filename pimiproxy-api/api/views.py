@@ -44,9 +44,14 @@ def _rebuild_and_restart(cfg: dict):
                    capture_output=True, timeout=30)
 
 
-def _api_secret() -> str:
+def _api_secret() -> str | None:
+    """Return the configured API secret, or None if config/secret is missing.
+    Callers must treat None as "deny all" — never fall back to a default."""
     cfg = _read_cfg()
-    return cfg.get("api_secret", "pimiproxy")
+    secret = cfg.get("api_secret")
+    if not isinstance(secret, str) or not secret:
+        return None
+    return secret
 
 
 def _json_body(request) -> dict:
@@ -69,8 +74,12 @@ def err(msg: str, status: int = 400) -> JsonResponse:
 @csrf_exempt
 @require_http_methods(["POST"])
 def login_view(request):
+    secret = _api_secret()
+    if secret is None:
+        return err("Server misconfigured: api_secret is not set", 503)
     body = _json_body(request)
-    if body.get("password") == _api_secret():
+    submitted = body.get("password")
+    if isinstance(submitted, str) and submitted and submitted == secret:
         request.session["authenticated"] = True
         request.session.save()
         return ok()
