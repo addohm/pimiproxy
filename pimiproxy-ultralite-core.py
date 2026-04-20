@@ -1310,6 +1310,22 @@ def do_restart():
 
 
 # =============================================================================
+# SYSTEM — host-traffic bypass toggle (dispatches to /usr/local/bin/clash-system)
+# =============================================================================
+def do_system():
+    action = sys.argv[2].lower() if len(sys.argv) > 2 else "status"
+    if action not in {"on", "off", "status"}:
+        die(f"Unknown action '{action}'. Use: on, off, status")
+    script = Path("/usr/local/bin/clash-system")
+    if not script.exists():
+        die("clash-system not installed — run `sudo pimiproxy-ultralite install` to add it")
+    try:
+        subprocess.run([str(script), action], check=False)
+    except KeyboardInterrupt:
+        print()
+
+
+# =============================================================================
 # DEBUG URL
 # =============================================================================
 def do_debug():
@@ -2583,9 +2599,10 @@ COMMANDS = {
     "test":          do_test,
     "standard-repos": do_standard_repos,
     "china-repos":   do_china_repos,
+    "system":        do_system,
 }
 
-_TAKES_ARG = {"hostname", "debug", "export", "rule-add", "rule-remove", "test"}
+_TAKES_ARG = {"hostname", "debug", "export", "rule-add", "rule-remove", "test", "system"}
 
 
 def main():
