@@ -71,18 +71,80 @@ def err(msg: str, status: int = 400) -> JsonResponse:
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
+# In-process login throttle. Keyed by client IP. Two Gunicorn workers means
+# up to 2x the nominal rate per IP — acceptable for a LAN tool, and still
+# makes brute-forcing the api_secret impractical.
+_LOGIN_MAX_ATTEMPTS = 5
+_LOGIN_WINDOW_SEC   = 60
+_LOGIN_LOCKOUT_SEC  = 300
+_login_attempts: dict[str, list[float]] = {}
+_login_lockouts: dict[str, float] = {}
+_login_lock = threading.Lock()
+
+
+def _client_ip(request) -> str:
+    xff = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.META.get("REMOTE_ADDR", "unknown")
+
+
+def _login_throttle_check(ip: str) -> tuple[bool, int]:
+    """Return (allowed, retry_after_seconds). allowed=False means locked out."""
+    now = time.time()
+    with _login_lock:
+        until = _login_lockouts.get(ip, 0.0)
+        if until > now:
+            return False, int(until - now) + 1
+        if until and until <= now:
+            _login_lockouts.pop(ip, None)
+            _login_attempts.pop(ip, None)
+    return True, 0
+
+
+def _login_record_failure(ip: str) -> int:
+    """Record a failed attempt. Returns remaining attempts before lockout (0 = now locked)."""
+    now = time.time()
+    cutoff = now - _LOGIN_WINDOW_SEC
+    with _login_lock:
+        attempts = [t for t in _login_attempts.get(ip, []) if t > cutoff]
+        attempts.append(now)
+        _login_attempts[ip] = attempts
+        if len(attempts) >= _LOGIN_MAX_ATTEMPTS:
+            _login_lockouts[ip] = now + _LOGIN_LOCKOUT_SEC
+            _login_attempts.pop(ip, None)
+            return 0
+        return _LOGIN_MAX_ATTEMPTS - len(attempts)
+
+
+def _login_reset(ip: str):
+    with _login_lock:
+        _login_attempts.pop(ip, None)
+        _login_lockouts.pop(ip, None)
+
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def login_view(request):
+    ip = _client_ip(request)
+    allowed, retry_after = _login_throttle_check(ip)
+    if not allowed:
+        resp = err(f"Too many failed attempts. Try again in {retry_after}s.", 429)
+        resp["Retry-After"] = str(retry_after)
+        return resp
+
     secret = _api_secret()
     if secret is None:
         return err("Server misconfigured: api_secret is not set", 503)
     body = _json_body(request)
     submitted = body.get("password")
     if isinstance(submitted, str) and submitted and submitted == secret:
+        _login_reset(ip)
         request.session["authenticated"] = True
         request.session.save()
         return ok()
+
+    _login_record_failure(ip)
     return err("Invalid password", 401)
 
 
