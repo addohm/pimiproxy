@@ -735,6 +735,12 @@ def build_banner(cfg: dict, meta: dict) -> str:
     L("#!/usr/bin/env bash")
     L("# pimiproxy-ultralite login banner — managed by pimiproxy-ultralite.py")
     L("[[ $- == *i* ]] || return")
+    # Prevent double-display: on Debian-based distros, login bash reads both
+    # /etc/profile (sourcing profile.d) AND /etc/bash.bashrc (which we also
+    # source from, for non-login terminals). Without this guard, the banner
+    # prints twice on SSH login.
+    L("[[ -n \"$_PIMIPROXY_BANNER_SHOWN\" ]] && return")
+    L("_PIMIPROXY_BANNER_SHOWN=1")
     L()
     L("_G=$'\\033[0;32m'  # green")
     L("_R=$'\\033[0;31m'  # red")
