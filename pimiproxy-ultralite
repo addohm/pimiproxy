@@ -175,10 +175,24 @@ info "Package manager: $PKG_MGR"
 # =============================================================================
 # 2. CHINA MIRRORS (optional — switch system repos to Aliyun)
 # =============================================================================
-echo
-read -r -p "  Is this device located in China? (use Aliyun mirrors) [y/N]: " _china_ans
+# Only ask if Python3 or avahi-daemon are actually missing; a reinstall on a
+# properly provisioned machine should never re-prompt.
+_need_pkgs=false
+command -v python3 &>/dev/null || _need_pkgs=true
+case "$PKG_MGR" in
+    apt)    dpkg -l avahi-daemon &>/dev/null || _need_pkgs=true ;;
+    dnf)    rpm -q avahi &>/dev/null || _need_pkgs=true ;;
+    pacman) pacman -Qi avahi &>/dev/null || _need_pkgs=true ;;
+    zypper) rpm -q avahi &>/dev/null || _need_pkgs=true ;;
+    apk)    apk info -e avahi &>/dev/null || _need_pkgs=true ;;
+esac
+
 CHINA_MIRRORS=false
-[[ "${_china_ans,,}" == "y" || "${_china_ans,,}" == "yes" ]] && CHINA_MIRRORS=true
+if [[ "$_need_pkgs" == "true" ]]; then
+    echo
+    read -r -p "  Is this device located in China? (use Aliyun mirrors) [y/N]: " _china_ans
+    [[ "${_china_ans,,}" == "y" || "${_china_ans,,}" == "yes" ]] && CHINA_MIRRORS=true
+fi
 
 if [[ "$CHINA_MIRRORS" == "true" ]]; then
     step "Switching system repos to Aliyun"
