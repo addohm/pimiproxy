@@ -31,7 +31,16 @@ def _load_or_create_secret_key() -> str:
 SECRET_KEY = _load_or_create_secret_key()
 
 DEBUG = False
-ALLOWED_HOSTS = ["*"]
+
+# Host-header allowlist. pimiproxy is a LAN-only service hit by IP, by
+# <hostname>.lan (mDNS), and by the container's own docker-network name —
+# none of which Django can enumerate with wildcards. The user-chosen hostname
+# isn't known at build time either. The real CSRF defense is the Origin-check
+# middleware below; Host-header validation here is a weak secondary layer, so
+# the default stays permissive. Operators can tighten it via env var.
+ALLOWED_HOSTS = [
+    h.strip() for h in os.environ.get("PIMIPROXY_ALLOWED_HOSTS", "*").split(",") if h.strip()
+]
 
 INSTALLED_APPS = [
     "django.contrib.sessions",
@@ -44,6 +53,7 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "api.middleware.OriginCheckMiddleware",
     "api.middleware.AuthRequiredMiddleware",
 ]
 
@@ -60,7 +70,7 @@ DATABASES = {
 
 SESSION_ENGINE = "django.contrib.sessions.backends.db"
 SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_SAMESITE = "Strict"
 
 TEMPLATES = [
     {
