@@ -6,7 +6,7 @@
 # Supports: Debian/Ubuntu/Raspbian, Fedora/RHEL, Arch, openSUSE, Alpine.
 #
 # Usage:
-#   sudo ./pimiproxy.sh [install|uninstall|configure]
+#   sudo ./pimiproxy [install|uninstall|configure]
 #
 # Offline image preparation (run on a machine with internet + Docker):
 #   Use scripts/2_rebuild.sh --third-party to pull mihomo/metacubexd/zashboard for both
@@ -76,7 +76,7 @@ timed_step() {
 
 [[ $EUID -eq 0 ]] || die "Run as root:  sudo bash $0 [install|uninstall|configure]"
 
-# Resolve symlinks so /usr/local/bin/pimiproxy → /opt/pimiproxy/pimiproxy.sh
+# Resolve symlinks so /usr/local/bin/pimiproxy → /opt/pimiproxy/pimiproxy
 # still finds pimiproxy-core.py in the correct directory.
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
@@ -93,7 +93,7 @@ if [[ -z "$PIMIPROXY_CMD" || "$PIMIPROXY_CMD" == "-h" || "$PIMIPROXY_CMD" == "--
 ${CYAN}${BOLD}  pimiproxy${NC}
 ${BOLD}  ──────────────────────────────────────────${NC}
 
-  ${BOLD}Usage:${NC}  sudo ./pimiproxy.sh <subcommand>
+  ${BOLD}Usage:${NC}  sudo ./pimiproxy <subcommand>
 
 ${CYAN}  Setup${NC}
   ${BOLD}  install${NC}              Detect distro, install prerequisites, launch installer
@@ -119,16 +119,16 @@ ${CYAN}  Mirrors${NC}
 
 ${BOLD}  ──────────────────────────────────────────${NC}
 ${CYAN}  Examples${NC}
-    sudo ./pimiproxy.sh install
-    sudo ./pimiproxy.sh status
-    sudo ./pimiproxy.sh test --url https://youtube.com
-    sudo ./pimiproxy.sh logs mihomo
+    sudo ./pimiproxy install
+    sudo ./pimiproxy status
+    sudo ./pimiproxy test --url https://youtube.com
+    sudo ./pimiproxy logs mihomo
 "
     exit 0
 fi
 
 # Non-install commands skip the full bootstrap and pass straight through to Python.
-# This lets users run e.g. `sudo ./pimiproxy.sh logs` instead of invoking
+# This lets users run e.g. `sudo ./pimiproxy logs` instead of invoking
 # pimiproxy-core.py directly.
 if [[ "$PIMIPROXY_CMD" != "install" ]]; then
     [[ -f "$PYTHON_SCRIPT" ]] || die "pimiproxy-core.py not found at ${PYTHON_SCRIPT}."

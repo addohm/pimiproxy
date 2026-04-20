@@ -87,9 +87,9 @@ variant — use the ultralite archive on 32-bit x86.
 
 | File / Directory | Purpose |
 |-----------------|---------|
-| `pimiproxy.sh` | One-command bootstrap — detects distro, installs all prerequisites, then launches `pimiproxy-core.py` |
+| `pimiproxy` | One-command bootstrap — detects distro, installs all prerequisites, then launches `pimiproxy-core.py` |
 | `pimiproxy-core.py` | Main installer and management tool — see subcommands below |
-| `pimiproxy-ultralite.sh` | Bootstrap for the ultralite (Docker-free) variant |
+| `pimiproxy-ultralite` | Bootstrap for the ultralite (Docker-free) variant |
 | `pimiproxy-ultralite-core.py` | Ultralite installer — runs Mihomo as a native systemd service, no Docker/web UI |
 | `pimiproxy-api/` | Django REST API container — manages config, auth, and Mihomo restarts |
 | `pimiproxy-ui/` | React + Nginx frontend container — browser-based management UI |
@@ -105,7 +105,7 @@ The `.tar.gz` archives are not included in the repository. See [docs/INSTRUCTION
 **Bootstrap (recommended, handles all prerequisites):**
 
 ```bash
-sudo ./pimiproxy.sh install
+sudo ./pimiproxy install
 ```
 
 This detects your distro, installs essential tools (curl, iproute2, procps), Python, cron, Docker, avahi-daemon, and raspi-config if needed, then launches the installer automatically.
@@ -173,10 +173,10 @@ The same port accepts both HTTP and SOCKS5 connections.
 
 ## Subcommands
 
-All CLI management is done through `pimiproxy.sh`:
+All CLI management is done through `pimiproxy`:
 
 ```bash
-sudo ./pimiproxy.sh <subcommand>
+sudo ./pimiproxy <subcommand>
 ```
 
 | Subcommand / Flag | Description |
@@ -201,7 +201,7 @@ sudo ./pimiproxy.sh <subcommand>
 ## Status and connectivity test
 
 ```bash
-sudo ./pimiproxy.sh status
+sudo ./pimiproxy status
 ```
 
 Shows:
@@ -223,7 +223,7 @@ pimiproxy uses a two-layer config model:
 If you provided a provider URL at install time, proxies and groups are available immediately. The subscription is refreshed automatically each night via a cron job. To refresh manually:
 
 ```bash
-sudo ./pimiproxy.sh refresh
+sudo ./pimiproxy refresh
 ```
 
 ---
@@ -232,39 +232,39 @@ sudo ./pimiproxy.sh refresh
 
 ```bash
 # Check status and test the proxy
-sudo ./pimiproxy.sh status
+sudo ./pimiproxy status
 
 # Test proxy groups for connectivity
-sudo ./pimiproxy.sh test
-sudo ./pimiproxy.sh test --url https://example.com
+sudo ./pimiproxy test
+sudo ./pimiproxy test --url https://example.com
 
 # View logs
-sudo ./pimiproxy.sh logs                  # Mihomo logs
-sudo ./pimiproxy.sh logs dashboard        # Dashboard logs
-sudo ./pimiproxy.sh logs pimiproxy-api    # API logs
-sudo ./pimiproxy.sh logs pimiproxy-ui     # UI logs
+sudo ./pimiproxy logs                  # Mihomo logs
+sudo ./pimiproxy logs dashboard        # Dashboard logs
+sudo ./pimiproxy logs pimiproxy-api    # API logs
+sudo ./pimiproxy logs pimiproxy-ui     # UI logs
 
 # Restart containers
-sudo ./pimiproxy.sh restart               # All containers
-sudo ./pimiproxy.sh restart mihomo        # Mihomo only
+sudo ./pimiproxy restart               # All containers
+sudo ./pimiproxy restart mihomo        # Mihomo only
 
 # Update to latest images
-sudo ./pimiproxy.sh update
+sudo ./pimiproxy update
 
 # Change hostname
-sudo ./pimiproxy.sh hostname newname
+sudo ./pimiproxy hostname newname
 
 # Debug a provider URL
-sudo ./pimiproxy.sh debug
-sudo ./pimiproxy.sh debug https://provider.example.com/api?token=abc123
+sudo ./pimiproxy debug
+sudo ./pimiproxy debug https://provider.example.com/api?token=abc123
 
 # Export config for backup or debugging
-sudo ./pimiproxy.sh export
-sudo ./pimiproxy.sh export /tmp/pimiproxy-export
+sudo ./pimiproxy export
+sudo ./pimiproxy export /tmp/pimiproxy-export
 
 # Switch system repos to Aliyun mirrors (China) or restore originals
-sudo ./pimiproxy.sh china-repos
-sudo ./pimiproxy.sh standard-repos
+sudo ./pimiproxy china-repos
+sudo ./pimiproxy standard-repos
 
 # Host-traffic toggle (advanced) — gateway clients always stay proxied
 sudo clash-system off     # host's own traffic bypasses Mihomo (direct)
@@ -277,7 +277,7 @@ sudo clash-system status
 ## Uninstalling
 
 ```bash
-sudo ./pimiproxy.sh uninstall
+sudo ./pimiproxy uninstall
 ```
 
 This stops containers, removes images, deletes all installed files, clears routing rules, and optionally resets the hostname and removes avahi-daemon.
@@ -291,7 +291,7 @@ If you provided a provider URL at install time, your proxy groups and rules are 
 If you skipped the provider prompt, the default config passes all traffic through directly (`MATCH,DIRECT`). Add a provider later via the management UI at `http://pimiproxy.lan:8585`, or via CLI:
 
 ```bash
-sudo ./pimiproxy.sh configure
+sudo ./pimiproxy configure
 ```
 
 Choose option 1 to set the URL, then option 5 to fetch it immediately.

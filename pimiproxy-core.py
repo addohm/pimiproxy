@@ -287,7 +287,7 @@ def dhcp_renew():
 def do_set_hostname():
     """Subcommand: pimiproxy-core.py hostname <new-hostname>"""
     if len(sys.argv) < 3 or not sys.argv[2].strip():
-        die("Usage: sudo ./pimiproxy.sh hostname <new-hostname>")
+        die("Usage: sudo ./pimiproxy hostname <new-hostname>")
     name = sys.argv[2].strip()
     if len(name) > 24:
         die(f"Hostname too long ({len(name)} chars). Max 24 characters.")
@@ -518,7 +518,7 @@ def pkg_remove(distro: str, *packages):
 def setup_docker_repo(distro: str):
     """
     Add Docker's official package repo if Docker is not already installed.
-    China mirror support is handled by pimiproxy.sh (the bootstrap wrapper),
+    China mirror support is handled by pimiproxy (the bootstrap wrapper),
     which prompts the user and installs Docker CE before this script runs.
     """
     if shutil.which("docker"):
@@ -758,7 +758,7 @@ def build_config(cfg: dict) -> str:
         lines.append(s)
 
     L("# Mihomo config — managed by pimiproxy")
-    L("# Edit via the pimiproxy web UI or run:  sudo ./pimiproxy.sh configure"
+    L("# Edit via the pimiproxy web UI or run:  sudo ./pimiproxy configure"
       )
     L()
     L(f"external-controller: 0.0.0.0:{api_port}")
@@ -1259,7 +1259,7 @@ def build_banner(cfg: dict, meta: dict) -> str:
     L(f'printf "  ${{_C}}API${{_N}}        →  http://{hostname}.lan:{api_port}\\n"')
     L(f'printf "  ${{_B}}${{_C}}Proxy${{_N}}      →  ${{_B}}{hostname}.lan:{mixed_port}  (HTTP/SOCKS5)${{_N}}\\n"')
     L('printf "%s\\n" "$_S"')
-    L('printf "  %s\\n" "${_D}pimiproxy.sh [status|test|logs|configure|debug]${_N}"')
+    L('printf "  %s\\n" "${_D}pimiproxy [status|test|logs|configure|debug]${_N}"')
     L('printf "%s\\n\\n" "$_S"')
 
     return "\n".join(lines) + "\n"
@@ -1337,7 +1337,7 @@ def do_status():
         info("Proxy is working correctly.")
     else:
         warn("Proxy test failed — check Mihomo logs:")
-        warn("  sudo ./pimiproxy.sh logs")
+        warn("  sudo ./pimiproxy logs")
 
     # ── hardware ──────────────────────────────────────────────────────────────
     step("Hardware")
@@ -2523,7 +2523,7 @@ def do_install():
     print("  This must be a Clash API URL — not a regular VPN config file,")
     print("  not an app download link. If unsure, leave blank. You can add")
     print("  it later via the web UI or by running:")
-    print("    sudo ./pimiproxy.sh configure")
+    print("    sudo ./pimiproxy configure")
     print("  " + "─" * 42)
     print()
     while True:
@@ -2805,7 +2805,7 @@ def do_install():
             warn(
                 "Subscription fetch failed — Mihomo will start with no proxies."
             )
-            warn("Run after install:  sudo ./pimiproxy.sh refresh")
+            warn("Run after install:  sudo ./pimiproxy refresh")
 
     cfg_text = build_config(cfg)
     (install_path / "config" / "config.yaml").write_text(cfg_text)
@@ -2821,8 +2821,8 @@ def do_install():
     info(f"Core script copied to {script_dest}.")
 
     # Copy the wrapper script next to core.py if we can find it
-    _wrapper_src = Path(__file__).resolve().parent / "pimiproxy.sh"
-    wrapper_dest = install_path / "pimiproxy.sh"
+    _wrapper_src = Path(__file__).resolve().parent / "pimiproxy"
+    wrapper_dest = install_path / "pimiproxy"
     if _wrapper_src.exists():
         shutil.copy2(_wrapper_src, wrapper_dest)
         wrapper_dest.chmod(0o755)
@@ -3030,7 +3030,7 @@ def do_install():
     print(f"  {C.BOLD}{C.CYAN}Proxy{C.NC}      →  {C.BOLD}{hostname_new}.lan:{mixed_port}  (HTTP/SOCKS5){C.NC}")
     print(f"  {C.YELLOW}Login{C.NC}      →  API secret: {C.BOLD}{api_secret}{C.NC}")
     print(_SEP)
-    print(f"  {C.DIM}pimiproxy.sh [status|test|logs|configure|debug]{C.NC}")
+    print(f"  {C.DIM}pimiproxy [status|test|logs|configure|debug]{C.NC}")
     print(_SEP)
     print()
 
@@ -3613,7 +3613,7 @@ _TAKES_ARG = {"hostname", "logs", "restart", "debug", "export", "test", "system"
 def main():
     if os.geteuid() != 0:
         print("Error: must be run as root.")
-        print("       sudo ./pimiproxy.sh [command]")
+        print("       sudo ./pimiproxy [command]")
         sys.exit(1)
 
     # Warn if invoked directly instead of through the wrapper. The wrapper
@@ -3622,7 +3622,7 @@ def main():
     if os.environ.get("PIMIPROXY_VIA_WRAPPER") != "1":
         print(f"{C.YELLOW}  ⚠{C.NC}  pimiproxy-core.py should be run via the wrapper:")
         print(f"     {C.BOLD}sudo pimiproxy {' '.join(sys.argv[1:]) or '<command>'}{C.NC}")
-        print(f"     (or {C.DIM}sudo /opt/pimiproxy/pimiproxy.sh <command>{C.NC})")
+        print(f"     (or {C.DIM}sudo /opt/pimiproxy/pimiproxy <command>{C.NC})")
         print()
 
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
@@ -3630,12 +3630,12 @@ def main():
     cmd = args[0] if args else "install"
     if cmd not in COMMANDS:
         simple = "|".join(k for k in COMMANDS if k not in _TAKES_ARG)
-        print(f"Usage: sudo ./pimiproxy.sh [{simple}]")
-        print("       sudo ./pimiproxy.sh logs     [mihomo|dashboard]")
-        print("       sudo ./pimiproxy.sh restart  [mihomo|dashboard]")
-        print("       sudo ./pimiproxy.sh hostname <new-hostname>")
-        print("       sudo ./pimiproxy.sh test     [--url URL]")
-        print("       sudo ./pimiproxy.sh debug    [url]")
+        print(f"Usage: sudo ./pimiproxy [{simple}]")
+        print("       sudo ./pimiproxy logs     [mihomo|dashboard]")
+        print("       sudo ./pimiproxy restart  [mihomo|dashboard]")
+        print("       sudo ./pimiproxy hostname <new-hostname>")
+        print("       sudo ./pimiproxy test     [--url URL]")
+        print("       sudo ./pimiproxy debug    [url]")
         sys.exit(1)
     try:
         if cmd == "install":

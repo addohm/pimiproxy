@@ -6,7 +6,7 @@
 # Supports: Debian/Ubuntu/Raspbian, Fedora/RHEL, Arch, openSUSE, Alpine.
 #
 # Usage:
-#   sudo ./pimiproxy-ultralite.sh [install|uninstall|configure]
+#   sudo ./pimiproxy-ultralite [install|uninstall|configure]
 #
 # Mihomo binary preparation:
 #   Download the appropriate release binary from:
@@ -76,7 +76,7 @@ if [[ -z "$PIMIPROXY_CMD" || "$PIMIPROXY_CMD" == "-h" || "$PIMIPROXY_CMD" == "--
 ${CYAN}${BOLD}  pimiproxy-ultralite${NC}  ${YELLOW}(no Docker required)${NC}
 ${BOLD}  ──────────────────────────────────────────${NC}
 
-  ${BOLD}Usage:${NC}  sudo ./pimiproxy-ultralite.sh <subcommand>
+  ${BOLD}Usage:${NC}  sudo ./pimiproxy-ultralite <subcommand>
 
 ${CYAN}  Setup${NC}
   ${BOLD}  install${NC}              Detect distro, install prerequisites, launch installer
@@ -106,16 +106,16 @@ ${CYAN}  Mirrors${NC}
 
 ${BOLD}  ──────────────────────────────────────────${NC}
 ${CYAN}  Examples${NC}
-    sudo ./pimiproxy-ultralite.sh install
-    sudo ./pimiproxy-ultralite.sh status
-    sudo ./pimiproxy-ultralite.sh test --url https://youtube.com
-    sudo ./pimiproxy-ultralite.sh rule-add \"DOMAIN-SUFFIX,example.com,DIRECT\"
+    sudo ./pimiproxy-ultralite install
+    sudo ./pimiproxy-ultralite status
+    sudo ./pimiproxy-ultralite test --url https://youtube.com
+    sudo ./pimiproxy-ultralite rule-add \"DOMAIN-SUFFIX,example.com,DIRECT\"
 "
     exit 0
 fi
 
 # Non-install commands skip the full bootstrap and pass straight through to Python.
-# This lets users run e.g. `sudo ./pimiproxy-ultralite.sh logs` instead of invoking
+# This lets users run e.g. `sudo ./pimiproxy-ultralite logs` instead of invoking
 # pimiproxy-ultralite-core.py directly.
 if [[ "$PIMIPROXY_CMD" != "install" ]]; then
     [[ -f "$PYTHON_SCRIPT" ]] || die "pimiproxy-ultralite-core.py not found at ${PYTHON_SCRIPT}."

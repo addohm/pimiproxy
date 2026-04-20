@@ -91,15 +91,15 @@ SSH into your SBC (or open a terminal on it directly) and navigate to the direct
 The bootstrap script detects your distro, installs essential tools (curl, iproute2, procps), Python 3, cron, Docker (via the official `get.docker.com` installer), avahi-daemon, and raspi-config automatically, then launches the Python installer. This is the easiest path and works on Debian, Ubuntu, Fedora, Arch, openSUSE, Alpine, and their derivatives.
 
 ```bash
-sudo ./pimiproxy.sh
+sudo ./pimiproxy
 ```
 
 Pass a subcommand to control what happens after prerequisites are confirmed:
 
 ```bash
-sudo ./pimiproxy.sh install     # default
-sudo ./pimiproxy.sh uninstall
-sudo ./pimiproxy.sh configure
+sudo ./pimiproxy install     # default
+sudo ./pimiproxy uninstall
+sudo ./pimiproxy configure
 ```
 
 ### Option B — Python script directly
@@ -107,7 +107,7 @@ sudo ./pimiproxy.sh configure
 If Python 3, Docker + Compose, cron, and avahi-daemon are already installed:
 
 ```bash
-sudo ./pimiproxy.sh install
+sudo ./pimiproxy install
 ```
 
 The script will walk you through a series of prompts. Press **Enter** at each one to accept the default value shown in brackets.
@@ -115,12 +115,12 @@ The script will walk you through a series of prompts. Press **Enter** at each on
 To uninstall later:
 
 ```bash
-sudo ./pimiproxy.sh uninstall
+sudo ./pimiproxy uninstall
 ```
 
 ### Installing from mainland China
 
-Docker's package servers (`download.docker.com`) and standard distro repositories are frequently blocked or unreachable from mainland China. If `pimiproxy.sh` needs to install Docker CE, it will ask:
+Docker's package servers (`download.docker.com`) and standard distro repositories are frequently blocked or unreachable from mainland China. If `pimiproxy` needs to install Docker CE, it will ask:
 
 ```
   Is this device located in China? (use Aliyun mirrors for Docker CE) [y/N]:
@@ -131,8 +131,8 @@ Answer **y** to switch system package repositories (apt/dnf/pacman) and Docker C
 After install, you can switch mirrors at any time:
 
 ```bash
-sudo ./pimiproxy.sh china-repos      # Switch to Aliyun mirrors
-sudo ./pimiproxy.sh standard-repos    # Restore original repos from backups
+sudo ./pimiproxy china-repos      # Switch to Aliyun mirrors
+sudo ./pimiproxy standard-repos    # Restore original repos from backups
 ```
 
 ### Supported platforms
@@ -168,7 +168,7 @@ If the hostname is changed during install, you will be asked at the end whether 
 You can also change the hostname at any time after install:
 
 ```bash
-sudo ./pimiproxy.sh hostname <new-hostname>
+sudo ./pimiproxy hostname <new-hostname>
 ```
 
 This updates the system hostname, automatically restarts avahi-daemon so `.local` takes effect immediately, and prompts you to reboot for the `.lan` name to propagate.
@@ -210,7 +210,7 @@ If you provide a URL, the installer will fetch it immediately and validate that 
 - LAN and private IP bypass rules so local traffic never goes through the proxy
 - Daily automatic refresh of the server list from your provider
 
-If you leave it blank, the proxy will still run but will pass all traffic through directly (no upstream provider). You can add a subscription later by running `sudo ./pimiproxy.sh configure`.
+If you leave it blank, the proxy will still run but will pass all traffic through directly (no upstream provider). You can add a subscription later by running `sudo ./pimiproxy configure`.
 
 ### Dashboard choice
 **Default: `1` (Metacubexd)**
@@ -328,7 +328,7 @@ The UI has five tabs:
 The UI is served by two Docker containers (`pimiproxy-api` and `pimiproxy-ui`) that are built and started as part of the install. If they are not running, use option 11 in the `configure` menu to build or rebuild them:
 
 ```bash
-sudo ./pimiproxy.sh configure
+sudo ./pimiproxy configure
 # choose option 11
 ```
 
@@ -339,7 +339,7 @@ sudo ./pimiproxy.sh configure
 Use the interactive configurator to manage your subscription URL, proxy groups, rules, ports, API secret, and dashboard choice:
 
 ```bash
-sudo ./pimiproxy.sh configure
+sudo ./pimiproxy configure
 ```
 
 ### Configure mode menu
@@ -386,7 +386,7 @@ After making changes, option 9 will ask whether to restart the affected containe
 To restart Mihomo manually after editing `/opt/pimiproxy/config/config.yaml` directly:
 
 ```bash
-sudo ./pimiproxy.sh restart mihomo
+sudo ./pimiproxy restart mihomo
 ```
 
 ---
@@ -421,7 +421,7 @@ The banner is installed to `/etc/profile.d/pimiproxy-banner.sh` (for login shell
 ### Check status
 
 ```bash
-sudo ./pimiproxy.sh status
+sudo ./pimiproxy status
 ```
 
 Shows container health, subscription info (URL and number of proxies loaded), and runs a live HTTP and HTTPS connectivity test through the proxy with latency results.
@@ -429,10 +429,10 @@ Shows container health, subscription info (URL and number of proxies loaded), an
 ### View logs
 
 ```bash
-sudo ./pimiproxy.sh logs                   # Mihomo logs (default)
-sudo ./pimiproxy.sh logs dashboard         # Dashboard logs
-sudo ./pimiproxy.sh logs pimiproxy-api     # API container logs
-sudo ./pimiproxy.sh logs pimiproxy-ui      # UI container logs
+sudo ./pimiproxy logs                   # Mihomo logs (default)
+sudo ./pimiproxy logs dashboard         # Dashboard logs
+sudo ./pimiproxy logs pimiproxy-api     # API container logs
+sudo ./pimiproxy logs pimiproxy-ui      # UI container logs
 ```
 
 Press Ctrl-C to stop the log stream.
@@ -440,17 +440,17 @@ Press Ctrl-C to stop the log stream.
 ### Restart containers
 
 ```bash
-sudo ./pimiproxy.sh restart                # Restart all containers
-sudo ./pimiproxy.sh restart mihomo         # Restart Mihomo only
-sudo ./pimiproxy.sh restart dashboard      # Restart dashboard only
-sudo ./pimiproxy.sh restart pimiproxy-api  # Restart API only
-sudo ./pimiproxy.sh restart pimiproxy-ui   # Restart UI only
+sudo ./pimiproxy restart                # Restart all containers
+sudo ./pimiproxy restart mihomo         # Restart Mihomo only
+sudo ./pimiproxy restart dashboard      # Restart dashboard only
+sudo ./pimiproxy restart pimiproxy-api  # Restart API only
+sudo ./pimiproxy restart pimiproxy-ui   # Restart UI only
 ```
 
 ### Update to latest images
 
 ```bash
-sudo ./pimiproxy.sh update
+sudo ./pimiproxy update
 ```
 
 Pulls the latest Docker images for all containers and recreates them. Safe to run at any time.
@@ -458,15 +458,15 @@ Pulls the latest Docker images for all containers and recreates them. Safe to ru
 ### Test proxy connectivity
 
 ```bash
-sudo ./pimiproxy.sh test                    # Test all proxy groups
-sudo ./pimiproxy.sh test --url https://example.com  # Test a single URL
+sudo ./pimiproxy test                    # Test all proxy groups
+sudo ./pimiproxy test --url https://example.com  # Test a single URL
 ```
 
 ### Export config
 
 ```bash
-sudo ./pimiproxy.sh export                  # Export to current directory
-sudo ./pimiproxy.sh export /tmp/backup      # Export to a specific directory
+sudo ./pimiproxy export                  # Export to current directory
+sudo ./pimiproxy export /tmp/backup      # Export to a specific directory
 ```
 
 Exports the user config JSON, cached provider YAML, and the final `config.yaml` for backup or debugging.
@@ -474,8 +474,8 @@ Exports the user config JSON, cached provider YAML, and the final `config.yaml` 
 ### Switch system package mirrors
 
 ```bash
-sudo ./pimiproxy.sh china-repos             # Switch to Aliyun mirrors
-sudo ./pimiproxy.sh standard-repos           # Restore original repos from backups
+sudo ./pimiproxy china-repos             # Switch to Aliyun mirrors
+sudo ./pimiproxy standard-repos           # Restore original repos from backups
 ```
 
 ### Refresh subscription (manual)
@@ -483,13 +483,13 @@ sudo ./pimiproxy.sh standard-repos           # Restore original repos from backu
 The installer creates a daily cron job (`/etc/cron.daily/pimiproxy-refresh`) that automatically re-fetches your provider's server list and restarts Mihomo. To trigger a refresh manually:
 
 ```bash
-sudo ./pimiproxy.sh refresh
+sudo ./pimiproxy refresh
 ```
 
 ### Change hostname
 
 ```bash
-sudo ./pimiproxy.sh hostname <new-hostname>
+sudo ./pimiproxy hostname <new-hostname>
 ```
 
 Updates the system hostname, automatically restarts avahi-daemon so `.local` resolves immediately, and prompts you to reboot so the router registers the new `.lan` name via DHCP.
@@ -498,7 +498,7 @@ Updates the system hostname, automatically restarts avahi-daemon so `.local` res
 
 ```bash
 sudo nano /opt/pimiproxy/config/config.yaml
-sudo ./pimiproxy.sh restart mihomo
+sudo ./pimiproxy restart mihomo
 ```
 
 ---
@@ -506,7 +506,7 @@ sudo ./pimiproxy.sh restart mihomo
 ## 10. Uninstalling
 
 ```bash
-sudo ./pimiproxy.sh uninstall
+sudo ./pimiproxy uninstall
 ```
 
 The uninstaller will:
@@ -525,31 +525,31 @@ The uninstaller will:
 ### Check if everything is working
 
 ```bash
-sudo ./pimiproxy.sh status
+sudo ./pimiproxy status
 ```
 
 This is the first thing to run — it shows container state, tests the proxy with a real HTTP and HTTPS request, and prints all endpoint URLs in one place.
 
 ### Dashboard won't load
 
-- Confirm the containers are running: `sudo ./pimiproxy.sh status`
+- Confirm the containers are running: `sudo ./pimiproxy status`
 - Try the IP address instead of the hostname: `http://10.0.0.240:8080`
 - Check firewall rules aren't blocking the port
 
 ### Hostname doesn't resolve
 
-- **`.lan`** resolves via your router's DNS once the SBC renews its DHCP lease. The fastest way to trigger this is to reboot (`sudo reboot`) or run `sudo ./pimiproxy.sh hostname <current-hostname>` which will prompt you to reboot.
+- **`.lan`** resolves via your router's DNS once the SBC renews its DHCP lease. The fastest way to trigger this is to reboot (`sudo reboot`) or run `sudo ./pimiproxy hostname <current-hostname>` which will prompt you to reboot.
 - **`.local`** resolves via mDNS (avahi). It can take up to 30 seconds to propagate after first boot. Some Android versions don't support `.local` — use `.lan` or the IP address instead.
 - Confirm avahi-daemon is running: `systemctl status avahi-daemon`
 - If neither resolves, use the IP address directly.
 
 ### Proxy not working on a device
 
-- Run `sudo ./pimiproxy.sh status` — the proxy test will show exactly where it fails
+- Run `sudo ./pimiproxy status` — the proxy test will show exactly where it fails
 - Confirm you set proxy settings, not network/WiFi settings
 - Confirm the port is `7890`, not `9090` (that's the API, not the proxy)
 - Test from the SBC itself: `curl -x http://localhost:7890 https://example.com`
-- Check Mihomo logs: `sudo ./pimiproxy.sh logs`
+- Check Mihomo logs: `sudo ./pimiproxy logs`
 
 ### Install fails with a Docker error
 
@@ -562,7 +562,7 @@ This is the first thing to run — it shows container state, tests the proxy wit
 Some provider APIs only respond correctly when the client sends a Clash-compatible `User-Agent` header. Use the built-in `debug` subcommand to inspect the raw response:
 
 ```bash
-sudo ./pimiproxy.sh debug
+sudo ./pimiproxy debug
 ```
 
 Paste your provider URL when prompted (or pass it directly as an argument). The command sends a request with `User-Agent: Clash-Verge/1.0 (clash-verge-rev; mihomo)`, reports the status code, content type, and how many proxies/groups/rules were found in the response, then saves the full response to `raw_debug_output.yaml` in the current directory.
@@ -574,7 +574,7 @@ If the response contains proxies, re-run the installer or use option 1 → optio
 Use the configure menu — no need to reinstall:
 
 ```bash
-sudo ./pimiproxy.sh configure
+sudo ./pimiproxy configure
 ```
 
 - Option 6 to change the API secret

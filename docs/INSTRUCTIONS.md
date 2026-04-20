@@ -183,13 +183,13 @@ either `pimiproxy/` (full) or `pimiproxy-ultralite/` (ultralite).
 Now launch the installer:
 
 ```bash
-sudo ./pimiproxy/pimiproxy.sh install
+sudo ./pimiproxy/pimiproxy install
 ```
 
 Or for the ultralite variant:
 
 ```bash
-sudo ./pimiproxy-ultralite/pimiproxy-ultralite.sh install
+sudo ./pimiproxy-ultralite/pimiproxy-ultralite install
 ```
 
 The installer takes a few minutes the first time. It installs
@@ -348,7 +348,7 @@ sudo pimiproxy <subcommand>              # full variant
 sudo pimiproxy-ultralite <subcommand>    # ultralite variant
 ```
 
-(Or run the wrapper directly from the install dir: `sudo /opt/pimiproxy/pimiproxy.sh …`.)
+(Or run the wrapper directly from the install dir: `sudo /opt/pimiproxy/pimiproxy …`.)
 
 ### Full variant
 
@@ -410,7 +410,7 @@ is up.
 ### Quick health check
 
 ```bash
-sudo ./pimiproxy.sh status
+sudo ./pimiproxy status
 ```
 
 You'll see:
@@ -426,7 +426,7 @@ You'll see:
 ### Test a specific URL
 
 ```bash
-sudo ./pimiproxy.sh test --url https://www.google.com
+sudo ./pimiproxy test --url https://www.google.com
 ```
 
 Output shows the HTTP status, latency, and the exact rule that matched
@@ -436,7 +436,7 @@ domain is or isn't being proxied.
 ### Test all proxy groups
 
 ```bash
-sudo ./pimiproxy.sh test
+sudo ./pimiproxy test
 ```
 
 Exercises each group (DIRECT, General, AI, Google/Youtube, Netflix,
@@ -482,9 +482,9 @@ routes through.
 ## 12. Uninstalling
 
 ```bash
-sudo ./pimiproxy.sh uninstall
+sudo ./pimiproxy uninstall
 # or
-sudo ./pimiproxy-ultralite.sh uninstall
+sudo ./pimiproxy-ultralite uninstall
 ```
 
 You'll be asked to confirm. Then the installer:
@@ -502,7 +502,7 @@ If you added China mirrors, run `standard-repos` *before* uninstalling
 if you want the original package sources back:
 
 ```bash
-sudo ./pimiproxy.sh standard-repos
+sudo ./pimiproxy standard-repos
 ```
 
 ---
@@ -515,14 +515,14 @@ Quick answers:
 
 **The dashboard/UI URL doesn't load.** Try the IP directly
 (`http://10.0.0.240:8080`) — if that works, it's a DNS/mDNS issue.
-Otherwise check `sudo ./pimiproxy.sh status`; a container may be down.
+Otherwise check `sudo ./pimiproxy status`; a container may be down.
 
 **Google/Twitter/YouTube are slow or time out.** It's almost always the
 provider's proxy node. Try switching to a different node in the
 dashboard under **Proxies**.
 
 **I'm in China and packages won't install.** Did you answer yes to the
-"Is this device in China?" prompt? If not, run `sudo ./pimiproxy.sh
+"Is this device in China?" prompt? If not, run `sudo ./pimiproxy
 china-repos` to switch system repos to Aliyun.
 
 **My hostname change didn't stick on the router.** Some routers cache

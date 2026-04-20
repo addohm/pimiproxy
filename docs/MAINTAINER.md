@@ -27,9 +27,9 @@ pimiproxy codebase. For end-user installation and usage see
 
 ```
 /srv/aidev/pimiproxy/
-├── pimiproxy.sh                  # Full-variant bootstrap
+├── pimiproxy                  # Full-variant bootstrap
 ├── pimiproxy-core.py             # Full-variant installer + subcommands
-├── pimiproxy-ultralite.sh        # Ultralite bootstrap
+├── pimiproxy-ultralite        # Ultralite bootstrap
 ├── pimiproxy-ultralite-core.py   # Ultralite installer + subcommands
 ├── pimiproxy-api/                # Django REST API container source
 │   ├── Dockerfile
@@ -231,7 +231,7 @@ rsync -avz \
 Then run commands on the target:
 
 ```bash
-ssh addohm@pimiproxy.lan "sudo /home/addohm/pimiproxy/pimiproxy.sh test"
+ssh addohm@pimiproxy.lan "sudo /home/addohm/pimiproxy/pimiproxy test"
 ```
 
 ### Read-only debugging on the Pi
@@ -411,10 +411,10 @@ silently fail to parse the config.
 
 4. Update the usage text in `main()`:
    ```python
-   print("       sudo ./pimiproxy.sh mything [arg]")
+   print("       sudo ./pimiproxy mything [arg]")
    ```
 
-### In `pimiproxy.sh` / `pimiproxy-ultralite.sh`
+### In `pimiproxy` / `pimiproxy-ultralite`
 
 Non-install subcommands are passed through automatically via
 `exec python3`, so no shell changes needed — but add the command to
@@ -443,14 +443,14 @@ should get its own detailed commit rather than being batched.
 | Path | Purpose |
 |---|---|
 | `/opt/pimiproxy/` | Install dir, root-owned, never edit manually |
-| `/opt/pimiproxy/pimiproxy.sh` | Wrapper script (copy of the release wrapper) |
+| `/opt/pimiproxy/pimiproxy` | Wrapper script (copy of the release wrapper) |
 | `/opt/pimiproxy/pimiproxy-core.py` | Core script (copy of the release core) |
 | `/opt/pimiproxy/.pimiproxy-config.json` | Live config, read/written by API container |
 | `/opt/pimiproxy/.pimiproxy-meta.json` | Install metadata (ports, paths, arch) |
 | `/opt/pimiproxy/config/config.yaml` | Generated Mihomo config |
 | `/opt/pimiproxy/docker-compose.yml` | Runtime compose file (no `build:` directive — uses pre-loaded images) |
 | `/opt/pimiproxy/ui-secret.txt` | Django SECRET_KEY for pimiproxy-api |
-| `/usr/local/bin/pimiproxy` | Symlink → `/opt/pimiproxy/pimiproxy.sh` |
+| `/usr/local/bin/pimiproxy` | Symlink → `/opt/pimiproxy/pimiproxy` |
 | `/usr/local/bin/clash-system` | Host-traffic bypass toggle |
 | `/etc/profile.d/pimiproxy-banner.sh` | Login banner (also sourced from `/etc/bash.bashrc` / `/etc/bashrc` for desktop terminals) |
 | `/etc/cron.daily/pimiproxy-refresh` | Daily provider refresh |
@@ -462,7 +462,7 @@ should get its own detailed commit rather than being batched.
 | Path | Purpose |
 |---|---|
 | `/opt/pimiproxy-lite/` | Install dir |
-| `/opt/pimiproxy-lite/pimiproxy-ultralite.sh` | Wrapper script |
+| `/opt/pimiproxy-lite/pimiproxy-ultralite` | Wrapper script |
 | `/opt/pimiproxy-lite/pimiproxy-ultralite-core.py` | Core script |
 | `/opt/pimiproxy-lite/.pimiproxy-config.json` | Live config |
 | `/opt/pimiproxy-lite/.pimiproxy-meta.json` | Metadata |
@@ -591,7 +591,7 @@ No full-variant 386 archive: pimiproxy-ui's node:20-alpine base has no
 **Full (`pimiproxy-<arch>.tar.gz`):**
 ```
 pimiproxy/
-├── pimiproxy.sh
+├── pimiproxy
 ├── pimiproxy-core.py
 ├── docker-images/
 │   ├── mihomo.tar.gz           (single-arch)
@@ -609,7 +609,7 @@ pimiproxy/
 **Ultralite (`pimiproxy-ultralite-<arch>.tar.gz`):**
 ```
 pimiproxy-ultralite/
-├── pimiproxy-ultralite.sh
+├── pimiproxy-ultralite
 ├── pimiproxy-ultralite-core.py
 ├── bin/
 │   └── mihomo-linux-<arch>-<version>.gz
