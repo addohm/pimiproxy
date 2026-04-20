@@ -215,7 +215,8 @@ Aliyun for Docker. Answer **n** anywhere else.
 - **1 — Express** (recommended): asks only for hostname and provider
   URL, uses defaults for everything else.
 - **2 — Advanced**: walks through every option (install directory,
-  ports, API secret, dashboard choice).
+  ports, API secret, dashboard choice, and whether to persist a host-
+  traffic bypass across reboots — see §9 on `clash-system`).
 
 Pick **1** unless you have a specific reason not to.
 
@@ -339,41 +340,68 @@ restarts automatically.
 
 ## 9. Everyday CLI commands
 
-Run these on the device itself (SSH or local terminal). All commands
-use the wrapper script — you don't need to call Python directly.
+After install, you can run commands from anywhere using the symlink
+the installer creates:
+
+```bash
+sudo pimiproxy <subcommand>              # full variant
+sudo pimiproxy-ultralite <subcommand>    # ultralite variant
+```
+
+(Or run the wrapper directly from the install dir: `sudo /opt/pimiproxy/pimiproxy.sh …`.)
 
 ### Full variant
 
 ```bash
-sudo ./pimiproxy.sh                          # show help
-sudo ./pimiproxy.sh status                   # container health + connectivity test
-sudo ./pimiproxy.sh test                     # test every proxy group
-sudo ./pimiproxy.sh test --url https://google.com  # test one URL, see matched rule
-sudo ./pimiproxy.sh refresh                  # re-fetch provider URL
-sudo ./pimiproxy.sh logs                     # tail Mihomo logs
-sudo ./pimiproxy.sh logs dashboard           # tail dashboard logs
-sudo ./pimiproxy.sh restart                  # restart all containers
-sudo ./pimiproxy.sh restart mihomo           # restart one container
-sudo ./pimiproxy.sh update                   # pull latest Docker images
-sudo ./pimiproxy.sh configure                # interactive config menu
-sudo ./pimiproxy.sh hostname newname         # change hostname
+sudo pimiproxy                           # show help
+sudo pimiproxy status                    # container health + connectivity test
+sudo pimiproxy test                      # test every proxy group
+sudo pimiproxy test --url https://google.com   # single URL, shows matched rule
+sudo pimiproxy refresh                   # re-fetch provider URL
+sudo pimiproxy logs                      # tail Mihomo logs
+sudo pimiproxy logs dashboard            # tail dashboard logs
+sudo pimiproxy restart                   # restart all containers
+sudo pimiproxy restart mihomo            # restart one container
+sudo pimiproxy update                    # pull latest Docker images
+sudo pimiproxy configure                 # interactive config menu
+sudo pimiproxy hostname newname          # change hostname
+sudo pimiproxy china-repos               # switch package repos to Aliyun
+sudo pimiproxy standard-repos            # restore default package repos
 ```
 
 ### Ultralite variant
 
 ```bash
-sudo ./pimiproxy-ultralite.sh                            # show help
-sudo ./pimiproxy-ultralite.sh status                     # service + connectivity test
-sudo ./pimiproxy-ultralite.sh test                       # test every proxy group
-sudo ./pimiproxy-ultralite.sh test --url https://...     # test one URL
-sudo ./pimiproxy-ultralite.sh refresh                    # re-fetch provider URL
-sudo ./pimiproxy-ultralite.sh logs                       # tail Mihomo logs
-sudo ./pimiproxy-ultralite.sh restart                    # restart Mihomo
-sudo ./pimiproxy-ultralite.sh configure                  # interactive config menu
-sudo ./pimiproxy-ultralite.sh rule-list                  # list user rules
-sudo ./pimiproxy-ultralite.sh rule-add "DOMAIN-SUFFIX,example.com,DIRECT"
-sudo ./pimiproxy-ultralite.sh rule-remove 1              # remove rule by index
+sudo pimiproxy-ultralite                             # show help
+sudo pimiproxy-ultralite status                      # service + connectivity test
+sudo pimiproxy-ultralite test                        # test every proxy group
+sudo pimiproxy-ultralite test --url https://...      # single URL, shows matched rule
+sudo pimiproxy-ultralite refresh                     # re-fetch provider URL
+sudo pimiproxy-ultralite logs                        # tail Mihomo logs
+sudo pimiproxy-ultralite restart                     # restart Mihomo
+sudo pimiproxy-ultralite configure                   # interactive config menu
+sudo pimiproxy-ultralite rule-list                   # list user rules
+sudo pimiproxy-ultralite rule-add "DOMAIN-SUFFIX,example.com,DIRECT"
+sudo pimiproxy-ultralite rule-remove 1               # remove rule by index
 ```
+
+### Host-traffic bypass (advanced — both variants)
+
+By default, the device's own traffic goes through Mihomo. If you want it
+to go *direct* while keeping gateway-client traffic (Meta Quest etc.)
+proxied, use `clash-system`:
+
+```bash
+sudo clash-system on        # default — host traffic routes through Mihomo
+sudo clash-system off       # host traffic goes direct (bypass)
+sudo clash-system status    # show current state
+```
+
+The toggle is not persistent across reboots by default. To make a
+`clash-system off` state survive reboots, choose the advanced install
+mode and answer *yes* to "Bypass proxy for this device's traffic on
+boot?" — that installs a systemd unit which reapplies `off` once Mihomo
+is up.
 
 ---
 

@@ -74,15 +74,18 @@ pimiproxy codebase. For end-user installation and usage see
 Docker-based. Four containers: `mihomo`, `metacubexd` (or `zashboard`),
 `pimiproxy-api`, `pimiproxy-ui`.
 
-Targets: arm64, amd64. No armv7 Docker variant — low-powered devices
-should use ultralite.
+Targets: amd64, arm64, armv7. armv7 archives use `zashboard` as the
+dashboard because `metacubexd` doesn't publish an armv7 Docker image
+upstream — the installer auto-selects whichever dashboard image is
+present. 386 has no full variant (node-alpine base image used by
+pimiproxy-ui has no 386 build).
 
 ### Ultralite (`pimiproxy-ultralite`)
 
 No Docker. Mihomo runs as a native `systemd` service with a binary from
 GitHub releases. No web dashboard, no management UI. CLI only.
 
-Targets: arm64, amd64, armv7.
+Targets: amd64, arm64, armv7, 386.
 
 ### What they share
 
@@ -158,13 +161,42 @@ other.
 
 ### Default behaviour
 
-- TUN mode **always on** (`auto-route: true`, DNS hijack on port 53)
+- TUN mode **always on** (`auto-route: true`, DNS hijack on port 53) —
+  gateway clients (Meta Quest etc.) and host traffic both flow through
+  Mihomo by default
 - systemd-resolved stub listener disabled during install so Mihomo can
   bind port 53
+- systemd-resolved's mihomo DNS scope stripped after TUN comes up (via
+  `ExecStartPost` in ultralite, via installer post-launch step in full)
 - firewalld ports opened: 7890, 8080, 8585, 9090
-- No clash-system toggle — the historical on/off switch was removed
-  because Mihomo v1.19+ uses interface-based routing that the fwmark
-  approach couldn't cleanly override
+- `iptables FORWARD -i/-o mihomo -j ACCEPT` installed so gateway
+  clients can reach TUN even when FORWARD policy is DROP (Docker)
+
+### Host-traffic toggle (`clash-system`)
+
+Advanced users can bypass Mihomo for host-originated traffic while
+keeping gateway clients proxied:
+
+- `sudo clash-system on` — host traffic through Mihomo (default)
+- `sudo clash-system off` — host traffic direct
+- `sudo clash-system status` — current state
+
+Implementation (`/usr/local/bin/clash-system`):
+
+- fwmark **888** on `iptables mangle OUTPUT` — not 666, which is
+  Mihomo's internal `routing-mark` for its own upstream sockets
+- `ip rule add fwmark 888 lookup main priority 5000` — higher priority
+  than Mihomo's auto-route rules at ~9000
+- `iptables -t nat -A POSTROUTING -m mark --mark 888 -j MASQUERADE` —
+  after the re-route, packets inherit the TUN's source IP (198.18.0.1)
+  which isn't routable externally; MASQUERADE rewrites to the outgoing
+  interface's address
+- Only mangles `OUTPUT` (local traffic). `FORWARD` is untouched so
+  gateway clients still route through TUN via Mihomo's auto-route rules
+- Toggle doesn't persist across reboots by default. The advanced install
+  prompt "Bypass proxy for this device's traffic on boot?" installs an
+  optional `pimiproxy-bypass.service` that runs `clash-system off`
+  after Mihomo starts
 
 ---
 
@@ -411,25 +443,35 @@ should get its own detailed commit rather than being batched.
 | Path | Purpose |
 |---|---|
 | `/opt/pimiproxy/` | Install dir, root-owned, never edit manually |
+| `/opt/pimiproxy/pimiproxy.sh` | Wrapper script (copy of the release wrapper) |
+| `/opt/pimiproxy/pimiproxy-core.py` | Core script (copy of the release core) |
 | `/opt/pimiproxy/.pimiproxy-config.json` | Live config, read/written by API container |
 | `/opt/pimiproxy/.pimiproxy-meta.json` | Install metadata (ports, paths, arch) |
 | `/opt/pimiproxy/config/config.yaml` | Generated Mihomo config |
 | `/opt/pimiproxy/docker-compose.yml` | Runtime compose file (no `build:` directive — uses pre-loaded images) |
 | `/opt/pimiproxy/ui-secret.txt` | Django SECRET_KEY for pimiproxy-api |
-| `/etc/profile.d/pimiproxy-banner.sh` | Login banner (sourced from /etc/bash.bashrc for non-login shells) |
+| `/usr/local/bin/pimiproxy` | Symlink → `/opt/pimiproxy/pimiproxy.sh` |
+| `/usr/local/bin/clash-system` | Host-traffic bypass toggle |
+| `/etc/profile.d/pimiproxy-banner.sh` | Login banner (also sourced from `/etc/bash.bashrc` / `/etc/bashrc` for desktop terminals) |
 | `/etc/cron.daily/pimiproxy-refresh` | Daily provider refresh |
 | `/etc/sysctl.d/99-pimiproxy.conf` | IP forwarding |
+| `/etc/systemd/system/pimiproxy-bypass.service` | Optional — installed only if advanced install opts in to "bypass on boot" |
 
 ### Ultralite variant
 
 | Path | Purpose |
 |---|---|
 | `/opt/pimiproxy-lite/` | Install dir |
+| `/opt/pimiproxy-lite/pimiproxy-ultralite.sh` | Wrapper script |
+| `/opt/pimiproxy-lite/pimiproxy-ultralite-core.py` | Core script |
 | `/opt/pimiproxy-lite/.pimiproxy-config.json` | Live config |
 | `/opt/pimiproxy-lite/.pimiproxy-meta.json` | Metadata |
 | `/opt/pimiproxy-lite/config/config.yaml` | Mihomo config |
 | `/usr/local/bin/mihomo` | Mihomo binary (extracted from bin/*.gz) |
+| `/usr/local/bin/pimiproxy-ultralite` | Symlink → install-dir wrapper |
+| `/usr/local/bin/clash-system` | Host-traffic bypass toggle |
 | `/etc/systemd/system/mihomo.service` | systemd unit |
+| `/etc/systemd/system/pimiproxy-bypass.service` | Optional — installed only if advanced install opts in |
 
 ### Docker socket mount (full only)
 
@@ -528,23 +570,21 @@ default, not a fallback.
 Produced by `./scripts/3_build-releases.sh`. All archives land in `releases/`
 (gitignored).
 
-Up to 8 archives are produced — one per variant × arch combination.
-Arches without a required image or binary are skipped silently.
+Seven archives are produced in a full build:
 
 | Archive | Variant | Arch | Approx size |
 |---|---|---|---|
 | `pimiproxy-amd64.tar.gz` | Full | amd64 (x86_64) | ~177 MB |
 | `pimiproxy-arm64.tar.gz` | Full | arm64 (aarch64) | ~175 MB |
-| `pimiproxy-armv7.tar.gz` | Full | armv7 (32-bit ARM) | ~170 MB* |
-| `pimiproxy-386.tar.gz` | Full | 386 (32-bit x86) | ~170 MB* |
+| `pimiproxy-armv7.tar.gz` | Full | armv7 (32-bit ARM) | ~115 MB — ships zashboard only (no metacubexd armv7 upstream) |
 | `pimiproxy-ultralite-amd64.tar.gz` | Ultralite | amd64 | ~13 MB |
 | `pimiproxy-ultralite-arm64.tar.gz` | Ultralite | arm64 | ~12 MB |
 | `pimiproxy-ultralite-armv7.tar.gz` | Ultralite | armv7 | ~12 MB |
 | `pimiproxy-ultralite-386.tar.gz` | Ultralite | 386 | ~13 MB |
 
-*armv7/386 full archives require the upstream Docker images to publish
-those platforms. If any one image is missing the variant, the archive
-is skipped.
+No full-variant 386 archive: pimiproxy-ui's node:20-alpine base has no
+386 variant, so the Docker build fails. Users on 32-bit x86 should use
+`pimiproxy-ultralite-386.tar.gz`.
 
 ### What's inside each archive
 
@@ -603,7 +643,5 @@ should prefer ultralite when possible.
   messages that explain *why*, not just *what*.
 - `.gitignore` covers: `releases/`, `docker-images/*.tar.gz`, `bin/*.gz`,
   `__pycache__`, `node_modules`, and the dev-only `scripts/2_rebuild.sh`.
-- Historical references to `clash-system` only appear in
-  `CHANGELOG.md` — anywhere else is stale.
 - Provider names (`Wannaflix` etc.) should never appear in
   user-facing text or rule targets. The project is provider-agnostic.

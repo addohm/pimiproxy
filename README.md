@@ -15,9 +15,10 @@ Once installed, any device on your network can route its traffic through the SBC
 - Provides a web dashboard (Metacubexd or Zashboard) for live traffic monitoring
 - Provides a browser-based management UI for adding proxy groups, rules, and managing your provider URL
 - Supports a two-layer config: your provider's subscription (base) + your own groups and rules (always applied on top)
-- Routes all device traffic through the proxy via TUN mode (always on)
+- Routes all traffic through Mihomo via TUN — both the host's own traffic and forwarded traffic from devices using it as their DHCP gateway (e.g. Meta Quest)
+- Includes an optional `clash-system on|off` toggle for advanced users to bypass Mihomo for host-originated traffic (gateway clients stay proxied)
 - Sets up mDNS so the SBC is reachable as `pimiproxy.local` on the LAN, and as `pimiproxy.lan` on routers that use `.lan` as the local domain
-- Shows a status banner on every SSH/terminal login — proxy engine state, proxy count, endpoints, and quick-command reference
+- Shows a status banner on every SSH/terminal login — engine state, host-traffic state, proxy count, endpoints, and quick-command reference
 
 ## What it does not do
 
@@ -50,8 +51,13 @@ broader arch coverage because it ships a single self-contained binary.
 |---|---|---|---|
 | `amd64` (x86_64) | ✅ Available | ✅ Available | Intel/AMD PCs, most VMs, x86 mini-PCs |
 | `arm64` (aarch64) | ✅ Available | ✅ Available | Raspberry Pi 4/5, modern 64-bit SBCs |
-| `armv7` | ❌ N/A (metacubexd missing) | ✅ Available | Raspberry Pi 3, older 32-bit ARM SBCs |
-| `386` (x86 32-bit) | ❌ N/A (metacubexd missing) | ✅ Available | Legacy x86 PCs |
+| `armv7` | ✅ Available *(zashboard only)* | ✅ Available | Raspberry Pi 3, older 32-bit ARM SBCs |
+| `386` (x86 32-bit) | ❌ Not available | ✅ Available | Legacy x86 PCs |
+
+`armv7` full archive ships only the Zashboard dashboard because upstream
+Metacubexd doesn't publish an armv7 image. `386` has no full archive
+because `node:20-alpine` (used by `pimiproxy-ui`'s build) has no 386
+variant — use the ultralite archive on 32-bit x86.
 
 ### Tested distros
 
@@ -105,6 +111,13 @@ sudo ./pimiproxy.sh install
 This detects your distro, installs essential tools (curl, iproute2, procps), Python, cron, Docker, avahi-daemon, and raspi-config if needed, then launches the installer automatically.
 
 Press Enter through all prompts to accept defaults. See [docs/INSTRUCTIONS.md](docs/INSTRUCTIONS.md) for the full walkthrough.
+
+After install you can run commands from anywhere using the symlink `/usr/local/bin/pimiproxy` (or `pimiproxy-ultralite`):
+
+```bash
+sudo pimiproxy status
+sudo pimiproxy test --url https://www.google.com
+```
 
 **Installing from mainland China?** The installer will ask whether the device is in China. Answer yes to switch system package repositories (apt/dnf/pacman) and Docker CE to Aliyun mirrors. Use the `china-repos` and `standard-repos` subcommands to switch mirrors after install.
 
@@ -253,8 +266,10 @@ sudo ./pimiproxy.sh export /tmp/pimiproxy-export
 sudo ./pimiproxy.sh china-repos
 sudo ./pimiproxy.sh standard-repos
 
-# All device traffic is always tunneled through the proxy via TUN mode.
-# No manual on/off toggle is needed.
+# Host-traffic toggle (advanced) — gateway clients always stay proxied
+sudo clash-system off     # host's own traffic bypasses Mihomo (direct)
+sudo clash-system on      # host back through Mihomo (default)
+sudo clash-system status
 ```
 
 ---

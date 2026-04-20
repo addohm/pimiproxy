@@ -14,6 +14,7 @@
 8. [Recovering a Broken Config](#8-recovering-a-broken-config)
 9. [Devices on the Network Can't Connect to the Proxy](#9-devices-on-the-network-cant-connect-to-the-proxy)
 10. [App Shows No Connectivity Despite Proxy Being Configured](#10-app-shows-no-connectivity-despite-proxy-being-configured)
+11. [`clash-system off` Doesn't Bypass the Proxy](#11-clash-system-off-doesnt-bypass-the-proxy)
 
 ---
 
@@ -446,3 +447,52 @@ After saving, all traffic from the device routes through the SBC regardless of w
 | Hostname usable | Yes (`pimiproxy.lan`) | No (IP required for gateway field) |
 
 For most devices and apps, the explicit proxy is simpler and sufficient. Use gateway mode only when you have a specific app that is known to bypass the system proxy.
+
+---
+
+## 11. `clash-system off` Doesn't Bypass the Proxy
+
+**Symptom:** You ran `sudo clash-system off`, expected the device's own traffic to go direct, but it's still being proxied — or blocked sites still time out in both `on` and `off` states.
+
+### Quick check
+
+```bash
+sudo clash-system status          # current state + TUN interface
+sudo ip rule show | grep 5000     # expect: fwmark 0x378 lookup main (when off)
+sudo iptables -t mangle -L OUTPUT -n | grep MARK    # MARK set 0x378 (when off)
+sudo iptables -t nat -L POSTROUTING -n | grep MASQ  # mark match 0x378 → MASQUERADE (when off)
+```
+
+If the rules show but traffic is still going through the proxy, one of the below is likely.
+
+### Cause A: `systemd-resolved` still has mihomo as a DNS scope
+
+On Fedora, Ubuntu, Arch, and most systemd distros, `systemd-resolved` auto-adds the Mihomo TUN interface as a DNS source when it comes up. Queries via `getaddrinfo()` then hit Mihomo's DNS (which returns fake-IPs) regardless of our bypass. The installer and `clash-system` both strip the mihomo scope, but if the service was restarted without triggering our fix, the scope can reappear.
+
+**Fix:**
+```bash
+sudo resolvectl dns mihomo ""
+sudo resolvectl default-route mihomo false
+sudo resolvectl flush-caches
+```
+
+Or just toggle to apply it automatically:
+```bash
+sudo clash-system off    # fix_resolved() runs as a side-effect
+```
+
+### Cause B: Gateway clients are fine, host isn't — but app has its own DNS cache
+
+Firefox, Chrome, some Docker containers cache DNS internally. After toggling, their cached fake-IPs linger. Restart the app or flush its DNS cache.
+
+### Cause C: You want bypass to survive reboot
+
+By default, the bypass is runtime-only. After reboot, state resets to "on". To persist, install with advanced mode and answer yes to *"Bypass proxy for this device's traffic on boot?"* — this installs `pimiproxy-bypass.service` which reapplies the bypass after Mihomo comes up. Check status:
+
+```bash
+systemctl status pimiproxy-bypass.service
+```
+
+### Cause D: Gateway-client traffic also seems affected
+
+Gateway clients (Meta Quest etc. using this device as their DHCP gateway) should **always** be proxied regardless of the toggle — the toggle only touches the `OUTPUT` chain, not `FORWARD`. If gateway clients can't reach anything, it's unrelated to `clash-system`. Check §9 and §10.

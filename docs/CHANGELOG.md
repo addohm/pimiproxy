@@ -1,3 +1,26 @@
+## [7.0.0] — 2026-04-20
+
+### Added
+- **`clash-system` utility restored** at `/usr/local/bin/clash-system` with `on|off|status` subcommands. Toggles host-originated traffic between "routes through Mihomo" (on, default) and "bypasses Mihomo / direct internet" (off). Gateway-client traffic (devices using this host as their DHCP gateway, e.g. Meta Quest) is *always* proxied regardless of the toggle because only the `OUTPUT` chain is mangled, not `FORWARD`. Implementation uses fwmark `888` (deliberately different from Mihomo's internal mark 666), ip rule at priority 5000, and a POSTROUTING MASQUERADE so packets exit with the correct source IP.
+- **Optional `pimiproxy-bypass.service`** — only installed when the ADVANCED install prompt *"Bypass proxy for this device's traffic on boot?"* is answered yes. Runs `clash-system off` after Mihomo's TUN comes up, persisting the bypass across reboots. Express install never asks and leaves the boot state as "on".
+- **systemd-resolved DNS scope fix** — when Mihomo's TUN comes up, `systemd-resolved` auto-uses it as a DNS scope, causing `getaddrinfo()` to return fake-IPs even when bypass is active. Installer now strips the mihomo link from resolved's DNS config (`resolvectl dns mihomo "" && default-route mihomo false && flush-caches`), and the mihomo systemd unit re-applies it via `ExecStartPost` after every start. No-op on systems without `systemd-resolved` (e.g. Pi).
+- **FORWARD iptables rules** (`-i mihomo` / `-o mihomo` → ACCEPT) installed so gateway clients can reach TUN on systems where the default `FORWARD` policy is DROP (e.g. when Docker is installed).
+- **Login banner — "Host traffic" line** — shows `● via proxy` (clash-system on) or `○ direct (clash-system off)` based on live `ip rule show` output.
+- **`/usr/local/bin/pimiproxy` and `/usr/local/bin/pimiproxy-ultralite` symlinks** — wrapper scripts are copied to the install directory and symlinked for global access, so post-install users can run `sudo pimiproxy <cmd>` from anywhere.
+- **Raspbian apt source handling** — separate `mirrors.aliyun.com/raspbian/raspbian` path and `raspbian-archive-keyring.gpg` instead of the Debian defaults, which don't exist on Raspbian.
+- **Arch Linux 32 (archlinux32) mirror support** — the Yandex Russian mirror (reachable from China) with fallbacks to mirror.archlinux32.org, because Aliyun doesn't mirror archlinux32.
+- **armv7 full variant** — archive is now produced for armv7 using zashboard (since upstream metacubexd doesn't publish an armv7 Docker image). Installer auto-selects the available dashboard.
+
+### Fixed
+- **Banner double-display on Debian/Raspbian/Ubuntu** — SSH login reads both `/etc/profile` (sourcing `profile.d/pimiproxy-banner.sh`) AND `~/.bashrc` (which sources `/etc/bash.bashrc`, where the banner is also sourced so desktop terminals see it). Added a one-shot guard (`_PIMIPROXY_BANNER_SHOWN`) so it prints only once per shell session.
+- **Wrapper script not installed** — previously only `pimiproxy-core.py` was copied to the install dir, so `sudo /opt/pimiproxy/pimiproxy.sh <cmd>` returned "command not found". The wrapper is now copied alongside the core script.
+- **Direct invocation of core script warns** — running `pimiproxy-core.py` directly (bypassing the wrapper) prints a warning pointing users at `sudo pimiproxy <cmd>`. Driven by `PIMIPROXY_VIA_WRAPPER=1` env var set by the wrapper.
+
+### Changed
+- **Default UX unchanged** — fresh installs still behave identically to 6.1.0: host traffic routes through Mihomo via TUN. The bypass is opt-in at install time (advanced mode) or at runtime (`sudo clash-system off`).
+
+---
+
 ## [6.1.0] — 2026-04-16
 
 ### Removed
