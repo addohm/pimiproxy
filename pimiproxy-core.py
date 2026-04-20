@@ -1210,6 +1210,14 @@ def build_banner(cfg: dict, meta: dict) -> str:
     L()
     L("printf '  TUN mode        %s\\n' \"${_G}●  always on${_N}\"")
     L()
+    L("# ── Host traffic (clash-system state) ────────────────────────────────")
+    L("if [[ -d /sys/class/net/mihomo ]] && ip rule show 2>/dev/null | "
+      "grep -qE '^5000:.*fwmark 0x378.*lookup main'; then")
+    L("  printf '  Host traffic    %s\\n' \"${_Y}○  direct (clash-system off)${_N}\"")
+    L("else")
+    L("  printf '  Host traffic    %s\\n' \"${_G}●  via proxy${_N}\"")
+    L("fi")
+    L()
     L("# ── Proxy count ──────────────────────────────────────────────────────"
       )
     L(f"_COUNT=$(grep -c '- name:' '{cfg_file}' 2>/dev/null || echo 0)")
