@@ -2449,6 +2449,8 @@ def do_install():
                 continue
             return val
 
+    boot_bypass = False  # default: host traffic through proxy on boot
+
     if express:
         hostname_new = _ask_hostname(hostname_new)
     else:
@@ -2459,6 +2461,15 @@ def do_install():
         api_port = ask("Mihomo API port", api_port)
         mixed_port = ask("Mixed proxy port", mixed_port)
         api_secret = ask_secret("API secret", api_secret)
+        print()
+        print("  ── Host-traffic default " + "─" * 17)
+        print("  Advanced: should this device's OWN traffic route through the proxy")
+        print("  on boot, or bypass it (direct internet)?  Gateway clients (e.g. Meta")
+        print("  Quest using this device as their gateway) are always proxied either way.")
+        print("  You can toggle at runtime with:  sudo clash-system on|off")
+        print("  " + "─" * 42)
+        boot_bypass = confirm("Bypass proxy for this device's traffic on boot?",
+                              default=False)
 
     print()
     print("  ── Provider URL " + "─" * 26)
@@ -2848,6 +2859,37 @@ def do_install():
     CLASH_SYSTEM_PATH.write_text(build_clash_system())
     CLASH_SYSTEM_PATH.chmod(0o755)
     info(f"Installed {CLASH_SYSTEM_PATH}  (advanced: sudo clash-system [on|off|status])")
+
+    if boot_bypass:
+        # Wait (up to 30s) for the mihomo Docker container to bring up the TUN,
+        # then apply the bypass. docker.service is the right ordering dep on the
+        # full variant (mihomo runs inside Docker).
+        BYPASS_SERVICE_PATH.write_text(
+            "[Unit]\n"
+            "Description=pimiproxy — apply clash-system bypass after mihomo is up\n"
+            "After=docker.service\n"
+            "Requires=docker.service\n"
+            "\n"
+            "[Service]\n"
+            "Type=oneshot\n"
+            "RemainAfterExit=yes\n"
+            "ExecStartPre=/bin/sh -c 'for i in $(seq 1 30); do [ -d /sys/class/net/mihomo ] && exit 0; sleep 1; done; exit 1'\n"
+            f"ExecStart={CLASH_SYSTEM_PATH} off\n"
+            f"ExecStop={CLASH_SYSTEM_PATH} on\n"
+            "\n"
+            "[Install]\n"
+            "WantedBy=multi-user.target\n"
+        )
+        run(["systemctl", "daemon-reload"], silent=True, check=False)
+        run(["systemctl", "enable", "pimiproxy-bypass.service"], silent=True, check=False)
+        run(["systemctl", "start",  "pimiproxy-bypass.service"], silent=True, check=False)
+        info("pimiproxy-bypass.service enabled: host traffic bypasses proxy on boot.")
+    else:
+        if BYPASS_SERVICE_PATH.exists():
+            run(["systemctl", "disable", "--now", "pimiproxy-bypass.service"],
+                silent=True, check=False)
+            BYPASS_SERVICE_PATH.unlink()
+            run(["systemctl", "daemon-reload"], silent=True, check=False)
 
     # ── login banner ──────────────────────────────────────────────────────────
     step("Login banner")
