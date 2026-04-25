@@ -1,8 +1,6 @@
 # pimiproxy — User Guide
 
 A step-by-step guide to installing and using pimiproxy on your device.
-If you want a technical overview or to contribute to the project, see
-[MAINTAINER.md](MAINTAINER.md) instead.
 
 ---
 

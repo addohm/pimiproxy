@@ -155,6 +155,7 @@ _build_full() {
     # Ship user-facing docs only — exclude internal planning specs and the
     # developer-oriented DEV_INSTRUCTIONS.
     rsync -a --exclude='pmp-*-plan.md' --exclude='DEV_INSTRUCTIONS.md' \
+        --exclude='MAINTAINER.md' \
         "$ROOT_DIR/docs/" "$staging/pimiproxy/docs/"
     cp "$img_tmp"/*.tar.gz "$staging/pimiproxy/docker-images/"
     cp "$DOCKER_IMAGES/geoip.metadb" "$DOCKER_IMAGES/geosite.dat" "$DOCKER_IMAGES/country.mmdb" \
@@ -194,6 +195,7 @@ _build_ultralite() {
     # Ship user-facing docs only — exclude internal planning specs and the
     # developer-oriented DEV_INSTRUCTIONS.
     rsync -a --exclude='pmp-*-plan.md' --exclude='DEV_INSTRUCTIONS.md' \
+        --exclude='MAINTAINER.md' \
         "$ROOT_DIR/docs/" "$staging/pimiproxy-ultralite/docs/"
     cp "$bin_match" "$staging/pimiproxy-ultralite/bin/"
     cp "$DOCKER_IMAGES/geoip.metadb" "$DOCKER_IMAGES/geosite.dat" "$DOCKER_IMAGES/country.mmdb" \
