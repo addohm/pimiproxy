@@ -220,8 +220,7 @@ installer on this machine** — it's source-only. Test on:
 | `armiproxy.lan` | Arch Linux | `10.0.0.93` / `172.16.9.93` |
 
 The VMs have a second NIC on `vmnet1` (host-only) so the dev machine
-can reach them directly. SSH as `addohm` (key-based auth, passwordless
-sudo).
+can reach them directly. SSH with key-based auth, passwordless sudo.
 
 ### Sync source to a target
 
@@ -230,26 +229,26 @@ rsync -avz \
   --exclude=.git --exclude=.claude --exclude=docs \
   --exclude=__pycache__ --exclude=node_modules \
   --del \
-  /srv/aidev/pimiproxy/ addohm@pimiproxy.lan:/home/addohm/pimiproxy/
+  /srv/aidev/pimiproxy/ $USER@pimiproxy.lan:/home/$USER/pimiproxy/
 ```
 
 Then run commands on the target:
 
 ```bash
-ssh addohm@pimiproxy.lan "sudo /home/addohm/pimiproxy/pimiproxy test"
+ssh $USER@pimiproxy.lan "sudo /home/$USER/pimiproxy/pimiproxy test"
 ```
 
 ### Read-only debugging on the Pi
 
 ```bash
 # Container logs
-ssh addohm@pimiproxy.lan "sudo docker logs mihomo --tail 50"
+ssh $USER@pimiproxy.lan "sudo docker logs mihomo --tail 50"
 
 # Mihomo config
-ssh addohm@pimiproxy.lan "sudo cat /opt/pimiproxy/config/config.yaml"
+ssh $USER@pimiproxy.lan "sudo cat /opt/pimiproxy/config/config.yaml"
 
 # Install metadata
-ssh addohm@pimiproxy.lan "sudo cat /opt/pimiproxy/.pimiproxy-meta.json"
+ssh $USER@pimiproxy.lan "sudo cat /opt/pimiproxy/.pimiproxy-meta.json"
 ```
 
 ---

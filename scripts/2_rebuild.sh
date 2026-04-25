@@ -6,8 +6,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 DOCKER_IMAGES="$ROOT_DIR/docker-images"
 
-SBC_HOST="${PIMIPROXY_TARGET:-addohm@pimiproxy.lan}"
-SBC_IMAGES="/home/addohm/pimiproxy/docker-images"
+# Defaults assume the user has SSH'd to their SBC at least once. Override
+# either with the env vars or the --target flag. SBC_IMAGES is derived from
+# SBC_USER so swapping the SSH user re-targets the rsync destination too.
+SBC_USER="${PIMIPROXY_USER:-${USER}}"
+SBC_HOST="${PIMIPROXY_TARGET:-${SBC_USER}@pimiproxy.lan}"
+SBC_IMAGES="${PIMIPROXY_REMOTE_DIR:-/home/${SBC_USER}/pimiproxy}/docker-images"
 COMPOSE_FILE="/opt/pimiproxy/docker-compose.yml"
 
 MIHOMO_IMAGE="metacubex/mihomo:latest"
@@ -148,7 +152,7 @@ do_sync() {
         --exclude 'node_modules' \
         --exclude 'pimiproxy.tar.gz' \
         --del \
-        "$ROOT_DIR" "${SBC_HOST}:/home/addohm"
+        "$ROOT_DIR" "${SBC_HOST}:/home/${SBC_USER}"
     ok "Sync complete"
 }
 

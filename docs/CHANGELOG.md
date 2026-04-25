@@ -84,7 +84,7 @@
 - **Two-layer config model** — user-defined proxy groups and rules are now always applied on top of the provider subscription. User rules are prepended first (highest priority); user groups are appended after provider groups. Previously, user groups and rules were silently ignored when a subscription was present.
 - **Provider groups and rules visible in UI** — the management UI displays provider subscription groups (read-only) alongside user groups (CRUD). Provider rules are shown as a read-only preview below user rules.
 - **Drag-to-reorder rules** — user rules can be reordered in the UI by dragging. No external dependencies; uses native HTML5 drag.
-- **Light/dark mode toggle** — UI defaults to dark (addohmnet color scheme). Toggle persists in `localStorage`.
+- **Light/dark mode toggle** — UI defaults to dark. Toggle persists in `localStorage`.
 - **Offline font bundling** — Space Grotesk and Syne fonts are bundled at build time via `@fontsource` npm packages. No CDN calls required at runtime; works in China and air-gapped environments.
 - **`ui_port` in configure** — change the management UI port via configure option 7 (alongside dashboard, API, and proxy ports).
 - **`ui-secret.txt`** — Django `SECRET_KEY` generated at install time and written to `/opt/pimiproxy/ui-secret.txt`. Removed by the uninstaller.
