@@ -1,5 +1,14 @@
 ## [Unreleased]
 
+### Phase 5 — install preflight (prevents the dual-mihomo collision)
+- The installer now checks for another `mihomo` systemd unit, a `mihomo` binary outside our own
+  path, an existing `mihomo` TUN device, and anything already listening on the mixed/API ports, and
+  refuses to continue without explicit confirmation (or `--force`). A second Mihomo silently wins the
+  TUN device and port 7890, so pimiproxy's own engine never starts while the install looks fine —
+  the exact condition found on the live box. Reinstalling over pimiproxy's own install is still
+  allowed. Ultralite no longer silently overwrites a foreign `/etc/systemd/system/mihomo.service` or
+  `/usr/local/bin/mihomo` (fixes H1).
+
 ### Phase 4 — real engine health (fixes silent TUN stop / false "running")
 - `status`, the login banner, and the UI Overview previously reported the engine as "running"
   whenever the `mihomo` TUN device existed — which stays true when the process is dead, or when a

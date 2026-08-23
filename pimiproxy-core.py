@@ -39,7 +39,7 @@ from pimiproxy_common import (
     build_config,
     SUBSCRIPTION_KEYS, config_path, config_lock, load_config, write_config,
     update_config, CONFIG_CANDIDATE, install_config, mihomo_test_cmd_docker,
-    wait_for_controller, engine_health, print_engine_health,
+    wait_for_controller, engine_health, print_engine_health, preflight_conflicts,
 )
 
 
@@ -75,6 +75,12 @@ def _write_engine_config(cfg: dict, meta: dict, install_dir) -> bool:
         return False
     info("config.yaml validated and written.")
     return True
+
+
+def _own_container_running() -> bool:
+    r = run(["docker", "inspect", "-f", "{{.State.Running}}", "mihomo"],
+            capture=True, check=False)
+    return r.returncode == 0 and r.stdout.strip() == "true"
 
 
 def _engine_health(meta: dict, cfg: dict = None) -> dict:
@@ -1877,6 +1883,23 @@ def do_install():
         boot_bypass = confirm("Bypass proxy for this device's traffic on boot?",
                               default=False)
 
+
+    # ── preflight: anything already serving as "mihomo" on this host? ────────
+    # A second mihomo (packaged, hand-installed, or the other pimiproxy
+    # variant) silently wins the TUN device and the mixed port, and this
+    # install then looks healthy while changing nothing. Refuse unless the
+    # operator explicitly accepts it (or passes --force).
+    step("Preflight")
+    conflicts = preflight_conflicts(mixed_port, api_port, own_process_running=_own_container_running())
+    if conflicts:
+        warn("This host already has a Mihomo footprint that will conflict with pimiproxy:")
+        for c in conflicts:
+            warn(f"  • {c}")
+        warn("Stop/remove it first, or choose different ports, unless you know what you're doing.")
+        if "--force" not in sys.argv and not confirm("Continue anyway?", default=False):
+            die("Install aborted. Re-run with --force to skip this check.")
+    else:
+        info("No existing mihomo unit, binary, TUN device, or port conflict found.")
     print()
     print("  ── Provider URL " + "─" * 26)
     print("  If your proxy provider gave you a Clash/Mihomo API URL, enter")

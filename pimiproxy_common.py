@@ -943,6 +943,51 @@ def print_engine_health(h: dict, what: str, logs_cmd: str) -> None:
         warn("Engine NOT healthy.")
 
 
+def preflight_conflicts(mixed_port, api_port, own_unit_marker: str = None,
+                        own_binary=None, own_process_running: bool = False) -> list:
+    """
+    Things already on this host that would collide with a fresh install:
+    another mihomo systemd unit, a mihomo binary, a TUN device named
+    mihomo, or a listener on the ports we are about to claim. Returns
+    human-readable findings (empty = clear).
+
+      own_unit_marker     — text identifying our own unit (reinstall is fine)
+      own_binary          — path of the binary we install ourselves
+      own_process_running — our own engine from a previous install is up,
+                            so port ownership is expected; skip port checks
+    """
+    findings = []
+    try:
+        r = subprocess.run(["systemctl", "show", "mihomo", "-p", "LoadState",
+                            "-p", "ActiveState", "-p", "FragmentPath"],
+                           capture_output=True, text=True, timeout=5)
+        props = dict(l.split("=", 1) for l in r.stdout.splitlines() if "=" in l)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        props = {}
+    if props.get("LoadState") == "loaded":
+        path = props.get("FragmentPath", "")
+        text = Path(path).read_text() if path and Path(path).exists() else ""
+        if own_unit_marker and own_unit_marker in text:
+            # Our own unit from a previous install; if it is up, the TUN
+            # device and ports are expected to be ours.
+            if props.get("ActiveState") == "active":
+                own_process_running = True
+        else:
+            findings.append(f"a mihomo systemd unit already exists: {path} "
+                            f"({props.get('ActiveState', '?')})")
+    for b in (Path("/usr/bin/mihomo"), Path("/usr/local/bin/mihomo")):
+        if b.exists() and (own_binary is None or b != Path(own_binary)):
+            findings.append(f"a mihomo binary is installed at {b}")
+    if tun_up() and not own_process_running:
+        findings.append("a TUN device named 'mihomo' is already up")
+    if not own_process_running:
+        for label, port in (("mixed proxy", mixed_port), ("Mihomo API", api_port)):
+            owner = port_owner(port)
+            if owner:
+                findings.append(f"port {port} ({label}) is already in use by {owner}")
+    return findings
+
+
 def wait_for_controller(host: str, api_port, secret: str, timeout: float = 20.0):
     """Poll probe_controller() until it succeeds or `timeout` seconds pass."""
     import time
