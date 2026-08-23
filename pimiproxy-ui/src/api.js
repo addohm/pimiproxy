@@ -10,7 +10,13 @@ async function req(method, path, body) {
   const res = await fetch(`${BASE}/api/${path}`, opts)
   if (res.status === 401) throw Object.assign(new Error("Unauthorized"), { status: 401 })
   const text = await res.text()
-  const data = text ? JSON.parse(text) : {}
+  let data = {}
+  try { data = text ? JSON.parse(text) : {} }
+  catch {
+    // Non-JSON body (e.g. an nginx 502/504 HTML page when the API is down).
+    if (!res.ok) throw new Error(`Backend unavailable (HTTP ${res.status})`)
+    throw new Error("Unexpected non-JSON response from server")
+  }
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
   return data
 }

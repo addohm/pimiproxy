@@ -772,6 +772,7 @@ _TEST_GROUPS = [
 def do_test():
     import time
     import urllib.request
+    import urllib.error
 
     meta = read_meta()
     mixed_port = meta.get("mixed_port", "7890")

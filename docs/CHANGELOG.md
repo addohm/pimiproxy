@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+### Phase 9 — robustness cleanup
+- The UI parsed every response as JSON before checking `res.ok`, so an nginx 502/504 HTML page (API
+  down) surfaced as a cryptic `SyntaxError` instead of "Backend unavailable" (fixes M8).
+- The provider URL endpoint validates the scheme (http/https) instead of storing any string (L2).
+- `do_test` imports `urllib.error` explicitly instead of relying on an import side effect (L10).
+
 ### Phase 8 — security hardening
 - The login brute-force throttle keyed on the client-controlled `X-Forwarded-For` header (which
   nginx only appends to), so an attacker could dodge the per-IP lockout by rotating it. It now keys

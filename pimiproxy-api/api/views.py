@@ -420,6 +420,9 @@ def rules_reorder_view(request):
 def provider_view(request):
     body = _json_body(request)
     url = body.get("url", "").strip()
+    if url and not url.startswith(("http://", "https://")):
+        return err("Provider URL must start with http:// or https://")
+
     def _apply(cfg):
         cfg["subscription_url"] = url
 
