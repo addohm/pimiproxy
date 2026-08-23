@@ -69,10 +69,116 @@ timed_step() {
     local msg="$1"; shift
     warn "$msg — this may take several minutes..."
     local start=$SECONDS
-    "$@"
+    local rc=0
+    "$@" || rc=$?
     local elapsed=$(( SECONDS - start ))
-    info "$msg — done (${elapsed}s)"
+    if [[ $rc -eq 0 ]]; then
+        info "$msg — done (${elapsed}s)"
+    else
+        warn "$msg — FAILED (exit $rc, ${elapsed}s)"
+    fi
+    return $rc
 }
+
+# ── Offline Docker Engine install from the bundled static binaries ─────────────
+# Used before any network path when docker-engine/docker-<arch>.tgz ships next to
+# this wrapper. Installs dockerd/containerd/runc to /usr/local/bin with our own
+# systemd units. Returns 0 only if `docker` + `docker compose` end up working.
+install_docker_offline() {
+    local arch bundle comp
+    case "$(uname -m)" in
+        x86_64|amd64)   arch="amd64" ;;
+        aarch64|arm64)  arch="arm64" ;;
+        armv7l|armhf)   arch="armv7" ;;
+        *) return 1 ;;
+    esac
+    bundle="${SCRIPT_DIR}/docker-engine/docker-${arch}.tgz"
+    comp="${SCRIPT_DIR}/docker-engine/docker-compose-${arch}"
+    [[ -f "$bundle" ]] || return 1
+    command -v systemctl &>/dev/null || return 1   # units require systemd
+
+    step "Installing Docker Engine from bundled binaries (offline)"
+    local tmp; tmp="$(mktemp -d)"
+    tar -xzf "$bundle" -C "$tmp" || { rm -rf "$tmp"; return 1; }
+    install -m 0755 "$tmp"/docker/* /usr/local/bin/ || { rm -rf "$tmp"; return 1; }
+    rm -rf "$tmp"
+    if [[ -f "$comp" ]]; then
+        install -d /usr/local/lib/docker/cli-plugins
+        install -m 0755 "$comp" /usr/local/lib/docker/cli-plugins/docker-compose
+    fi
+    getent group docker >/dev/null || groupadd docker 2>/dev/null || true
+
+    cat > /etc/systemd/system/containerd.service <<'UNIT'
+[Unit]
+Description=containerd container runtime
+After=network.target local-fs.target
+
+[Service]
+ExecStartPre=-/sbin/modprobe overlay
+ExecStart=/usr/local/bin/containerd
+Type=notify
+Delegate=yes
+KillMode=process
+Restart=always
+RestartSec=5
+LimitNPROC=infinity
+LimitCORE=infinity
+LimitNOFILE=infinity
+TasksMax=infinity
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+    cat > /etc/systemd/system/docker.socket <<'UNIT'
+[Unit]
+Description=Docker Socket for the API
+
+[Socket]
+ListenStream=/var/run/docker.sock
+SocketMode=0660
+SocketUser=root
+SocketGroup=docker
+
+[Install]
+WantedBy=sockets.target
+UNIT
+
+    cat > /etc/systemd/system/docker.service <<'UNIT'
+[Unit]
+Description=Docker Application Container Engine
+After=network-online.target containerd.service docker.socket
+Wants=network-online.target containerd.service
+Requires=docker.socket
+
+[Service]
+Type=notify
+ExecStart=/usr/local/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock
+ExecReload=/bin/kill -s HUP $MAINPID
+LimitNOFILE=infinity
+LimitNPROC=infinity
+LimitCORE=infinity
+TasksMax=infinity
+Restart=always
+RestartSec=2
+Delegate=yes
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+    systemctl daemon-reload
+    systemctl enable --now containerd &>/dev/null || true
+    systemctl enable --now docker.socket &>/dev/null || true
+    systemctl enable --now docker &>/dev/null || true
+
+    # Give dockerd a moment to open its socket
+    local i
+    for i in $(seq 1 15); do docker version &>/dev/null && break; sleep 1; done
+    docker version &>/dev/null && docker compose version &>/dev/null 2>&1
+}
+
 
 [[ $EUID -eq 0 ]] || die "Run as root:  sudo bash $0 [install|uninstall|configure]"
 
@@ -290,6 +396,11 @@ else
     fi
 
     if ! command -v docker &>/dev/null || ! docker compose version &>/dev/null 2>&1; then
+        # Prefer the bundled offline engine; only fall back to the network if it
+        # is absent or fails.
+        if install_docker_offline; then
+            info "Docker Engine installed from the offline bundle."
+        else
         echo
         read -r -p "  Is this device located in China? (use Aliyun mirrors for Docker CE) [y/N]: " _china_ans
         CHINA_MIRRORS=false
@@ -452,7 +563,7 @@ https://mirrors.aliyun.com/docker-ce/linux/${DISTRO} ${CODENAME} stable" \
                 *)
                     warn "China mirror mode is not supported for this package manager. Falling back to get.docker.com."
                     timed_step "Installing Docker CE via get.docker.com" \
-                        bash -c 'curl -fsSL https://get.docker.com | sh'
+                        bash -c 'set -o pipefail; curl -fsSL https://get.docker.com | sh'
                 ;;
             esac
         else
@@ -466,7 +577,8 @@ https://mirrors.aliyun.com/docker-ce/linux/${DISTRO} ${CODENAME} stable" \
                 esac
             fi
             timed_step "Installing Docker CE via get.docker.com" \
-                bash -c 'curl -fsSL https://get.docker.com | sh'
+                bash -c 'set -o pipefail; curl -fsSL https://get.docker.com | sh'
+        fi
         fi
     fi
 

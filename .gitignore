@@ -29,3 +29,6 @@ api.url
 
 # Build-time copy of pimiproxy_common.py baked into the API image
 pimiproxy-api/api/_bundled_common.py
+
+# Static Docker Engine bundle (fetched on demand via 1_update-upstream.sh --docker)
+docker-engine/

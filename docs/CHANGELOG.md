@@ -1,5 +1,18 @@
 ## [Unreleased]
 
+### Phase 7 — offline Docker Engine bundle
+- The full variant bundled container images offline but not the Docker Engine daemon, so a
+  fully-offline box (China / air-gap) couldn't `docker load` them — install died at the Docker step.
+  `1_update-upstream.sh --docker` now fetches the static `dockerd`/`containerd`/`runc`/`docker-init`
+  bundle + the compose plugin per arch (amd64/arm64/armv7) into `docker-engine/`;
+  `3_build-releases.sh` bundles them into full archives; and the `pimiproxy` wrapper installs the
+  engine from the bundle (binaries to `/usr/local/bin`, shipped `containerd`/`docker` systemd units)
+  BEFORE any network path, falling back to get.docker.com / Aliyun only if the bundle is absent
+  (fixes H8).
+- `timed_step` now returns the real exit code and reports FAILED instead of always printing "done",
+  and `curl | sh` runs under `pipefail`, so a blocked get.docker.com is a real, visible failure
+  instead of a false success (fixes M3).
+
 ### Phase 9 — robustness cleanup
 - The UI parsed every response as JSON before checking `res.ok`, so an nginx 502/504 HTML page (API
   down) surfaced as a cryptic `SyntaxError` instead of "Backend unavailable" (fixes M8).

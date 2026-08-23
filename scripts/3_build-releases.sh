@@ -177,6 +177,23 @@ _build_full() {
     cp "$DOCKER_IMAGES/geoip.metadb" "$DOCKER_IMAGES/geosite.dat" "$DOCKER_IMAGES/country.mmdb" \
        "$staging/pimiproxy/docker-images/"
 
+    # Bundle the static Docker Engine for this arch so a fully-offline box can
+    # bootstrap the daemon (images alone can't load without a running engine).
+    _de_tgz="$ROOT_DIR/docker-engine/docker-${arch}.tgz"
+    _de_comp="$ROOT_DIR/docker-engine/docker-compose-${arch}"
+    if [[ -f "$_de_tgz" ]]; then
+        if [[ $(stat -c %s "$_de_tgz" 2>/dev/null || echo 0) -lt 10000000 ]] || head -c 40 "$_de_tgz" | grep -q "git-lfs"; then
+            fail "docker-engine/docker-${arch}.tgz is a Git LFS pointer, not the real bundle."
+            echo "    Run:  git lfs pull --include='docker-engine/*'   or   ./scripts/1_update-upstream.sh --docker" >&2
+            exit 1
+        fi
+        mkdir -p "$staging/pimiproxy/docker-engine"
+        cp "$_de_tgz" "$staging/pimiproxy/docker-engine/"
+        [[ -f "$_de_comp" ]] && cp "$_de_comp" "$staging/pimiproxy/docker-engine/"
+    else
+        skip "docker-engine/docker-${arch}.tgz absent — release will need a network Docker install"
+    fi
+
     rsync -a --exclude='__pycache__' "$ROOT_DIR/pimiproxy-api/" "$staging/pimiproxy/pimiproxy-api/"
     rsync -a --exclude='__pycache__' --exclude='node_modules' "$ROOT_DIR/pimiproxy-ui/" "$staging/pimiproxy/pimiproxy-ui/"
 

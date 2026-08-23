@@ -52,6 +52,8 @@ ${bold}Options:${reset}
                    save as multi-arch tarballs (mihomo, metacubexd, zashboard)
   --geodata        Download geoip.metadb / geosite.dat / country.mmdb from
                    MetaCubeX/meta-rules-dat into docker-images/
+  --docker         Download the static Docker Engine (dockerd/containerd/runc)
+                   + compose plugin per arch into docker-engine/ (offline install)
   --all            All of the above (default if no flags given)
   --dry-run        Show what would be downloaded without doing it
   -h, --help       Show this help
@@ -79,10 +81,11 @@ EOF
 DO_BINS=0
 DO_IMAGES=0
 DO_GEODATA=0
+DO_DOCKER=0
 DRY_RUN=0
 
 if [[ $# -eq 0 ]]; then
-    DO_BINS=1; DO_IMAGES=1; DO_GEODATA=1
+    DO_BINS=1; DO_IMAGES=1; DO_GEODATA=1; DO_DOCKER=1
 fi
 
 while [[ $# -gt 0 ]]; do
@@ -90,8 +93,9 @@ while [[ $# -gt 0 ]]; do
         --bins)    DO_BINS=1 ;;
         --images)  DO_IMAGES=1 ;;
         --geodata) DO_GEODATA=1 ;;
-        --all)     DO_BINS=1; DO_IMAGES=1; DO_GEODATA=1 ;;
-        --dry-run) DRY_RUN=1; DO_BINS=1; DO_IMAGES=1; DO_GEODATA=1 ;;
+        --docker)  DO_DOCKER=1 ;;
+        --all)     DO_BINS=1; DO_IMAGES=1; DO_GEODATA=1; DO_DOCKER=1 ;;
+        --dry-run) DRY_RUN=1; DO_BINS=1; DO_IMAGES=1; DO_GEODATA=1; DO_DOCKER=1 ;;
         -h|--help) usage ;;
         *)         echo "Unknown flag: $1"; usage ;;
     esac
@@ -244,6 +248,53 @@ if [[ $DO_GEODATA -eq 1 ]]; then
     echo
 fi
 
+# ── Static Docker Engine (offline bootstrap for the full variant) ────────────
+# The release images load via `docker load`, which needs a running daemon. On a
+# fully offline box the wrapper can install the engine from this bundle instead
+# of get.docker.com / Aliyun. Static tarball = dockerd + containerd + runc +
+# docker-init + docker-proxy + the client, no dependencies.
+DOCKER_ENGINE_DIR="$ROOT_DIR/docker-engine"
+DOCKER_STATIC_VER="${DOCKER_STATIC_VER:-29.7.2}"
+DOCKER_COMPOSE_VER="${DOCKER_COMPOSE_VER:-v5.5.0}"
+# pimiarch : docker-static-arch : compose-arch
+DOCKER_ENGINE_ARCHES=(
+    "amd64:x86_64:x86_64"
+    "arm64:aarch64:aarch64"
+    "armv7:armhf:armv7"
+)
+
+if [[ $DO_DOCKER -eq 1 ]]; then
+    step "Downloading static Docker Engine ${DOCKER_STATIC_VER} + compose ${DOCKER_COMPOSE_VER}..."
+    mkdir -p "$DOCKER_ENGINE_DIR"
+    for entry in "${DOCKER_ENGINE_ARCHES[@]}"; do
+        arch="${entry%%:*}"; rest="${entry#*:}"
+        darch="${rest%%:*}"; carch="${rest##*:}"
+        tgz_url="https://download.docker.com/linux/static/stable/${darch}/docker-${DOCKER_STATIC_VER}.tgz"
+        comp_url="https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VER}/docker-compose-linux-${carch}"
+        tgz_dest="$DOCKER_ENGINE_DIR/docker-${arch}.tgz"
+        comp_dest="$DOCKER_ENGINE_DIR/docker-compose-${arch}"
+        if [[ $DRY_RUN -eq 1 ]]; then
+            echo "  ${dim}[dry-run]${reset} Would download: docker-${arch}.tgz, docker-compose-${arch}"
+            continue
+        fi
+        if curl -fSL -o "${tgz_dest}.part" "$tgz_url" 2>/dev/null \
+           && [[ $(stat -c %s "${tgz_dest}.part") -gt 10000000 ]]; then
+            mv -f "${tgz_dest}.part" "$tgz_dest"
+            ok "docker-${arch}.tgz  ($(du -sh "$tgz_dest" | cut -f1))"
+        else
+            rm -f "${tgz_dest}.part"; fail "Failed: docker-${arch}.tgz (${darch})"
+        fi
+        if curl -fSL -o "${comp_dest}.part" "$comp_url" 2>/dev/null \
+           && [[ $(stat -c %s "${comp_dest}.part") -gt 1000000 ]]; then
+            mv -f "${comp_dest}.part" "$comp_dest"; chmod +x "$comp_dest"
+            ok "docker-compose-${arch}  ($(du -sh "$comp_dest" | cut -f1))"
+        else
+            rm -f "${comp_dest}.part"; fail "Failed: docker-compose-${arch} (${carch})"
+        fi
+    done
+    echo
+fi
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 echo "${bold}────────────────────────────────────────${reset}"
 echo "${bold}${green}Done.${reset}"
@@ -261,6 +312,12 @@ if [[ $DO_GEODATA -eq 1 ]]; then
         [[ -f "$DOCKER_IMAGES/$f" ]] && \
             printf "    %-50s %s\n" "docker-images/$f" "$(du -sh "$DOCKER_IMAGES/$f" | cut -f1)"
     done
+fi
+
+if [[ $DO_DOCKER -eq 1 ]]; then
+    echo
+    echo "  ${bold}Docker Engine bundle:${reset}"
+    ls -lh "$DOCKER_ENGINE_DIR"/docker-*.tgz "$DOCKER_ENGINE_DIR"/docker-compose-* 2>/dev/null | awk '{printf "    %-50s %s\n", $NF, $5}'
 fi
 
 if [[ $DO_IMAGES -eq 1 ]]; then
