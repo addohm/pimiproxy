@@ -37,7 +37,21 @@ from pimiproxy_common import (
     extract_yaml_blocks, fetch_subscription, save_subscription,
     detect_distro, pkg_update, pkg_install, pkg_remove,
     build_config as _build_config,
+    SUBSCRIPTION_KEYS, config_path, config_lock, load_config, write_config,
+    update_config,
 )
+
+
+def _save_user_config(ext_cfg_path, cfg: dict) -> dict:
+    """
+    Persist an interactive session's config without clobbering concurrent
+    writers. The session's copy may be minutes old, so a cron refresh that
+    ran meanwhile must win for the subscription keys; everything else
+    (user-editable settings) comes from the session. Returns the merged dict.
+    """
+    def _merge(fresh):
+        fresh.update({k: v for k, v in cfg.items() if k not in SUBSCRIPTION_KEYS})
+    return update_config(ext_cfg_path, _merge)
 
 
 def do_set_hostname():
@@ -1129,8 +1143,10 @@ def do_configure():
             if not changed:
                 info("No changes to save.")
                 break
+            # Merge onto the current on-disk file (a cron refresh may have
+            # run during this session), then build config.yaml from it.
+            cfg = _save_user_config(ext_cfg_path, cfg)
             cfg_path.write_text(build_config(cfg))
-            ext_cfg_path.write_text(json.dumps(cfg, indent=2))
             info("config.yaml written.")
             for key in ("api_port", "mixed_port", "api_secret"):
                 if key in cfg:
@@ -1357,7 +1373,7 @@ def do_install():
             warn("Run after install:  sudo ./pimiproxy-ultralite refresh")
 
     (install_path / "config" / "config.yaml").write_text(build_config(cfg))
-    (install_path / ".pimiproxy-config.json").write_text(json.dumps(cfg, indent=2))
+    write_config(config_path(install_path), cfg)
     info("config.yaml written.")
 
     # ── systemd service ───────────────────────────────────────────────────────
@@ -1835,7 +1851,7 @@ def _load_cfg_for_rules():
 
 
 def _save_cfg_and_restart(install_dir, ext_cfg_path, cfg):
-    ext_cfg_path.write_text(json.dumps(cfg, indent=2))
+    cfg = _save_user_config(ext_cfg_path, cfg)
     cfg_path = install_dir / "config" / "config.yaml"
     cfg_path.write_text(build_config(cfg))
     run(["systemctl", "restart", "mihomo"], check=False)

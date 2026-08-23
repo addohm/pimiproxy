@@ -21,7 +21,7 @@ from pathlib import Path
 # =============================================================================
 if os.geteuid() != 0:
     sys.exit(
-        "Run as root:  sudo python3 pimiproxy.py [install|uninstall|configure]"
+        "Run as root:  sudo ./pimiproxy [install|uninstall|configure]"
     )
 
 
@@ -37,7 +37,21 @@ from pimiproxy_common import (
     extract_yaml_blocks, fetch_subscription, save_subscription,
     detect_distro, pkg_update, pkg_install, pkg_remove,
     build_config,
+    SUBSCRIPTION_KEYS, config_path, config_lock, load_config, write_config,
+    update_config,
 )
+
+
+def _save_user_config(ext_cfg_path, cfg: dict) -> dict:
+    """
+    Persist an interactive session's config without clobbering concurrent
+    writers. The session's copy may be minutes old, so a cron/UI refresh
+    that ran meanwhile must win for the subscription keys; everything else
+    (user-editable settings) comes from the session. Returns the merged dict.
+    """
+    def _merge(fresh):
+        fresh.update({k: v for k, v in cfg.items() if k not in SUBSCRIPTION_KEYS})
+    return update_config(ext_cfg_path, _merge)
 
 
 def do_set_hostname():
@@ -1492,7 +1506,7 @@ def do_configure():
             else:
                 if save_subscription(install_dir, url):
                     # Reload cfg with fresh subscription blocks and rebuild config
-                    cfg = json.loads(ext_cfg_path.read_text())
+                    cfg = load_config(ext_cfg_path)
                     cfg_path.write_text(build_config(cfg))
                     info("config.yaml rebuilt.")
                     compose_run(compose,
@@ -1580,9 +1594,10 @@ def do_configure():
                 if not confirm("Continue saving anyway?", default=False):
                     continue
 
-            # Always write config.yaml (covers secret, api_port, mixed_port)
+            # Merge onto the current on-disk file (a refresh may have run
+            # during this session), then build config.yaml from the result.
+            cfg = _save_user_config(ext_cfg_path, cfg)
             cfg_path.write_text(build_config(cfg))
-            ext_cfg_path.write_text(json.dumps(cfg, indent=2))
             info("config.yaml written.")
 
             # Rebuild docker-compose.yml when ports or dashboard changed
@@ -1709,7 +1724,7 @@ def do_configure():
 
             # Rebuild compose and restart
             (install_dir / "docker-compose.yml").write_text(build_compose(cfg))
-            ext_cfg_path.write_text(json.dumps(cfg, indent=2))
+            cfg = _save_user_config(ext_cfg_path, cfg)
             write_meta(meta)
             if BANNER_PATH.exists():
                 BANNER_PATH.write_text(build_banner(cfg, meta))
@@ -2095,8 +2110,7 @@ def do_install():
 
     cfg_text = build_config(cfg)
     (install_path / "config" / "config.yaml").write_text(cfg_text)
-    (install_path / ".pimiproxy-config.json").write_text(
-        json.dumps(cfg, indent=2))
+    write_config(config_path(install_path), cfg)
     info("config.yaml written.")
 
     # ── copy script + wrapper + install daily refresh cron ───────────────────

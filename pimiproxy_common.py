@@ -12,6 +12,8 @@ installers and the release build script must copy this file alongside
 the wrapper + core.
 """
 
+import contextlib
+import fcntl
 import itertools
 import json
 import os
@@ -19,6 +21,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 from pathlib import Path
 
@@ -349,17 +352,108 @@ def save_subscription(install_path, url: str) -> bool:
     .pimiproxy-config.json so build_config can inject them verbatim.
     Returns True on success.
     """
+    # Fetch first (up to 30 s), then take the lock only for the write, and
+    # update just the subscription keys — so a provider URL or rule edited
+    # while the fetch was in flight is never overwritten with a stale copy.
     blocks = fetch_subscription(url)
     if not blocks:
         return False
 
-    ext_cfg_path = install_path / ".pimiproxy-config.json"
-    cfg = json.loads(ext_cfg_path.read_text()) if ext_cfg_path.exists() else {}
-    cfg["subscription_proxies_yaml"] = blocks.get("proxies", "")
-    cfg["subscription_groups_yaml"] = blocks.get("proxy-groups", "")
-    cfg["subscription_rules_yaml"] = blocks.get("rules", "")
-    ext_cfg_path.write_text(json.dumps(cfg, indent=2))
+    def _apply(cfg):
+        cfg["subscription_proxies_yaml"] = blocks.get("proxies", "")
+        cfg["subscription_groups_yaml"] = blocks.get("proxy-groups", "")
+        cfg["subscription_rules_yaml"] = blocks.get("rules", "")
+
+    update_config(config_path(install_path), _apply)
     return True
+
+
+# =============================================================================
+# CONFIG FILE I/O
+# .pimiproxy-config.json has three independent writers: the CLI, the daily
+# cron job, and the pimiproxy-api container (which sees the same file through
+# a bind mount). A plain read-modify-write lets a slow refresh overwrite a
+# change made while its fetch was in flight — the "provider URL reverted"
+# bug. Every writer goes through these helpers:
+#   - config_lock():   exclusive flock. Works across the bind mount because
+#                      the container and the host share the inode.
+#   - write_config():  atomic (temp file + rename) so readers never see a
+#                      torn file. Does NOT lock — call under config_lock()
+#                      or from code that owns the file (the installer).
+#   - update_config(): lock → re-read → mutate → atomic write. The mutator
+#                      only touches the keys it owns, so concurrent writers
+#                      compose instead of clobbering each other.
+# =============================================================================
+CONFIG_JSON_NAME = ".pimiproxy-config.json"
+
+# Keys owned by the subscription refresh path. A refresh must only write these.
+SUBSCRIPTION_KEYS = (
+    "subscription_proxies_yaml",
+    "subscription_groups_yaml",
+    "subscription_rules_yaml",
+)
+
+
+def config_path(install_dir) -> Path:
+    return Path(install_dir) / CONFIG_JSON_NAME
+
+
+@contextlib.contextmanager
+def config_lock(cfg_path):
+    """Hold an exclusive advisory lock on <cfg_path>.lock. Not re-entrant."""
+    cfg_path = Path(cfg_path)
+    lock_path = cfg_path.with_name(cfg_path.name + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
+def load_config(cfg_path) -> dict:
+    """Read the config JSON; {} if it does not exist yet."""
+    cfg_path = Path(cfg_path)
+    if not cfg_path.exists():
+        return {}
+    return json.loads(cfg_path.read_text())
+
+
+def write_config(cfg_path, cfg: dict):
+    """Atomically replace cfg_path with json.dumps(cfg). Preserves file mode."""
+    cfg_path = Path(cfg_path)
+    cfg_path.parent.mkdir(parents=True, exist_ok=True)
+    mode = cfg_path.stat().st_mode & 0o777 if cfg_path.exists() else 0o644
+    fd, tmp = tempfile.mkstemp(prefix=cfg_path.name + ".", suffix=".tmp",
+                               dir=cfg_path.parent)
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(json.dumps(cfg, indent=2))
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(tmp, mode)
+        os.replace(tmp, cfg_path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
+def update_config(cfg_path, mutate) -> dict:
+    """
+    Lock, re-read the current file, apply mutate(cfg) in place, write
+    atomically, and return the resulting dict. mutate may return a non-None
+    value to abort without writing; that value is then returned instead.
+    """
+    with config_lock(cfg_path):
+        cfg = load_config(cfg_path)
+        abort = mutate(cfg)
+        if abort is not None:
+            return abort
+        write_config(cfg_path, cfg)
+        return cfg
 
 
 # =============================================================================

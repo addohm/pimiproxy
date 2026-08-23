@@ -43,6 +43,10 @@ else:
     )
 
 build_config       = _common.build_config
+load_config        = _common.load_config
+write_config       = _common.write_config
+update_config      = _common.update_config
+config_lock        = _common.config_lock
 yaml_quote         = _common.yaml_quote
 fetch_subscription = _common.fetch_subscription
 extract_yaml_blocks = _common.extract_yaml_blocks

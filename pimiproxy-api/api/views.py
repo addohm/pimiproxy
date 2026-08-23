@@ -15,7 +15,9 @@ from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from api.config_builder import build_config, fetch_subscription
+from api.config_builder import (
+    build_config, fetch_subscription, load_config, update_config,
+)
 
 # ── Paths (mounted volume) ────────────────────────────────────────────────────
 PIMIPROXY_DIR  = Path("/pimiproxy")
@@ -27,13 +29,20 @@ META_JSON      = PIMIPROXY_DIR / ".pimiproxy-meta.json"
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _read_cfg() -> dict:
-    if not CONFIG_JSON.exists():
-        return {}
-    return json.loads(CONFIG_JSON.read_text())
+    return load_config(CONFIG_JSON)
 
 
-def _write_cfg(cfg: dict):
-    CONFIG_JSON.write_text(json.dumps(cfg, indent=2))
+def _update_cfg(mutate):
+    """
+    Locked read-modify-write of the config file, shared with the host CLI
+    and cron via pimiproxy_common. mutate(cfg) edits in place; it may return
+    an error response to abort without writing. Returns (cfg, None) on
+    success or (None, response) on abort.
+    """
+    result = update_config(CONFIG_JSON, mutate)
+    if isinstance(result, dict):
+        return result, None
+    return None, result
 
 
 def _rebuild_and_restart(cfg: dict):
@@ -259,28 +268,33 @@ def groups_view(request):
         if gtype == "url-test":
             group["tolerance"] = 50
 
-    cfg = _read_cfg()
-    groups = cfg.get("proxy_groups", [])
-    if any(g["name"] == name for g in groups):
-        return err(f"Group '{name}' already exists")
+    def _apply(cfg):
+        groups = cfg.get("proxy_groups", [])
+        if any(g["name"] == name for g in groups):
+            return err(f"Group '{name}' already exists")
+        groups.append(group)
+        cfg["proxy_groups"] = groups
 
-    groups.append(group)
-    cfg["proxy_groups"] = groups
-    _write_cfg(cfg)
+    cfg, failure = _update_cfg(_apply)
+    if failure:
+        return failure
     _rebuild_and_restart(cfg)
-    return ok({"group": groups[-1]})
+    return ok({"group": group})
 
 
 @csrf_exempt
 @require_http_methods(["DELETE"])
 def group_detail_view(request, name):
-    cfg = _read_cfg()
-    groups = cfg.get("proxy_groups", [])
-    new_groups = [g for g in groups if g["name"] != name]
-    if len(new_groups) == len(groups):
-        return err(f"Group '{name}' not found", 404)
-    cfg["proxy_groups"] = new_groups
-    _write_cfg(cfg)
+    def _apply(cfg):
+        groups = cfg.get("proxy_groups", [])
+        new_groups = [g for g in groups if g["name"] != name]
+        if len(new_groups) == len(groups):
+            return err(f"Group '{name}' not found", 404)
+        cfg["proxy_groups"] = new_groups
+
+    cfg, failure = _update_cfg(_apply)
+    if failure:
+        return failure
     _rebuild_and_restart(cfg)
     return ok()
 
@@ -305,11 +319,10 @@ def rules_view(request):
         else:
             rule_str = f"{rule_type},{target}"
 
-    cfg = _read_cfg()
-    rules = cfg.get("rules", [])
-    rules.append(rule_str)
-    cfg["rules"] = rules
-    _write_cfg(cfg)
+    def _apply(cfg):
+        cfg.setdefault("rules", []).append(rule_str)
+
+    cfg, _ = _update_cfg(_apply)
     _rebuild_and_restart(cfg)
     return ok({"rule": rule_str})
 
@@ -317,15 +330,20 @@ def rules_view(request):
 @csrf_exempt
 @require_http_methods(["DELETE"])
 def rule_detail_view(request, index):
-    cfg = _read_cfg()
-    rules = cfg.get("rules", [])
-    if index < 0 or index >= len(rules):
-        return err(f"Rule index {index} out of range", 404)
-    removed = rules.pop(index)
-    cfg["rules"] = rules
-    _write_cfg(cfg)
+    removed = {}
+
+    def _apply(cfg):
+        rules = cfg.get("rules", [])
+        if index < 0 or index >= len(rules):
+            return err(f"Rule index {index} out of range", 404)
+        removed["rule"] = rules.pop(index)
+        cfg["rules"] = rules
+
+    cfg, failure = _update_cfg(_apply)
+    if failure:
+        return failure
     _rebuild_and_restart(cfg)
-    return ok({"removed": removed})
+    return ok({"removed": removed["rule"]})
 
 
 @csrf_exempt
@@ -333,12 +351,15 @@ def rule_detail_view(request, index):
 def rules_reorder_view(request):
     body = _json_body(request)
     order = body.get("order", [])
-    cfg = _read_cfg()
-    rules = cfg.get("rules", [])
-    if sorted(order) != list(range(len(rules))):
-        return err("order must be a permutation of rule indices")
-    cfg["rules"] = [rules[i] for i in order]
-    _write_cfg(cfg)
+    def _apply(cfg):
+        rules = cfg.get("rules", [])
+        if sorted(order) != list(range(len(rules))):
+            return err("order must be a permutation of rule indices")
+        cfg["rules"] = [rules[i] for i in order]
+
+    cfg, failure = _update_cfg(_apply)
+    if failure:
+        return failure
     _rebuild_and_restart(cfg)
     return ok()
 
@@ -350,9 +371,10 @@ def rules_reorder_view(request):
 def provider_view(request):
     body = _json_body(request)
     url = body.get("url", "").strip()
-    cfg = _read_cfg()
-    cfg["subscription_url"] = url
-    _write_cfg(cfg)
+    def _apply(cfg):
+        cfg["subscription_url"] = url
+
+    _update_cfg(_apply)
     return ok()
 
 
@@ -373,11 +395,16 @@ def refresh_view(request):
         return err("Fetch failed or no proxies: block in the provider response "
                    "(see pimiproxy-api container logs)")
 
-    cfg["subscription_proxies_yaml"] = blocks.get("proxies", "")
-    cfg["subscription_groups_yaml"]  = blocks.get("proxy-groups", "")
-    cfg["subscription_rules_yaml"]   = blocks.get("rules", "")
+    # The fetch above can take up to 30 s. Re-read under the lock and write
+    # only the subscription keys, so anything edited meanwhile (provider
+    # URL, rules, groups) is preserved rather than overwritten with the
+    # snapshot taken before the fetch.
+    def _apply(cfg):
+        cfg["subscription_proxies_yaml"] = blocks.get("proxies", "")
+        cfg["subscription_groups_yaml"]  = blocks.get("proxy-groups", "")
+        cfg["subscription_rules_yaml"]   = blocks.get("rules", "")
 
-    _write_cfg(cfg)
+    cfg, _ = _update_cfg(_apply)
     _rebuild_and_restart(cfg)
     return ok({"proxy_count": cfg["subscription_proxies_yaml"].count("- name:")})
 
@@ -388,21 +415,23 @@ def refresh_view(request):
 @require_http_methods(["POST"])
 def refresh_settings_view(request):
     body = _json_body(request)
-    cfg = _read_cfg()
-
-    if "auto_refresh_enabled" in body:
-        cfg["auto_refresh_enabled"] = bool(body["auto_refresh_enabled"])
-
+    # Validate before touching the file
+    days = None
     if "refresh_interval_days" in body:
         try:
             days = int(body["refresh_interval_days"])
-            if days < 1:
-                return err("refresh_interval_days must be at least 1")
-            cfg["refresh_interval_days"] = days
         except (TypeError, ValueError):
             return err("refresh_interval_days must be an integer")
+        if days < 1:
+            return err("refresh_interval_days must be at least 1")
 
-    _write_cfg(cfg)
+    def _apply(cfg):
+        if "auto_refresh_enabled" in body:
+            cfg["auto_refresh_enabled"] = bool(body["auto_refresh_enabled"])
+        if days is not None:
+            cfg["refresh_interval_days"] = days
+
+    _update_cfg(_apply)
     return ok()
 
 
@@ -621,12 +650,13 @@ def import_user_config_view(request):
     if rules is not None and not isinstance(rules, list):
         return err("rules must be a list")
 
-    cfg = _read_cfg()
-    if proxy_groups is not None:
-        cfg["proxy_groups"] = proxy_groups
-    if rules is not None:
-        cfg["rules"] = rules
-    _write_cfg(cfg)
+    def _apply(cfg):
+        if proxy_groups is not None:
+            cfg["proxy_groups"] = proxy_groups
+        if rules is not None:
+            cfg["rules"] = rules
+
+    cfg, _ = _update_cfg(_apply)
     _rebuild_and_restart(cfg)
     return ok({"imported_groups": len(proxy_groups or []), "imported_rules": len(rules or [])})
 

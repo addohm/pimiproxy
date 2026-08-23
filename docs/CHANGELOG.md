@@ -1,5 +1,16 @@
 ## [Unreleased]
 
+### Phase 2 — safe config I/O (fixes the reverting subscription URL)
+- `.pimiproxy-config.json` has three independent writers (host CLI, daily cron, API container via
+  its bind mount), and every one previously did an unlocked whole-file read-modify-write. A refresh
+  that snapshotted the config before its up-to-30 s fetch wrote the stale copy back afterward,
+  reverting any change made in between (fixes C2, C3 — the reported "subscription URL reverted" bug).
+- New shared helpers in `pimiproxy_common.py`: `config_lock()` (flock, honored across the bind
+  mount), `write_config()` (temp-file + fsync + atomic rename, mode-preserving — readers never see a
+  torn file), and `update_config()` (lock → re-read → mutate only the keys you own → atomic write).
+  All CLI, cron, and API writers now go through them; refresh writes only the three `subscription_*`
+  keys and re-reads under the lock after the fetch.
+
 ### Phase 1 — one config generator
 - **`build_config()` unified into `pimiproxy_common.py`.** It previously existed as three
   hand-synced copies (core, ultralite, `config_builder.py`); drift between them had already caused a
