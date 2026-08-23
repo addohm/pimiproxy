@@ -1,5 +1,17 @@
 ## [Unreleased]
 
+### Phase 3 — validate before restart (fixes silent crash-loop / 502)
+- Every write path now validates the new config with Mihomo's own test mode (`mihomo -t`) BEFORE
+  persisting anything and restarting. If Mihomo rejects it, the API returns **422** with Mihomo's
+  exact reason and nothing on disk changes; the CLI prints it and keeps the previous config live
+  (fixes C1 — the reported "nothing tunnels / 502 while everything looks fine" class).
+- After a restart the engine's controller is polled until it answers; the API returns **502** with
+  the reason if it doesn't, instead of reporting success for a crash-looping engine (fixes M1).
+- Imported proxy-groups/rules are shape-validated (non-empty name+type / non-empty string) so a
+  malformed import is rejected with a clean 4xx instead of poisoning the config and breaking every
+  later rebuild including cron (fixes H6). Group add/delete tolerate legacy nameless groups (M6).
+  Refresh counts proxies from the stored extraction and aborts on an empty fetch (M5).
+
 ### Phase 2 — safe config I/O (fixes the reverting subscription URL)
 - `.pimiproxy-config.json` has three independent writers (host CLI, daily cron, API container via
   its bind mount), and every one previously did an unlocked whole-file read-modify-write. A refresh

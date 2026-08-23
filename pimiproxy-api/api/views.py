@@ -16,7 +16,9 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from api.config_builder import (
-    build_config, fetch_subscription, load_config, update_config,
+    CONFIG_CANDIDATE, build_config, config_lock, fetch_subscription,
+    install_config, load_config, mihomo_test_cmd_docker, update_config,
+    wait_for_controller, write_config,
 )
 
 # ── Paths (mounted volume) ────────────────────────────────────────────────────
@@ -45,12 +47,54 @@ def _update_cfg(mutate):
     return None, result
 
 
-def _rebuild_and_restart(cfg: dict):
-    """Rebuild config.yaml from cfg dict and restart the mihomo container."""
-    CONFIG_YAML.parent.mkdir(parents=True, exist_ok=True)
-    CONFIG_YAML.write_text(build_config(cfg))
-    subprocess.run(["docker", "restart", "mihomo"],
-                   capture_output=True, timeout=30)
+def _test_cmd(cfg: dict) -> list:
+    """mihomo -t via a throwaway container. The -v path must be the *host*
+    path of the config dir (the daemon resolves it), not our mount."""
+    host_cfg_dir = Path(cfg.get("install_dir", "/opt/pimiproxy")) / "config"
+    image = cfg.get("engine_image") or "metacubex/mihomo:latest"
+    return mihomo_test_cmd_docker(image, host_cfg_dir, CONFIG_CANDIDATE)
+
+
+def _restart_engine(cfg: dict):
+    """docker restart mihomo, then wait until its controller answers.
+    Returns (True, version) or (False, reason)."""
+    try:
+        r = subprocess.run(["docker", "restart", "mihomo"],
+                           capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        return False, "docker restart timed out"
+    if r.returncode != 0:
+        detail = (r.stderr or r.stdout).strip() or f"exit {r.returncode}"
+        return False, f"docker restart failed: {detail}"
+    return wait_for_controller(_get_gateway(), cfg.get("api_port", "9090"),
+                               cfg.get("api_secret", ""), timeout=20)
+
+
+def _commit(mutate):
+    """
+    The one path for changes that affect the engine. Under the shared
+    config lock: re-read → mutate(cfg) → build config.yaml candidate →
+    `mihomo -t` → only then persist the JSON and swap config.yaml in.
+    Then restart and wait for the controller to answer.
+
+    Returns (cfg, None) on success, or (cfg_or_None, error_response):
+      - mutate() returned a response        → nothing written
+      - mihomo rejected the candidate (422) → nothing written
+      - restart / controller failed   (502) → config written, engine down
+    """
+    with config_lock(CONFIG_JSON):
+        cfg = load_config(CONFIG_JSON)
+        abort = mutate(cfg)
+        if abort is not None:
+            return None, abort
+        valid, why = install_config(CONFIG_YAML.parent, build_config(cfg), _test_cmd(cfg))
+        if not valid:
+            return None, err(f"Mihomo rejected the new config, nothing was changed: {why}", 422)
+        write_config(CONFIG_JSON, cfg)
+    up, why = _restart_engine(cfg)
+    if not up:
+        return cfg, err(f"Config saved, but Mihomo did not come back up: {why}", 502)
+    return cfg, None
 
 
 def _api_secret() -> str | None:
@@ -270,15 +314,14 @@ def groups_view(request):
 
     def _apply(cfg):
         groups = cfg.get("proxy_groups", [])
-        if any(g["name"] == name for g in groups):
+        if any(g.get("name") == name for g in groups):
             return err(f"Group '{name}' already exists")
         groups.append(group)
         cfg["proxy_groups"] = groups
 
-    cfg, failure = _update_cfg(_apply)
+    cfg, failure = _commit(_apply)
     if failure:
         return failure
-    _rebuild_and_restart(cfg)
     return ok({"group": group})
 
 
@@ -287,15 +330,14 @@ def groups_view(request):
 def group_detail_view(request, name):
     def _apply(cfg):
         groups = cfg.get("proxy_groups", [])
-        new_groups = [g for g in groups if g["name"] != name]
+        new_groups = [g for g in groups if g.get("name") != name]
         if len(new_groups) == len(groups):
             return err(f"Group '{name}' not found", 404)
         cfg["proxy_groups"] = new_groups
 
-    cfg, failure = _update_cfg(_apply)
+    cfg, failure = _commit(_apply)
     if failure:
         return failure
-    _rebuild_and_restart(cfg)
     return ok()
 
 
@@ -322,8 +364,9 @@ def rules_view(request):
     def _apply(cfg):
         cfg.setdefault("rules", []).append(rule_str)
 
-    cfg, _ = _update_cfg(_apply)
-    _rebuild_and_restart(cfg)
+    cfg, failure = _commit(_apply)
+    if failure:
+        return failure
     return ok({"rule": rule_str})
 
 
@@ -339,10 +382,9 @@ def rule_detail_view(request, index):
         removed["rule"] = rules.pop(index)
         cfg["rules"] = rules
 
-    cfg, failure = _update_cfg(_apply)
+    cfg, failure = _commit(_apply)
     if failure:
         return failure
-    _rebuild_and_restart(cfg)
     return ok({"removed": removed["rule"]})
 
 
@@ -357,10 +399,9 @@ def rules_reorder_view(request):
             return err("order must be a permutation of rule indices")
         cfg["rules"] = [rules[i] for i in order]
 
-    cfg, failure = _update_cfg(_apply)
+    cfg, failure = _commit(_apply)
     if failure:
         return failure
-    _rebuild_and_restart(cfg)
     return ok()
 
 
@@ -404,8 +445,9 @@ def refresh_view(request):
         cfg["subscription_groups_yaml"]  = blocks.get("proxy-groups", "")
         cfg["subscription_rules_yaml"]   = blocks.get("rules", "")
 
-    cfg, _ = _update_cfg(_apply)
-    _rebuild_and_restart(cfg)
+    cfg, failure = _commit(_apply)
+    if failure:
+        return failure
     return ok({"proxy_count": cfg["subscription_proxies_yaml"].count("- name:")})
 
 
@@ -650,14 +692,27 @@ def import_user_config_view(request):
     if rules is not None and not isinstance(rules, list):
         return err("rules must be a list")
 
+    # Validate each entry so a malformed import is rejected cleanly rather than
+    # raising KeyError inside build_config (which, before config validation was
+    # added, would persist the bad group and then fail every rebuild incl. cron).
+    if proxy_groups is not None:
+        for i, g in enumerate(proxy_groups):
+            if not isinstance(g, dict) or not g.get("name") or not g.get("type"):
+                return err(f"proxy_groups[{i}] must be an object with non-empty 'name' and 'type'")
+    if rules is not None:
+        for i, r in enumerate(rules):
+            if not isinstance(r, str) or not r.strip():
+                return err(f"rules[{i}] must be a non-empty string")
+
     def _apply(cfg):
         if proxy_groups is not None:
             cfg["proxy_groups"] = proxy_groups
         if rules is not None:
             cfg["rules"] = rules
 
-    cfg, _ = _update_cfg(_apply)
-    _rebuild_and_restart(cfg)
+    cfg, failure = _commit(_apply)
+    if failure:
+        return failure
     return ok({"imported_groups": len(proxy_groups or []), "imported_rules": len(rules or [])})
 
 

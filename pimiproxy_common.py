@@ -346,10 +346,18 @@ def fetch_subscription(url: str) -> dict:
     return blocks
 
 
-def save_subscription(install_path, url: str) -> bool:
+def save_subscription(install_path, url: str, test_cmd=None, variant: str = "full") -> bool:
     """
     Fetch the subscription and store the extracted blocks into
     .pimiproxy-config.json so build_config can inject them verbatim.
+
+    If test_cmd is given (a mihomo_test_cmd_* command naming
+    CONFIG_CANDIDATE), the merged config is validated with `mihomo -t`
+    and installed as config.yaml *before* the JSON is persisted — so a
+    provider payload Mihomo would reject leaves both files untouched and
+    the previous working config stays live. Without test_cmd only the
+    JSON is written (installer use, before the engine exists).
+
     Returns True on success.
     """
     # Fetch first (up to 30 s), then take the lock only for the write, and
@@ -359,12 +367,22 @@ def save_subscription(install_path, url: str) -> bool:
     if not blocks:
         return False
 
-    def _apply(cfg):
+    install_path = Path(install_path)
+    cfg_file = config_path(install_path)
+    with config_lock(cfg_file):
+        cfg = load_config(cfg_file)
         cfg["subscription_proxies_yaml"] = blocks.get("proxies", "")
         cfg["subscription_groups_yaml"] = blocks.get("proxy-groups", "")
         cfg["subscription_rules_yaml"] = blocks.get("rules", "")
-
-    update_config(config_path(install_path), _apply)
+        if test_cmd is not None:
+            ok, why = install_config(install_path / "config",
+                                     build_config(cfg, variant), test_cmd)
+            if not ok:
+                warn(f"Mihomo rejected the refreshed config — keeping the previous one.")
+                warn(f"Reason: {why}")
+                return False
+            info("config.yaml validated and written.")
+        write_config(cfg_file, cfg)
     return True
 
 
@@ -755,6 +773,109 @@ def build_config(cfg: dict, variant: str = "full") -> str:
         L()
 
     return "\n".join(lines)
+
+
+# =============================================================================
+# ENGINE: VALIDATE CONFIG, PROBE CONTROLLER
+# Mihomo has a test mode (`mihomo -t -f <file>`) that parses and fully
+# resolves a config without starting it. Every write path runs the new
+# config through it *before* replacing config.yaml, so an invalid provider
+# payload or a bad user rule is reported to the caller instead of leaving
+# the engine crash-looping while the UI says "saved".
+# =============================================================================
+CONFIG_CANDIDATE = "config.yaml.candidate"
+_MIHOMO_MOUNT = "/root/.config/mihomo"
+
+
+def mihomo_test_cmd_docker(engine_image: str, host_config_dir, filename: str) -> list:
+    """Command to test <host_config_dir>/<filename> with the engine image.
+    Runs a throwaway container so it works even if `mihomo` is crash-looping."""
+    return ["docker", "run", "--rm",
+            "-v", f"{host_config_dir}:{_MIHOMO_MOUNT}",
+            engine_image,
+            "-t", "-d", _MIHOMO_MOUNT, "-f", f"{_MIHOMO_MOUNT}/{filename}"]
+
+
+def mihomo_test_cmd_native(binary, config_dir, filename: str) -> list:
+    """Command to test <config_dir>/<filename> with a native mihomo binary."""
+    return [str(binary), "-t", "-d", str(config_dir), "-f", f"{config_dir}/{filename}"]
+
+
+def _mihomo_error_summary(output: str) -> str:
+    """Reduce mihomo -t output to the error message(s) a human needs."""
+    msgs = re.findall(r'level=error msg="((?:[^"\\]|\\.)*)"', output)
+    if msgs:
+        return "; ".join(m.replace('\\"', '"') for m in msgs)
+    tail = [l for l in output.strip().splitlines() if l.strip()]
+    return tail[-1] if tail else "mihomo -t failed with no output"
+
+
+def install_config(config_dir, text: str, test_cmd: list, timeout: int = 60):
+    """
+    Write `text` as a candidate file in config_dir, validate it with
+    `test_cmd` (a mihomo_test_cmd_* command naming CONFIG_CANDIDATE), and
+    only if mihomo accepts it move it into place as config.yaml.
+
+    Returns (True, "") on success, (False, reason) on rejection. The live
+    config.yaml is untouched on failure.
+    """
+    config_dir = Path(config_dir)
+    config_dir.mkdir(parents=True, exist_ok=True)
+    candidate = config_dir / CONFIG_CANDIDATE
+    candidate.write_text(text)
+    try:
+        try:
+            r = subprocess.run(test_cmd, capture_output=True, text=True, timeout=timeout)
+        except FileNotFoundError as e:
+            return False, f"cannot run validator: {e}"
+        except subprocess.TimeoutExpired:
+            return False, f"validator timed out after {timeout}s"
+        if r.returncode != 0:
+            return False, _mihomo_error_summary(r.stdout + r.stderr)
+        os.replace(candidate, config_dir / "config.yaml")
+        return True, ""
+    finally:
+        with contextlib.suppress(OSError):
+            candidate.unlink()
+
+
+def probe_controller(host: str, api_port, secret: str, timeout: float = 3.0):
+    """
+    GET /version on the Mihomo external controller. Returns (True, version)
+    when the engine answers with its secret accepted, else (False, reason).
+    This is the only reliable "is the engine actually serving" check — the
+    TUN interface can exist while the process is dead or belongs to a
+    different mihomo entirely.
+    """
+    import urllib.request
+    import urllib.error
+    req = urllib.request.Request(
+        f"http://{host}:{api_port}/version",
+        headers={"Authorization": f"Bearer {secret}"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8", errors="replace") or "{}")
+            return True, str(data.get("version", "unknown"))
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            return False, "controller answered but rejected the API secret"
+        return False, f"controller HTTP {e.code}"
+    except Exception as e:
+        return False, f"controller not answering on {host}:{api_port} ({e.__class__.__name__})"
+
+
+def wait_for_controller(host: str, api_port, secret: str, timeout: float = 20.0):
+    """Poll probe_controller() until it succeeds or `timeout` seconds pass."""
+    import time
+    deadline = time.monotonic() + timeout
+    last = "not attempted"
+    while True:
+        ok, last = probe_controller(host, api_port, secret, timeout=2.0)
+        if ok:
+            return True, last
+        if time.monotonic() >= deadline:
+            return False, last
+        time.sleep(0.5)
 
 
 # =============================================================================

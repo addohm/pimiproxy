@@ -38,7 +38,8 @@ from pimiproxy_common import (
     detect_distro, pkg_update, pkg_install, pkg_remove,
     build_config,
     SUBSCRIPTION_KEYS, config_path, config_lock, load_config, write_config,
-    update_config,
+    update_config, CONFIG_CANDIDATE, install_config, mihomo_test_cmd_docker,
+    wait_for_controller,
 )
 
 
@@ -52,6 +53,47 @@ def _save_user_config(ext_cfg_path, cfg: dict) -> dict:
     def _merge(fresh):
         fresh.update({k: v for k, v in cfg.items() if k not in SUBSCRIPTION_KEYS})
     return update_config(ext_cfg_path, _merge)
+
+
+def _engine_test_cmd(cfg: dict, meta: dict, install_dir) -> list:
+    image = cfg.get("engine_image") or meta.get("engine_image") or MIHOMO_IMAGE
+    return mihomo_test_cmd_docker(image, Path(install_dir) / "config", CONFIG_CANDIDATE)
+
+
+def _write_engine_config(cfg: dict, meta: dict, install_dir) -> bool:
+    """
+    Validate cfg with `mihomo -t` and, only if it passes, install it as
+    config.yaml. On rejection the reason is printed and the previous
+    config.yaml stays live. Returns True on success.
+    """
+    with Spinner("Validating config with mihomo"):
+        ok, why = install_config(Path(install_dir) / "config", build_config(cfg),
+                                 _engine_test_cmd(cfg, meta, install_dir))
+    if not ok:
+        warn("Mihomo rejected the config — the previous config.yaml is still live.")
+        warn(f"Reason: {why}")
+        return False
+    info("config.yaml validated and written.")
+    return True
+
+
+def _restart_engine(compose, install_dir, cfg: dict, meta: dict) -> bool:
+    """Restart the mihomo container and wait for its controller to answer."""
+    r = compose_run(compose, "restart", "mihomo", cwd=install_dir, silent=True)
+    if r.returncode != 0:
+        warn("`compose restart mihomo` failed — is the container present? "
+             "Try:  sudo pimiproxy logs")
+        return False
+    api_port = cfg.get("api_port") or meta.get("api_port", "9090")
+    secret = cfg.get("api_secret") or meta.get("api_secret", "")
+    with Spinner("Waiting for Mihomo to come up"):
+        up, detail = wait_for_controller("127.0.0.1", api_port, secret, timeout=25)
+    if up:
+        info(f"Mihomo restarted (v{detail}).")
+        return True
+    warn(f"Mihomo restarted but its controller is not answering: {detail}")
+    warn("Check:  sudo pimiproxy logs")
+    return False
 
 
 def do_set_hostname():
@@ -1504,17 +1546,11 @@ def do_configure():
             if not url:
                 warn("No provider URL configured (option 1).")
             else:
-                if save_subscription(install_dir, url):
-                    # Reload cfg with fresh subscription blocks and rebuild config
+                if save_subscription(install_dir, url,
+                                     test_cmd=_engine_test_cmd(cfg, meta, install_dir)):
+                    # Reload cfg with the fresh (validated) subscription blocks
                     cfg = load_config(ext_cfg_path)
-                    cfg_path.write_text(build_config(cfg))
-                    info("config.yaml rebuilt.")
-                    compose_run(compose,
-                                "restart",
-                                "mihomo",
-                                cwd=install_dir,
-                                silent=False)
-                    info("Mihomo restarted.")
+                    _restart_engine(compose, install_dir, cfg, meta)
 
         # ── change API secret ────────────────────────────────────────────────
         elif choice == "6":
@@ -1594,11 +1630,18 @@ def do_configure():
                 if not confirm("Continue saving anyway?", default=False):
                     continue
 
-            # Merge onto the current on-disk file (a refresh may have run
-            # during this session), then build config.yaml from the result.
-            cfg = _save_user_config(ext_cfg_path, cfg)
-            cfg_path.write_text(build_config(cfg))
-            info("config.yaml written.")
+            # Validate the merged result (a refresh may have run during this
+            # session) before persisting anything. On rejection nothing on
+            # disk changes and the menu stays open so the edit can be fixed.
+            def _merged(fresh):
+                fresh.update({k: v for k, v in cfg.items() if k not in SUBSCRIPTION_KEYS})
+            with config_lock(ext_cfg_path):
+                candidate = load_config(ext_cfg_path)
+                _merged(candidate)
+                if not _write_engine_config(candidate, meta, install_dir):
+                    continue
+                write_config(ext_cfg_path, candidate)
+            cfg = candidate
 
             # Rebuild docker-compose.yml when ports or dashboard changed
             if compose_changed:
@@ -1633,12 +1676,7 @@ def do_configure():
             else:
                 if confirm("Restart Mihomo now to apply changes?",
                            default=True):
-                    compose_run(compose,
-                                "restart",
-                                "mihomo",
-                                cwd=install_dir,
-                                silent=False)
-                    info("Mihomo restarted.")
+                    _restart_engine(compose, install_dir, cfg, meta)
             break
 
         elif choice == "10":
@@ -2108,10 +2146,20 @@ def do_install():
             )
             warn("Run after install:  sudo ./pimiproxy refresh")
 
-    cfg_text = build_config(cfg)
-    (install_path / "config" / "config.yaml").write_text(cfg_text)
+    # Validate with the freshly loaded engine image. If the provider's
+    # payload is rejected, install without it rather than leave a config
+    # Mihomo cannot start — the URL is kept so `pimiproxy refresh` can retry.
+    if not _write_engine_config(cfg, {}, install_path):
+        if cfg.get("subscription_proxies_yaml"):
+            warn("Installing without the provider's proxies. After install, check the URL with:")
+            warn("  sudo pimiproxy debug   then   sudo pimiproxy refresh")
+            for k in SUBSCRIPTION_KEYS:
+                cfg[k] = ""
+            if not _write_engine_config(cfg, {}, install_path):
+                die("Even the minimal config failed validation — see the reason above.")
+        else:
+            die("Config failed validation — see the reason above.")
     write_config(config_path(install_path), cfg)
-    info("config.yaml written.")
 
     # ── copy script + wrapper + install daily refresh cron ───────────────────
     step("Wrapper + refresh script")
@@ -2445,19 +2493,17 @@ def do_refresh():
 
     step("Refreshing provider")
     # save_subscription updates .pimiproxy-config.json with new blocks
-    if not save_subscription(install_dir, url):
+    # save_subscription validates the merged config with mihomo -t and
+    # installs config.yaml before it persists the JSON, so a bad provider
+    # payload leaves the previous working config live.
+    if not save_subscription(install_dir, url,
+                             test_cmd=_engine_test_cmd(cfg, meta, install_dir)):
         die("Provider refresh failed.")
 
-    # Reload cfg after save_subscription updated it, rebuild config.yaml
-    cfg = json.loads(ext_cfg_path.read_text())
-    cfg_path = install_dir / "config" / "config.yaml"
-    cfg_path.write_text(build_config(cfg))
-    info("config.yaml rebuilt.")
-
-    # Restart Mihomo to pick up the new inline proxies
+    cfg = load_config(ext_cfg_path)
     compose = (meta["compose_bin"], meta["compose_sub"])
-    compose_run(compose, "restart", "mihomo", cwd=install_dir, silent=False)
-    info("Mihomo restarted.")
+    if not _restart_engine(compose, install_dir, cfg, meta):
+        sys.exit(1)
 
     # Rebuild the login banner so proxy count stays current
     BANNER_PATH.write_text(build_banner(cfg, meta))
