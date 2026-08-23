@@ -2,6 +2,7 @@ import ipaddress
 import json
 import re
 import socket
+import secrets
 import subprocess
 import threading
 import time
@@ -136,9 +137,9 @@ _login_lock = threading.Lock()
 
 
 def _client_ip(request) -> str:
-    xff = request.META.get("HTTP_X_FORWARDED_FOR", "")
-    if xff:
-        return xff.split(",")[0].strip()
+    # Use nginx's REMOTE_ADDR, NOT X-Forwarded-For: the client controls XFF and
+    # nginx only appends to it, so keying the login throttle on XFF lets an
+    # attacker rotate the header to dodge the per-IP lockout entirely.
     return request.META.get("REMOTE_ADDR", "unknown")
 
 
@@ -191,7 +192,7 @@ def login_view(request):
         return err("Server misconfigured: api_secret is not set", 503)
     body = _json_body(request)
     submitted = body.get("password")
-    if isinstance(submitted, str) and submitted and submitted == secret:
+    if isinstance(submitted, str) and submitted and secrets.compare_digest(submitted, secret):
         _login_reset(ip)
         request.session["authenticated"] = True
         request.session.save()

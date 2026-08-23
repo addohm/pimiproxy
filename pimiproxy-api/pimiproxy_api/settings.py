@@ -38,6 +38,10 @@ DEBUG = False
 # isn't known at build time either. The real CSRF defense is the Origin-check
 # middleware below; Host-header validation here is a weak secondary layer, so
 # the default stays permissive. Operators can tighten it via env var.
+# LAN service reached by IP, <hostname>.lan (mDNS), and the container name, none
+# of which are known at build time — so the default is permissive and the real
+# CSRF defense is OriginCheckMiddleware. Tighten in a hardened deploy via
+# PIMIPROXY_ALLOWED_HOSTS="host1,host2".
 ALLOWED_HOSTS = [
     h.strip() for h in os.environ.get("PIMIPROXY_ALLOWED_HOSTS", "*").split(",") if h.strip()
 ]
@@ -71,6 +75,9 @@ DATABASES = {
 SESSION_ENGINE = "django.contrib.sessions.backends.db"
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Strict"
+# Set PIMIPROXY_TLS=1 when serving the UI over HTTPS so the session cookie is
+# only sent over TLS. Default off because the stock install is plain-HTTP LAN.
+SESSION_COOKIE_SECURE = os.environ.get("PIMIPROXY_TLS", "") in ("1", "true", "yes")
 
 TEMPLATES = [
     {

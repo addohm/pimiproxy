@@ -1,5 +1,14 @@
 ## [Unreleased]
 
+### Phase 8 — security hardening
+- The login brute-force throttle keyed on the client-controlled `X-Forwarded-For` header (which
+  nginx only appends to), so an attacker could dodge the per-IP lockout by rotating it. It now keys
+  on nginx's trusted `REMOTE_ADDR` (fixes H4).
+- The API secret is compared with `secrets.compare_digest` (constant-time) instead of `==` (L3).
+- `SESSION_COOKIE_SECURE` is enabled when `PIMIPROXY_TLS=1` (opt-in; default off for plain-HTTP LAN)
+  (L4). `ALLOWED_HOSTS` remains permissive-by-default with a documented `PIMIPROXY_ALLOWED_HOSTS`
+  override, since the real CSRF defense is the Origin check (M7).
+
 ### Phase 6 — release packaging integrity
 - Release archives could ship 132-byte Git-LFS **pointer** files (geodata and image `.tar.gz`) when
   the build machine hadn't run `git lfs pull` — yielding unreadable geodata (GEOSITE/GEOIP rules
