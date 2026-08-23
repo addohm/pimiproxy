@@ -1,3 +1,6 @@
+# Git
+.git/
+
 # Python
 __pycache__/
 
@@ -23,3 +26,6 @@ pimiproxy-ui/dist/
 
 # API config url
 api.url
+
+# Build-time copy of pimiproxy_common.py baked into the API image
+pimiproxy-api/api/_bundled_common.py

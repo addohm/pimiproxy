@@ -1,3 +1,17 @@
+## [Unreleased]
+
+### Phase 1 — one config generator
+- **`build_config()` unified into `pimiproxy_common.py`.** It previously existed as three
+  hand-synced copies (core, ultralite, `config_builder.py`); drift between them had already caused a
+  shipped regression. The API container now loads the copy mounted from the install dir (bundled
+  fallback baked into the image at build time), so the UI and host CLI always generate identical
+  `config.yaml`.
+- The API refresh endpoint now uses the shared `fetch_subscription`/`extract_yaml_blocks` instead of
+  its own regex parser — so a UI refresh strips GEOIP rules (which need a GitHub MMDB download,
+  fatal on blocked networks) and handles zero-indent provider blocks the same as the CLI (fixes H3).
+- Appended proxy-groups (`🧭 Meta Quest` + user groups) now match the provider's indentation instead
+  of assuming two spaces, so a 4-space provider no longer produces mixed-indent YAML (fixes H7).
+
 ## [7.0.0] — 2026-04-20
 
 ### Added

@@ -363,6 +363,307 @@ def save_subscription(install_path, url: str) -> bool:
 
 
 # =============================================================================
+# CONFIG GENERATION
+# Builds config.yaml as plain text. We write YAML by hand (no PyYAML
+# dependency) so the installers stay self-contained on a fresh OS.
+# =============================================================================
+def build_config(cfg: dict, variant: str = "full") -> str:
+    """
+    Build the Mihomo config.yaml content as a string from a structured dict.
+    Returns the complete file content.
+
+    This is the single source of truth for config generation. It is used by
+    pimiproxy-core.py, pimiproxy-ultralite-core.py, and the pimiproxy-api
+    container (which loads this file from the mounted install dir), so all
+    three always emit byte-identical config.yaml for the same input.
+
+    variant: "full" or "ultralite" — only affects the header comment.
+    """
+    api_port = cfg["api_port"]
+    api_secret = cfg["api_secret"]
+    mixed_port = cfg["mixed_port"]
+    subscription_url = cfg.get("subscription_url", "")
+
+    lines = []
+
+    def L(s=""):
+        lines.append(s)
+
+    if variant == "ultralite":
+        L("# Mihomo config — managed by pimiproxy-ultralite")
+        L("# Edit via:  sudo pimiproxy-ultralite configure")
+    else:
+        L("# Mihomo config — managed by pimiproxy")
+        L("# Edit via the pimiproxy web UI or run:  sudo pimiproxy configure")
+    L()
+    L(f"external-controller: 0.0.0.0:{api_port}")
+    L(f'secret: "{api_secret}"')
+    L()
+    L(f"mixed-port: {mixed_port}")
+    L("routing-mark: 666")
+    L("allow-lan: true")
+    L("mode: rule")
+    L("log-level: info")
+    L("ipv6: false")
+    L("geo-auto-update: false")
+    L()
+    L("tun:")
+    L("  enable: true")
+    L("  stack: gvisor")
+    L("  device: mihomo")
+    L("  auto-route: true")
+    L("  auto-detect-interface: true")
+    L("  dns-hijack:")
+    L("    - any:53")
+    L()
+    L("dns:")
+    L("  enable: true")
+    L("  listen: 0.0.0.0:53")
+    L("  enhanced-mode: fake-ip")
+    L("  nameserver:")
+    L("    - 223.5.5.5")
+    L("    - 119.29.29.29")
+    L("  fallback:")
+    L("    - 8.8.8.8")
+    L("    - 1.1.1.1")
+    L("  fallback-filter:")
+    L("    geoip: false")
+    L("  fake-ip-filter:")
+    for entry in [
+            # LAN / mDNS — never fake-IP local hostnames
+            # Double-suffix patterns (*.lan.lan, *.local.lan) handle resolv.conf
+            # search domain appending — e.g. armiproxy.lan → armiproxy.lan.lan
+            "*.lan",
+            "*.local",
+            "*.lan.lan",
+            "*.local.lan",
+            "*.lan.localdomain",
+            "*.local.localdomain",
+            # Android / Meta / Apple connectivity checks — must resolve to real
+            # IPs or the OS reports no internet and throttles/blocks traffic
+            "connectivitycheck.gstatic.com",
+            "connectivitycheck.android.com",
+            "captive.apple.com",
+            "*.msftconnecttest.com",
+            "*.msftncsi.com",
+            # NTP — clocks must resolve to real servers
+            "time.android.com",
+            "time.facebook.com",
+            "time1.google.com",
+            "pool.ntp.org",
+            "+.pool.ntp.org",
+            # STUN / WebRTC — real IPs needed for ICE candidate negotiation
+            "stun.l.google.com",
+            # Meta / Oculus — Quest OS uses these at the system level
+            "+.meta.com",
+            "+.oculus.com",
+            "+.oculuscdn.com",
+            "+.facebook.com",
+            "+.fbcdn.net",
+            "+.facebook.net",
+            "+.fb.me",
+            "+.facebook-hardware.com",
+            "+.messenger.com",
+            "+.instagram.com",
+            "+.cdninstagram.com",
+            # ── Entries below are commented out ───────────────────────────────
+            # Les Mills and Brightcove are listed here for reference but have no
+            # effect when using the standard proxy setup (pinasmc:7890), because
+            # the Les Mills app (Unity engine) bypasses Android's system proxy
+            # entirely and never sends traffic through Mihomo at all.
+            #
+            # Uncomment these if you configure a device to route through the Pi
+            # as its network gateway (transparent proxy mode), at which point
+            # Mihomo will see Les Mills traffic and these entries ensure real DNS
+            # resolution for DRM license servers and geo-routed CDN endpoints.
+            #
+            # "+.lesmills.com",
+            # "+.lesmillsplus.com",
+            # "+.lesmillsondemand.com",
+            # "+.brightcove.com",
+            # "+.brightcove.net",
+            # "+.bcovlive.io",
+            # "+.boltdns.net",
+    ]:
+        L(f'    - "{entry}"')
+    L()
+
+    # ── proxies / proxy-groups / rules ────────────────────────────────────────
+    # Two-layer merge strategy:
+    #   Layer 1 (provider): subscription_proxies/groups/rules_yaml — verbatim
+    #                       from the provider, refreshed daily.
+    #   Layer 2 (user):     proxy_groups / rules from .pimiproxy-config.json —
+    #                       always applied on top regardless of subscription state.
+    #
+    # Groups: provider groups first, then user groups appended.
+    # Rules:  user rules first (highest priority), then provider rules.
+
+    sub_proxies = cfg.get("subscription_proxies_yaml", "")
+    sub_groups = cfg.get("subscription_groups_yaml", "")
+    sub_rules = cfg.get("subscription_rules_yaml", "")
+    user_groups = cfg.get("proxy_groups", [])
+    user_rules = cfg.get("rules", [])
+
+    # ── proxies ───────────────────────────────────────────────────────────────
+    if sub_proxies:
+        L()
+        for line in sub_proxies.splitlines():
+            L(line)
+        L()
+    elif subscription_url:
+        L()
+        L("proxies: []")
+        L()
+
+    # Individual proxy server names for the Quest group proxy list
+    _sub_proxy_names = re.findall(
+        r'^\s*-\s*name:\s*["\']?([^"\'\n]+?)["\']?\s*$', sub_proxies,
+        re.MULTILINE) if sub_proxies else []
+
+    # Subscription group names for the Quest group proxy list
+    _sub_group_names = re.findall(
+        r'^\s*-\s*name:\s*["\']?([^"\'\n]+?)["\']?\s*$', sub_groups,
+        re.MULTILINE) if sub_groups else []
+
+    # ── proxy-groups ──────────────────────────────────────────────────────────
+    # Detect the indent the provider uses for top-level group entries so
+    # appended groups land as siblings, not nested inside the last group's
+    # proxies list.
+    def _detect_group_indent(text: str) -> str:
+        for ln in text.splitlines():
+            stripped = ln.lstrip()
+            if stripped.startswith("- "):
+                return ln[: len(ln) - len(stripped)]
+        return "  "
+
+    # Helper: write a single group dict as YAML lines at the given indent
+    def _write_group(g: dict, gi: str):
+        ci = gi + "  "
+        ii = gi + "    "
+        L(f'{gi}- name: "{g["name"]}"')
+        L(f'{ci}type: {g["type"]}')
+        if "use" in g:
+            L(f"{ci}use:")
+            for u in g["use"]:
+                L(f"{ii}- {u}")
+        if "proxies" in g:
+            L(f"{ci}proxies:")
+            for p in g["proxies"]:
+                L(f"{ii}- {yaml_quote(p)}")
+        if "url" in g:
+            L(f'{ci}url: {g["url"]}')
+        if "interval" in g:
+            L(f'{ci}interval: {g["interval"]}')
+        if "tolerance" in g:
+            L(f'{ci}tolerance: {g["tolerance"]}')
+
+    if sub_groups:
+        # Provider groups verbatim, Quest group appended, then user groups
+        gi = _detect_group_indent(sub_groups)
+        ci = gi + "  "
+        ii = gi + "    "
+        L()
+        for line in sub_groups.splitlines():
+            L(line)
+        L(f'{gi}- name: "🧭 Meta Quest"')
+        L(f'{ci}type: select')
+        L(f'{ci}proxies:')
+        L(f'{ii}- "DIRECT"')
+        if _sub_group_names:
+            L(f'{ii}- {yaml_quote(_sub_group_names[0])}')
+        for name in _sub_proxy_names:
+            L(f'{ii}- {yaml_quote(name)}')
+        for g in user_groups:
+            _write_group(g, gi)
+        L()
+    else:
+        # No provider groups — use user groups + Quest fallback
+        if subscription_url and not user_groups:
+            user_groups = [{
+                "name": "Proxy",
+                "type": "select",
+                "proxies": ["DIRECT"]
+            }]
+        L("proxy-groups:")
+        for g in user_groups:
+            _write_group(g, "  ")
+        _quest_proxies = ["DIRECT"] + [g["name"] for g in user_groups]
+        L('  - name: "🧭 Meta Quest"')
+        L('    type: select')
+        L('    proxies:')
+        for p in _quest_proxies:
+            L(f'      - {yaml_quote(p)}')
+        L()
+
+    # ── rules ─────────────────────────────────────────────────────────────────
+    # Quest domain rules — always injected before provider/user catch-alls
+    _quest_rules = [
+        "DOMAIN-SUFFIX,meta.com,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,oculus.com,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,oculuscdn.com,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,facebook.com,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,fbcdn.net,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,facebook.net,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,instagram.com,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,lesmills.com,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,lesmillsplus.com,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,lesmillsondemand.com,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,brightcove.com,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,brightcove.net,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,bcovlive.io,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,boltdns.net,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,odderslab.com,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,cognitive3d.com,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,facebook-hardware.com,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,unity3d.com,🧭 Meta Quest",
+        "DOMAIN-SUFFIX,golfplusvr.com,🧭 Meta Quest",
+    ]
+
+    if sub_rules:
+        # Detect provider indentation so injected rules match
+        rule_indent = "  "
+        for line in sub_rules.splitlines():
+            s = line.strip()
+            if s and s != "rules:" and s.startswith("-"):
+                rule_indent = " " * (len(line) - len(line.lstrip()))
+                break
+        L()
+        L("rules:")
+        # Order: Quest rules → user rules → provider rules
+        for r in _quest_rules:
+            L(f"{rule_indent}- {r}")
+        for r in user_rules:
+            L(f"{rule_indent}- {r}")
+        for line in sub_rules.splitlines():
+            if line.strip() == "rules:":
+                continue
+            L(line)
+        L()
+    else:
+        # No provider rules — use user rules or minimal defaults
+        if not user_rules:
+            if subscription_url or user_groups:
+                user_rules = [
+                    "DOMAIN-SUFFIX,lan,DIRECT",
+                    "DOMAIN-SUFFIX,local,DIRECT",
+                    "IP-CIDR,192.168.0.0/16,DIRECT",
+                    "IP-CIDR,10.0.0.0/8,DIRECT",
+                    "IP-CIDR,172.16.0.0/12,DIRECT",
+                    "MATCH,Proxy",
+                ]
+            else:
+                user_rules = ["MATCH,DIRECT"]
+        L("rules:")
+        for r in _quest_rules:
+            L(f"  - {r}")
+        for r in user_rules:
+            L(f"  - {r}")
+        L()
+
+    return "\n".join(lines)
+
+
+# =============================================================================
 # DISTRO DETECTION & PACKAGE MANAGEMENT
 # =============================================================================
 def detect_distro() -> str:

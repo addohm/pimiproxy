@@ -75,6 +75,13 @@ _build_image() {
     local name="$1"      # pimiproxy-api or pimiproxy-ui
     local context="$ROOT_DIR/${name}"
 
+    # pimiproxy-api needs the shared config generator. The running container
+    # prefers the copy mounted from the install dir; this baked copy is the
+    # fallback for install dirs that predate pimiproxy_common.py. Gitignored.
+    if [[ "$name" == "pimiproxy-api" ]]; then
+        cp "$ROOT_DIR/pimiproxy_common.py" "$context/api/_bundled_common.py"
+    fi
+
     local built_arches=()
     for entry in "${BUILD_PLATFORMS[@]}"; do
         local arch="${entry%%:*}"

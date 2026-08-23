@@ -15,7 +15,7 @@ from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from api.config_builder import build_config
+from api.config_builder import build_config, fetch_subscription
 
 # ── Paths (mounted volume) ────────────────────────────────────────────────────
 PIMIPROXY_DIR  = Path("/pimiproxy")
@@ -366,27 +366,20 @@ def refresh_view(request):
     if not url:
         return err("No provider URL configured")
 
-    headers = {"User-Agent": "Clash-Verge/1.0 (clash-verge-rev; mihomo)"}
-    req = urllib.request.Request(url, headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            content = resp.read().decode("utf-8", errors="replace")
-    except Exception as exc:
-        return err(f"Fetch failed: {exc}")
+    # Same fetch + parse as the CLI/cron path (User-Agent, block extraction,
+    # GEOIP rule stripping) so a UI refresh and a CLI refresh are identical.
+    blocks = fetch_subscription(url)
+    if not blocks:
+        return err("Fetch failed or no proxies: block in the provider response "
+                   "(see pimiproxy-api container logs)")
 
-    # Extract YAML blocks
-    def _extract(text: str, key: str) -> str:
-        pattern = rf'^({key}:.*?)(?=\n\S|\Z)'
-        m = re.search(pattern, text, re.MULTILINE | re.DOTALL)
-        return m.group(1).rstrip() if m else ""
-
-    cfg["subscription_proxies_yaml"]  = _extract(content, "proxies")
-    cfg["subscription_groups_yaml"]   = _extract(content, "proxy-groups")
-    cfg["subscription_rules_yaml"]    = _extract(content, "rules")
+    cfg["subscription_proxies_yaml"] = blocks.get("proxies", "")
+    cfg["subscription_groups_yaml"]  = blocks.get("proxy-groups", "")
+    cfg["subscription_rules_yaml"]   = blocks.get("rules", "")
 
     _write_cfg(cfg)
     _rebuild_and_restart(cfg)
-    return ok({"proxy_count": content.count("- name:")})
+    return ok({"proxy_count": cfg["subscription_proxies_yaml"].count("- name:")})
 
 
 # ── Refresh Settings ──────────────────────────────────────────────────────────
