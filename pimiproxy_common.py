@@ -864,6 +864,85 @@ def probe_controller(host: str, api_port, secret: str, timeout: float = 3.0):
         return False, f"controller not answering on {host}:{api_port} ({e.__class__.__name__})"
 
 
+def tun_up(device: str = "mihomo") -> bool:
+    return Path(f"/sys/class/net/{device}").exists()
+
+
+def port_owner(port) -> str:
+    """
+    Describe the process listening on TCP `port` as "pid N (comm)", or ""
+    if nothing is or it cannot be determined (ss needs root to see pids
+    of other users' sockets). Used to spot a foreign mihomo that already
+    holds the mixed port, which is otherwise indistinguishable from ours.
+    """
+    try:
+        r = subprocess.run(["ss", "-tlnpH", f"sport = :{port}"],
+                           capture_output=True, text=True, timeout=5)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return ""
+    m = re.search(r'users:\(\("([^"]+)",pid=(\d+)', r.stdout)
+    if m:
+        return f"pid {m.group(2)} ({m.group(1)})"
+    return "unknown process" if r.stdout.strip() else ""
+
+
+def engine_health(process_state: str, process_running: bool, api_port, secret: str,
+                  mixed_port, host: str = "127.0.0.1") -> dict:
+    """
+    One health verdict for the engine, shared by the CLIs, the API, and
+    the login banner. `process_state`/`process_running` come from the
+    variant (docker inspect or systemctl is-active); everything else is
+    probed here.
+
+      healthy     — process running AND controller answering with our secret
+      controller  — (ok, detail): detail is the version or the reason
+      tun         — /sys/class/net/mihomo exists
+      port_owner  — who holds the mixed port (see port_owner())
+      foreign     — a listener holds the mixed port while our process is
+                    not running: another mihomo is serving in our place
+    """
+    ctl_ok, ctl_detail = probe_controller(host, api_port, secret)
+    owner = port_owner(mixed_port)
+    return {
+        "process": process_state,
+        "running": process_running,
+        "controller": ctl_ok,
+        "controller_detail": ctl_detail,
+        "tun": tun_up(),
+        "port_owner": owner,
+        "foreign": bool(owner) and not process_running,
+        "healthy": process_running and ctl_ok,
+    }
+
+
+def print_engine_health(h: dict, what: str, logs_cmd: str) -> None:
+    """Print an engine_health() verdict in the CLI house style.
+    `what` names the process ("container" / "service")."""
+    if h["running"]:
+        info(f"Mihomo {what}: {h['process']}")
+    else:
+        warn(f"Mihomo {what}: {h['process']}")
+    if h["controller"]:
+        info(f"Controller: answering ({h['controller_detail']})")
+    else:
+        warn(f"Controller: {h['controller_detail']}")
+    if h["tun"]:
+        info("TUN interface: up")
+    else:
+        warn("TUN interface: down")
+    if h["foreign"]:
+        warn(f"The mixed port is held by {h['port_owner']} — that is NOT pimiproxy's "
+             f"{what}. Another Mihomo is serving in its place; changes made here "
+             "will not take effect until it is stopped.")
+    elif h["running"] and not h["controller"]:
+        warn(f"The {what} is up but the engine is not answering — it is probably "
+             f"crash-looping on a bad config. Check:  {logs_cmd}")
+    if h["healthy"]:
+        info("Engine healthy.")
+    else:
+        warn("Engine NOT healthy.")
+
+
 def wait_for_controller(host: str, api_port, secret: str, timeout: float = 20.0):
     """Poll probe_controller() until it succeeds or `timeout` seconds pass."""
     import time

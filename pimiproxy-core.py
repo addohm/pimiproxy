@@ -39,7 +39,7 @@ from pimiproxy_common import (
     build_config,
     SUBSCRIPTION_KEYS, config_path, config_lock, load_config, write_config,
     update_config, CONFIG_CANDIDATE, install_config, mihomo_test_cmd_docker,
-    wait_for_controller,
+    wait_for_controller, engine_health, print_engine_health,
 )
 
 
@@ -77,6 +77,18 @@ def _write_engine_config(cfg: dict, meta: dict, install_dir) -> bool:
     return True
 
 
+def _engine_health(meta: dict, cfg: dict = None) -> dict:
+    """engine_health() for the full variant: process state from docker."""
+    r = run(["docker", "inspect", "-f", "{{.State.Status}}", "mihomo"],
+            capture=True, check=False)
+    state = r.stdout.strip() if r.returncode == 0 else "missing"
+    src = cfg or meta
+    return engine_health(state, state == "running",
+                         src.get("api_port", meta.get("api_port", "9090")),
+                         src.get("api_secret", meta.get("api_secret", "")),
+                         src.get("mixed_port", meta.get("mixed_port", "7890")))
+
+
 def _restart_engine(compose, install_dir, cfg: dict, meta: dict) -> bool:
     """Restart the mihomo container and wait for its controller to answer."""
     r = compose_run(compose, "restart", "mihomo", cwd=install_dir, silent=True)
@@ -89,7 +101,7 @@ def _restart_engine(compose, install_dir, cfg: dict, meta: dict) -> bool:
     with Spinner("Waiting for Mihomo to come up"):
         up, detail = wait_for_controller("127.0.0.1", api_port, secret, timeout=25)
     if up:
-        info(f"Mihomo restarted (v{detail}).")
+        info(f"Mihomo restarted ({detail}).")
         return True
     warn(f"Mihomo restarted but its controller is not answering: {detail}")
     warn("Check:  sudo pimiproxy logs")
@@ -549,9 +561,17 @@ def build_banner(cfg: dict, meta: dict) -> str:
     L()
     L('printf "\\n${_C}${_B}  pimiproxy${_N}\\n%s\\n" "$_S"')
     L()
-    L("# ── Proxy engine (mihomo TUN interface) ─────────────────────────────")
-    L("if [[ -d /sys/class/net/mihomo ]]; then")
+    L("# ── Proxy engine ─────────────────────────────────────────────────────")
+    L("# Liveness = the engine's controller answers on its port. No secret is")
+    L("# needed: a 401 still proves the engine is up. The TUN device alone is")
+    L("# not proof — it can outlive the process or belong to another mihomo.")
+    L(f"_CTL=$(curl -s -o /dev/null -m 2 -w '%{{http_code}}' http://127.0.0.1:{api_port}/version 2>/dev/null || echo 000)")
+    L('if [[ "$_CTL" == "200" || "$_CTL" == "401" ]]; then')
     L("  printf '  Proxy engine    %s\\n' \"${_G}●  running${_N}\"")
+    L("elif docker inspect -f '{{.State.Status}}' mihomo 2>/dev/null | grep -q restarting; then")
+    L("  printf '  Proxy engine    %s\\n' \"${_R}●  crash-looping (bad config?)  sudo pimiproxy logs${_N}\"")
+    L("elif [[ -d /sys/class/net/mihomo ]]; then")
+    L("  printf '  Proxy engine    %s\\n' \"${_R}●  not answering (TUN exists — another mihomo?)${_N}\"")
     L("else")
     L("  printf '  Proxy engine    %s\\n' \"${_R}●  stopped${_N}\"")
     L("fi")
@@ -629,12 +649,13 @@ def do_status():
     step("Containers")
     run(compose_cmd(compose, "ps"), cwd=install_dir, check=False)
 
-    # ── TUN ────────────────────────────────────────────────────────────────────
-    step("TUN")
-    if Path("/sys/class/net/mihomo").exists():
-        info("TUN interface: up — all traffic tunneled through Mihomo.")
-    else:
-        warn("TUN interface: down — is the Mihomo container running?")
+    # ── engine ────────────────────────────────────────────────────────────────
+    # "Is the TUN device there" is not health: the device can exist while the
+    # container is dead, or belong to a different mihomo entirely. Ask the
+    # container runtime and the engine's own controller.
+    step("Engine")
+    health = _engine_health(meta)
+    print_engine_health(health, "container", "sudo pimiproxy logs")
 
     # ── provider ──────────────────────────────────────────────────────────────
     step("Provider")
@@ -700,6 +721,9 @@ def do_status():
     print(f"  {C.CYAN}API{C.NC}        →  http://{hostname}.lan:{api_port}")
     print(f"  {C.BOLD}{C.CYAN}Proxy{C.NC}      →  {C.BOLD}{hostname}.lan:{mixed_port}  (HTTP/SOCKS5){C.NC}")
     print(f"  {C.DIM}{SEP_LINE}{C.NC}\n")
+
+    if not health["healthy"]:
+        sys.exit(1)
 
 
 # =============================================================================

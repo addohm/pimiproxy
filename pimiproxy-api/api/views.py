@@ -16,9 +16,9 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from api.config_builder import (
-    CONFIG_CANDIDATE, build_config, config_lock, fetch_subscription,
-    install_config, load_config, mihomo_test_cmd_docker, update_config,
-    wait_for_controller, write_config,
+    CONFIG_CANDIDATE, build_config, config_lock, engine_health,
+    fetch_subscription, install_config, load_config, mihomo_test_cmd_docker,
+    update_config, wait_for_controller, write_config,
 )
 
 # ── Paths (mounted volume) ────────────────────────────────────────────────────
@@ -212,13 +212,19 @@ def logout_view(request):
 
 @require_http_methods(["GET"])
 def status_view(request):
+    cfg = _read_cfg()
+
+    # Container state from the runtime, liveness from the engine's own
+    # controller. "state" stays for older UI builds but now means healthy,
+    # not merely "a container exists".
     result = subprocess.run(
-        ["docker", "inspect", "-f", "{{.State.Running}}", "mihomo"],
+        ["docker", "inspect", "-f", "{{.State.Status}}", "mihomo"],
         capture_output=True, text=True, timeout=10,
     )
-    running = result.stdout.strip() == "true"
-
-    cfg = _read_cfg()
+    proc_state = result.stdout.strip() if result.returncode == 0 else "missing"
+    health = engine_health(proc_state, proc_state == "running",
+                           cfg.get("api_port", "9090"), cfg.get("api_secret", ""),
+                           cfg.get("mixed_port", "7890"), host=_get_gateway())
     sub_proxies = cfg.get("subscription_proxies_yaml", "")
     proxy_count = sub_proxies.count("- name:") if sub_proxies else 0
 
@@ -230,7 +236,8 @@ def status_view(request):
             pass
 
     return ok({
-        "state":          "running" if running else "stopped",
+        "state":          "running" if health["healthy"] else "stopped",
+        "engine":         health,
         "proxy_count":    proxy_count,
         "provider_url":   cfg.get("subscription_url", ""),
         "dashboard_port": meta.get("dashboard_port", "8080"),

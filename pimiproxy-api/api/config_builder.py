@@ -52,6 +52,7 @@ install_config     = _common.install_config
 mihomo_test_cmd_docker = _common.mihomo_test_cmd_docker
 probe_controller   = _common.probe_controller
 wait_for_controller = _common.wait_for_controller
+engine_health      = _common.engine_health
 yaml_quote         = _common.yaml_quote
 fetch_subscription = _common.fetch_subscription
 extract_yaml_blocks = _common.extract_yaml_blocks

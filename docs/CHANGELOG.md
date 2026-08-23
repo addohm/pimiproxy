@@ -1,5 +1,15 @@
 ## [Unreleased]
 
+### Phase 4 — real engine health (fixes silent TUN stop / false "running")
+- `status`, the login banner, and the UI Overview previously reported the engine as "running"
+  whenever the `mihomo` TUN device existed — which stays true when the process is dead, or when a
+  DIFFERENT mihomo owns that device. Health now means the container/service is running AND the
+  engine's own controller answers on its port (fixes H2, the reported "TUN stopped, no notice").
+- `status` reports who holds the mixed port and flags a foreign mihomo serving in pimiproxy's place;
+  it now exits non-zero when unhealthy so it can be scripted/monitored (fixes M2). The banner no
+  longer claims "via proxy" when the engine is down (L9). The UI shows the reason under the status
+  dot. Fixes a doubled `v` in the version display.
+
 ### Phase 3 — validate before restart (fixes silent crash-loop / 502)
 - Every write path now validates the new config with Mihomo's own test mode (`mihomo -t`) BEFORE
   persisting anything and restarting. If Mihomo rejects it, the API returns **422** with Mihomo's

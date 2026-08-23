@@ -193,6 +193,7 @@ body {
 }
 .dot-green  { background: var(--teal); box-shadow: 0 0 6px var(--teal); }
 .dot-yellow { background: var(--warm); }
+.dot-red    { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
 
 /* ── Overview cards ── */
 .overview-grid {

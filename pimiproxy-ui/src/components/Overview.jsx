@@ -3,7 +3,16 @@ import { api } from '../api'
 
 function StatusDot({ state }) {
   const running = state === 'running'
-  return <span className={`dot ${running ? 'dot-green' : 'dot-yellow'}`} />
+  return <span className={`dot ${running ? 'dot-green' : 'dot-red'}`} />
+}
+
+// One line explaining an unhealthy engine, from the API's engine_health().
+function engineDetail(engine) {
+  if (!engine || engine.healthy) return engine?.controller_detail || ''
+  if (engine.foreign) return `port held by ${engine.port_owner} — not pimiproxy's container`
+  if (!engine.running) return `container ${engine.process}`
+  if (!engine.controller) return engine.controller_detail
+  return ''
 }
 
 export default function Overview({ onUnauthorized }) {
@@ -28,6 +37,7 @@ export default function Overview({ onUnauthorized }) {
   }, [])
 
   const mihomoState   = status?.state ?? '—'
+  const engineDetailText = engineDetail(status?.engine)
   const proxyCount    = config?.proxy_names?.length ?? '—'
   const providerUrl   = config?.provider_url || 'Not set'
   const subRules      = config?.sub_rule_count ?? '—'
@@ -47,6 +57,11 @@ export default function Overview({ onUnauthorized }) {
             <StatusDot state={mihomoState} />
             {mihomoState}
           </div>
+          {engineDetailText && (
+            <div style={{ fontSize: 12, color: mihomoState === 'running' ? 'var(--dim)' : 'var(--danger)', marginTop: 6 }}>
+              {engineDetailText}
+            </div>
+          )}
         </div>
 
         <div className="overview-card">

@@ -6,6 +6,7 @@
   --cyan:    #00f2ff;
   --purple:  #7c6af0;
   --warm:    #f0c86a;
+  --danger:  #f07a7a;
   --light:   #f0eff8;
   --dim:     rgba(240, 239, 248, 0.55);
 
@@ -36,6 +37,7 @@
 /* ── Light theme ── */
 [data-theme="light"] {
   --bg:      #f3f2ee;
+  --danger:  #c94a4a;
   --surface: #eae9e4;
   --light:   #18181c;
   --dim:     rgba(18, 18, 28, 0.65);
