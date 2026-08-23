@@ -87,10 +87,14 @@ _build_image() {
         local arch="${entry%%:*}"
         local platform="${entry#*:}"
         step "Building ${name} (${arch}, ${platform})…"
-        if docker buildx build --platform "${platform}" -t "${name}:${arch}" "$context" --load 2>/dev/null; then
+        local _blog; _blog="$(mktemp)"
+        if docker buildx build --platform "${platform}" -t "${name}:${arch}" "$context" --load >"$_blog" 2>&1; then
             built_arches+=("${arch}")
+            rm -f "$_blog"
         else
-            echo "    ${dim}${arch} build failed — skipping${reset}"
+            echo "    ${dim}${arch} build failed — last lines:${reset}" >&2
+            tail -15 "$_blog" >&2
+            rm -f "$_blog"
         fi
     done
 
@@ -182,10 +186,12 @@ deploy_ui() {
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 if [[ $# -eq 0 ]]; then
-    # Default: build both local images, no sync
-    build_api
-    build_ui
-    exit 0
+    # Default: build both local images, no sync. Run both even if one fails
+    # (set -e would otherwise abort before build_ui if build_api returned 1).
+    _rc=0
+    build_api || _rc=1
+    build_ui  || _rc=1
+    exit $_rc
 fi
 
 DO_API=0 DO_UI=0 DO_SYNC=0 DO_THIRD_PARTY=0

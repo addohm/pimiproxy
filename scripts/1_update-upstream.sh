@@ -50,7 +50,9 @@ ${bold}Options:${reset}
   --bins           Download latest mihomo release binaries (amd64, 386, arm64, armv7)
   --images         Pull latest Docker images for all supported platforms and
                    save as multi-arch tarballs (mihomo, metacubexd, zashboard)
-  --all            Both of the above (default if no flags given)
+  --geodata        Download geoip.metadb / geosite.dat / country.mmdb from
+                   MetaCubeX/meta-rules-dat into docker-images/
+  --all            All of the above (default if no flags given)
   --dry-run        Show what would be downloaded without doing it
   -h, --help       Show this help
 
@@ -62,6 +64,9 @@ ${bold}Downloads:${reset}
   docker-images/mihomo.tar.gz        ${dim}(multi-arch)${reset}
   docker-images/metacubexd.tar.gz    ${dim}(multi-arch)${reset}
   docker-images/zashboard.tar.gz     ${dim}(multi-arch)${reset}
+  docker-images/geoip.metadb
+  docker-images/geosite.dat
+  docker-images/country.mmdb
 
 ${bold}Note:${reset} pimiproxy-api and pimiproxy-ui images are built locally
 via 2_rebuild.sh — this script does not touch them.
@@ -73,18 +78,20 @@ EOF
 # ── Argument parsing ─────────────────────────────────────────────────────────
 DO_BINS=0
 DO_IMAGES=0
+DO_GEODATA=0
 DRY_RUN=0
 
 if [[ $# -eq 0 ]]; then
-    DO_BINS=1; DO_IMAGES=1
+    DO_BINS=1; DO_IMAGES=1; DO_GEODATA=1
 fi
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --bins)    DO_BINS=1 ;;
         --images)  DO_IMAGES=1 ;;
-        --all)     DO_BINS=1; DO_IMAGES=1 ;;
-        --dry-run) DRY_RUN=1; DO_BINS=1; DO_IMAGES=1 ;;
+        --geodata) DO_GEODATA=1 ;;
+        --all)     DO_BINS=1; DO_IMAGES=1; DO_GEODATA=1 ;;
+        --dry-run) DRY_RUN=1; DO_BINS=1; DO_IMAGES=1; DO_GEODATA=1 ;;
         -h|--help) usage ;;
         *)         echo "Unknown flag: $1"; usage ;;
     esac
@@ -208,6 +215,35 @@ if [[ $DO_IMAGES -eq 1 ]]; then
     done
 fi
 
+# ── Geodata ──────────────────────────────────────────────────────────────────
+# Shipped into the install's config dir so Mihomo never needs GitHub at
+# runtime (geo-auto-update is off). These are Git LFS objects in the repo;
+# a clone without `git lfs pull` holds 132-byte pointer files instead, and
+# 3_build-releases.sh refuses to package those.
+GEODATA_BASE="https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest"
+GEODATA_FILES=(geoip.metadb geosite.dat country.mmdb)
+
+if [[ $DO_GEODATA -eq 1 ]]; then
+    step "Downloading geodata from MetaCubeX/meta-rules-dat..."
+    mkdir -p "$DOCKER_IMAGES"
+    for f in "${GEODATA_FILES[@]}"; do
+        dest="$DOCKER_IMAGES/$f"
+        if [[ $DRY_RUN -eq 1 ]]; then
+            echo "  ${dim}[dry-run]${reset} Would download: $f"
+            continue
+        fi
+        if curl -fSL -o "${dest}.part" "${GEODATA_BASE}/${f}" 2>/dev/null \
+           && [[ $(stat -c %s "${dest}.part") -gt 100000 ]]; then
+            mv -f "${dest}.part" "$dest"
+            ok "$f  ($(du -sh "$dest" | cut -f1))"
+        else
+            rm -f "${dest}.part"
+            fail "Failed to download $f"
+        fi
+    done
+    echo
+fi
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 echo "${bold}────────────────────────────────────────${reset}"
 echo "${bold}${green}Done.${reset}"
@@ -216,6 +252,15 @@ if [[ $DO_BINS -eq 1 ]]; then
     echo
     echo "  ${bold}Binaries:${reset}"
     ls -lh "$BIN_DIR"/mihomo-linux-*.gz 2>/dev/null | awk '{printf "    %-50s %s\n", $NF, $5}'
+fi
+
+if [[ $DO_GEODATA -eq 1 ]]; then
+    echo
+    echo "  ${bold}Geodata:${reset}"
+    for f in "${GEODATA_FILES[@]}"; do
+        [[ -f "$DOCKER_IMAGES/$f" ]] && \
+            printf "    %-50s %s\n" "docker-images/$f" "$(du -sh "$DOCKER_IMAGES/$f" | cut -f1)"
+    done
 fi
 
 if [[ $DO_IMAGES -eq 1 ]]; then

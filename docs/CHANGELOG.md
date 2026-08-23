@@ -1,5 +1,16 @@
 ## [Unreleased]
 
+### Phase 6 — release packaging integrity
+- Release archives could ship 132-byte Git-LFS **pointer** files (geodata and image `.tar.gz`) when
+  the build machine hadn't run `git lfs pull` — yielding unreadable geodata (GEOSITE/GEOIP rules
+  silently fail with geo-auto-update off) or a release silently missing an arch. `3_build-releases.sh`
+  now rejects pointer/truncated geodata AND image archives loudly with the fix command (H5, M4), and
+  `1_update-upstream.sh --geodata` downloads real geodata.
+- `2_rebuild.sh` now surfaces cross-arch build errors (last 15 lines) instead of discarding them, and
+  no longer lets a failed `build_api` abort before `build_ui` under `set -e` (M4).
+- The installer refreshes bundled geodata on reinstall when the shipped file differs, instead of only
+  copying when absent (L6).
+
 ### Phase 5 — install preflight (prevents the dual-mihomo collision)
 - The installer now checks for another `mihomo` systemd unit, a `mihomo` binary outside our own
   path, an existing `mihomo` TUN device, and anything already listening on the mixed/API ports, and

@@ -2138,9 +2138,11 @@ def do_install():
     for _gf in _geo_files:
         _src = _script_dir / "docker-images" / _gf
         _dst = install_path / "config" / _gf
-        if _src.exists() and not _dst.exists():
+        # Copy when missing OR when the bundled file differs (size) from the
+        # installed one, so a reinstall with newer geodata refreshes it.
+        if _src.exists() and (not _dst.exists() or _src.stat().st_size != _dst.stat().st_size):
             shutil.copy2(_src, _dst)
-            info(f"Copied {_gf} to config directory")
+            info(f"Installed {_gf} in config directory")
 
     # ── UI secret key ─────────────────────────────────────────────────────────
     step("UI secret key")

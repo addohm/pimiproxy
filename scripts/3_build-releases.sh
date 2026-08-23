@@ -79,7 +79,16 @@ done
 # ── Verify prerequisites ────────────────────────────────────────────────────
 _check_geodata() {
     for f in geoip.metadb geosite.dat country.mmdb; do
-        [[ -f "$DOCKER_IMAGES/$f" ]] || { fail "Missing: docker-images/$f"; exit 1; }
+        local path="$DOCKER_IMAGES/$f"
+        [[ -f "$path" ]] || { fail "Missing: docker-images/$f"; exit 1; }
+        # A Git LFS pointer is ~130 bytes and starts with a version line.
+        # Shipping one as geodata gives Mihomo an unreadable database at
+        # runtime with no way to fetch a real one (geo-auto-update is off).
+        if [[ $(stat -c %s "$path") -lt 100000 ]] || head -c 40 "$path" | grep -q "git-lfs"; then
+            fail "docker-images/$f is a Git LFS pointer, not real geodata."
+            echo "    Run:  git lfs pull --include='docker-images/*'   or   ./scripts/1_update-upstream.sh --geodata" >&2
+            exit 1
+        fi
     done
 }
 
@@ -88,7 +97,14 @@ mkdir -p "$RELEASES"
 # ── Check if a Docker image archive contains the requested arch ─────────────
 _has_arch_tag() {
     local archive="$1" arch="$2" img="$3"
-    # Load and check for the tag
+    # A Git-LFS pointer (or a truncated archive) is ~130 bytes and starts with
+    # a version line. Loading it as a docker image gives an incomplete release
+    # that silently omits the arch. Fail loudly instead of skipping.
+    if [[ $(stat -c %s "$archive" 2>/dev/null || echo 0) -lt 100000 ]] || head -c 40 "$archive" 2>/dev/null | grep -q "git-lfs"; then
+        fail "docker-images/$(basename "$archive") is a Git LFS pointer or truncated, not a real image archive."
+        echo "    Run:  git lfs pull --include='docker-images/*'   or   ./scripts/1_update-upstream.sh" >&2
+        exit 1
+    fi
     docker load -i "$archive" >/dev/null 2>&1 || return 1
     docker image inspect "${img}:${arch}" >/dev/null 2>&1
 }
