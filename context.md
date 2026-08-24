@@ -120,6 +120,18 @@ host traffic unconditionally, or lets a `clash-system off` also drop gateway cli
 
 ---
 
+## 5a. Hard-won gotcha: no Alpine/musl in the container images
+
+The `pimiproxy-api` / `pimiproxy-ui` images use **glibc** bases (`python:3.12-slim`, `nginx:1.27`,
+`node:20-slim`), never Alpine. musl libc **segfaults on 16 KB-page arm64 kernels** — the Raspberry
+Pi 5 (`rpt-rpi-2712`, `PAGE_SIZE=16384`) is the common one. A single `arm64` package must run on
+every arm64 Pi (4 KB Pi 2/3/4, 16 KB Pi 5) — the tag is `arm64`, not model-specific — so glibc is
+mandatory. Symptom if this regresses: the API container crash-loops with exit 139 (SIGSEGV), no
+logs, and UI login returns a 502 that looks like "wrong password". mihomo (a Go binary) is
+page-size-agnostic and unaffected.
+
+---
+
 ## 6. Offline-first: what's bundled vs. what still needs the network
 
 **Bundled offline in the release archive / `bin/` — no network:**
