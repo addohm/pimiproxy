@@ -391,6 +391,9 @@ def build_banner(cfg: dict, meta: dict) -> str:
 # =============================================================================
 # MIHOMO BINARY FINDER
 # =============================================================================
+MIHOMO_BIN_VERSION = "v1.19.23"  # matches the bundled binary; used by the online install download
+
+
 def _host_arch() -> str:
     return platform.machine()  # aarch64, armv7l, x86_64
 
@@ -435,6 +438,28 @@ def _find_mihomo_binary() -> "Path | None":
                 target.write_bytes(f_in.read())
             target.chmod(0o755)
             return target
+
+    # No local binary — download it from GitHub (the "online" install flavor).
+    # Pinned to the same version the offline bundle ships so both install the
+    # identical, tested mihomo.
+    _gh_arch = {"x86_64": "amd64", "i686": "386", "i386": "386",
+                "aarch64": "arm64", "armv7l": "armv7"}.get(arch, arch)
+    _url = (f"https://github.com/MetaCubeX/mihomo/releases/download/"
+            f"{MIHOMO_BIN_VERSION}/mihomo-linux-{_gh_arch}-{MIHOMO_BIN_VERSION}.gz")
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    gz_dest = bin_dir / f"mihomo-linux-{_gh_arch}-{MIHOMO_BIN_VERSION}.gz"
+    import urllib.request, gzip as _gzip
+    try:
+        with Spinner(f"Downloading mihomo {MIHOMO_BIN_VERSION} ({_gh_arch}) from GitHub"):
+            urllib.request.urlretrieve(_url, gz_dest)
+        target = bin_dir / f"mihomo-{arch}"
+        with _gzip.open(gz_dest, "rb") as f_in:
+            target.write_bytes(f_in.read())
+        target.chmod(0o755)
+        info(f"Downloaded mihomo binary → {target.name}")
+        return target
+    except Exception as e:
+        warn(f"Could not download mihomo binary: {e}")
 
     return None
 

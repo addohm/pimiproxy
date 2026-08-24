@@ -1,5 +1,16 @@
 ## [Unreleased]
 
+### Changed — two release flavors per variant (offline / online)
+- `3_build-releases.sh` now builds **two flavors** of each variant per arch, clearly labeled:
+  `pimiproxy-<arch>-offline.tar.gz` (self-contained: images + static Docker engine + geodata) and
+  `pimiproxy-<arch>.tar.gz` (online: source + geodata; the installer builds `pimiproxy-api`/`-ui`
+  from source, pulls mihomo/dashboard, and installs Docker from the network). Same split for
+  ultralite (`-offline` bundles the mihomo binary; online downloads it from GitHub at install).
+  Geodata is bundled in both flavors. Full: amd64/arm64/armv7; ultralite: +386.
+- Ultralite installer gained a GitHub mihomo-binary download fallback (pinned to the bundled
+  version) so the online ultralite flavor works when no binary is bundled.
+
+
 ### Phase 7 — offline Docker Engine bundle
 - The full variant bundled container images offline but not the Docker Engine daemon, so a
   fully-offline box (China / air-gap) couldn't `docker load` them — install died at the Docker step.

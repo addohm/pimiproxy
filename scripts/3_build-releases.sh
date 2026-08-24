@@ -50,9 +50,14 @@ ${bold}Behaviour:${reset}
   that arch is skipped silently (not all upstream images publish every
   platform variant — armv7 and 386 availability varies).
 
-${bold}Output:${reset}
-  releases/pimiproxy-<arch>.tar.gz              (full variant)
-  releases/pimiproxy-ultralite-<arch>.tar.gz    (ultralite variant)
+${bold}Output — each variant is built in two flavors:${reset}
+  releases/pimiproxy-<arch>-offline.tar.gz             (full, self-contained: images + Docker engine + geodata)
+  releases/pimiproxy-<arch>.tar.gz                     (full, online: source + geodata; builds/pulls at install)
+  releases/pimiproxy-ultralite-<arch>-offline.tar.gz   (ultralite, self-contained: mihomo binary + geodata)
+  releases/pimiproxy-ultralite-<arch>.tar.gz           (ultralite, online: downloads the mihomo binary at install)
+
+  Offline archives install with no network; online archives are small and fetch
+  the heavy parts (images / Docker engine / mihomo binary) at install time.
 EOF
     exit 0
 }
@@ -111,132 +116,112 @@ _has_arch_tag() {
 
 # ── Build a pimiproxy full archive for one arch ──────────────────────────────
 _build_full() {
-    local arch="$1"
-    local archive="$RELEASES/pimiproxy-${arch}.tar.gz"
+    local arch="$1" mode="$2"   # mode: offline | online
+    local suffix=""; [[ "$mode" == "offline" ]] && suffix="-offline"
+    local archive="$RELEASES/pimiproxy-${arch}${suffix}.tar.gz"
 
-    # Required images — without any of these, a full release can't be built
     local required_imgs=(mihomo pimiproxy-api pimiproxy-ui)
-    # Dashboard images — need at least ONE (metacubexd preferred, zashboard fallback)
     local dashboard_imgs=(metacubexd zashboard)
-
-    local missing_imgs=()
-    for img in "${required_imgs[@]}"; do
-        local src="$DOCKER_IMAGES/${img}.tar.gz"
-        if [[ ! -f "$src" ]]; then
-            missing_imgs+=("${img} (archive missing)")
-            continue
-        fi
-        if ! _has_arch_tag "$src" "$arch" "$img"; then
-            missing_imgs+=("${img}:${arch}")
-        fi
-    done
-
-    # Check which dashboards are available for this arch
     local available_dashboards=()
-    for img in "${dashboard_imgs[@]}"; do
-        local src="$DOCKER_IMAGES/${img}.tar.gz"
-        [[ -f "$src" ]] || continue
-        if _has_arch_tag "$src" "$arch" "$img"; then
-            available_dashboards+=("${img}")
+
+    if [[ "$mode" == "offline" ]]; then
+        # Offline needs the built images present for this arch.
+        local missing_imgs=()
+        for img in "${required_imgs[@]}"; do
+            local src="$DOCKER_IMAGES/${img}.tar.gz"
+            [[ -f "$src" ]] || { missing_imgs+=("${img} (archive missing)"); continue; }
+            _has_arch_tag "$src" "$arch" "$img" || missing_imgs+=("${img}:${arch}")
+        done
+        for img in "${dashboard_imgs[@]}"; do
+            local src="$DOCKER_IMAGES/${img}.tar.gz"
+            [[ -f "$src" ]] || continue
+            _has_arch_tag "$src" "$arch" "$img" && available_dashboards+=("${img}")
+        done
+        [[ ${#available_dashboards[@]} -eq 0 ]] && missing_imgs+=("no dashboard (need metacubexd or zashboard)")
+        if [[ ${#missing_imgs[@]} -gt 0 ]]; then
+            skip "pimiproxy-${arch}${suffix}: ${missing_imgs[*]}"; return 0
         fi
-    done
-
-    if [[ ${#available_dashboards[@]} -eq 0 ]]; then
-        missing_imgs+=("no dashboard (need metacubexd or zashboard)")
+        step "pimiproxy-${arch}-offline  ${dim}(dashboards: ${available_dashboards[*]})${reset}"
+    else
+        step "pimiproxy-${arch}  ${dim}(online — builds api/ui + pulls images + installs Docker at install time)${reset}"
     fi
 
-    if [[ ${#missing_imgs[@]} -gt 0 ]]; then
-        skip "pimiproxy-${arch}: ${missing_imgs[*]}"
-        return 0
-    fi
-
-    step "pimiproxy-${arch}  ${dim}(dashboards: ${available_dashboards[*]})${reset}"
-
-    # Extract single-arch Docker images
-    local img_tmp
-    img_tmp=$(mktemp -d)
-    for img in "${required_imgs[@]}" "${available_dashboards[@]}"; do
-        docker save "${img}:${arch}" | gzip > "$img_tmp/${img}.tar.gz"
-    done
-
-    # Stage the archive
-    local staging
-    staging=$(mktemp -d)
+    # Stage source (both flavors) — the online installer builds api/ui from
+    # this source and pulls mihomo/dashboard from the registry.
+    local staging; staging=$(mktemp -d)
     mkdir -p "$staging/pimiproxy/docker-images" \
              "$staging/pimiproxy/pimiproxy-api" \
              "$staging/pimiproxy/pimiproxy-ui"
-
     cp "$ROOT_DIR/pimiproxy" "$ROOT_DIR/pimiproxy-core.py" \
        "$ROOT_DIR/pimiproxy_common.py" "$ROOT_DIR/README.md" "$staging/pimiproxy/"
-    # Ship user-facing docs only — exclude internal planning specs and the
-    # developer-oriented DEV_INSTRUCTIONS.
-    rsync -a --exclude='pmp-*-plan.md' --exclude='DEV_INSTRUCTIONS.md' \
-        --exclude='MAINTAINER.md' \
+    rsync -a --exclude='pmp-*-plan.md' --exclude='DEV_INSTRUCTIONS.md' --exclude='MAINTAINER.md' \
         "$ROOT_DIR/docs/" "$staging/pimiproxy/docs/"
-    cp "$img_tmp"/*.tar.gz "$staging/pimiproxy/docker-images/"
+    # Geodata is bundled in BOTH flavors — small, and its source (GitHub) is
+    # blocked in China, so we never rely on fetching it at runtime.
     cp "$DOCKER_IMAGES/geoip.metadb" "$DOCKER_IMAGES/geosite.dat" "$DOCKER_IMAGES/country.mmdb" \
        "$staging/pimiproxy/docker-images/"
-
-    # Bundle the static Docker Engine for this arch so a fully-offline box can
-    # bootstrap the daemon (images alone can't load without a running engine).
-    _de_tgz="$ROOT_DIR/docker-engine/docker-${arch}.tgz"
-    _de_comp="$ROOT_DIR/docker-engine/docker-compose-${arch}"
-    if [[ -f "$_de_tgz" ]]; then
-        if [[ $(stat -c %s "$_de_tgz" 2>/dev/null || echo 0) -lt 10000000 ]] || head -c 40 "$_de_tgz" | grep -q "git-lfs"; then
-            fail "docker-engine/docker-${arch}.tgz is a Git LFS pointer, not the real bundle."
-            echo "    Run:  git lfs pull --include='docker-engine/*'   or   ./scripts/1_update-upstream.sh --docker" >&2
-            exit 1
-        fi
-        mkdir -p "$staging/pimiproxy/docker-engine"
-        cp "$_de_tgz" "$staging/pimiproxy/docker-engine/"
-        [[ -f "$_de_comp" ]] && cp "$_de_comp" "$staging/pimiproxy/docker-engine/"
-    else
-        skip "docker-engine/docker-${arch}.tgz absent — release will need a network Docker install"
-    fi
-
     rsync -a --exclude='__pycache__' "$ROOT_DIR/pimiproxy-api/" "$staging/pimiproxy/pimiproxy-api/"
     rsync -a --exclude='__pycache__' --exclude='node_modules' "$ROOT_DIR/pimiproxy-ui/" "$staging/pimiproxy/pimiproxy-ui/"
 
+    if [[ "$mode" == "offline" ]]; then
+        # Bundle the built images + the static Docker engine (self-contained).
+        local img_tmp; img_tmp=$(mktemp -d)
+        for img in "${required_imgs[@]}" "${available_dashboards[@]}"; do
+            docker save "${img}:${arch}" | gzip > "$img_tmp/${img}.tar.gz"
+        done
+        cp "$img_tmp"/*.tar.gz "$staging/pimiproxy/docker-images/"
+        rm -rf "$img_tmp"
+        local de_tgz="$ROOT_DIR/docker-engine/docker-${arch}.tgz"
+        local de_comp="$ROOT_DIR/docker-engine/docker-compose-${arch}"
+        if [[ -f "$de_tgz" ]]; then
+            if [[ $(stat -c %s "$de_tgz" 2>/dev/null || echo 0) -lt 10000000 ]] || head -c 40 "$de_tgz" | grep -q "git-lfs"; then
+                fail "docker-engine/docker-${arch}.tgz is a Git LFS pointer, not the real bundle."
+                echo "    Run:  git lfs pull --include='docker-engine/*'   or   ./scripts/1_update-upstream.sh --docker" >&2
+                exit 1
+            fi
+            mkdir -p "$staging/pimiproxy/docker-engine"
+            cp "$de_tgz" "$staging/pimiproxy/docker-engine/"
+            [[ -f "$de_comp" ]] && cp "$de_comp" "$staging/pimiproxy/docker-engine/"
+        else
+            skip "docker-engine/docker-${arch}.tgz absent — offline archive will need a network Docker install"
+        fi
+    fi
+
     tar czf "$archive" -C "$staging" pimiproxy
     ok "$(basename "$archive")  ($(du -sh "$archive" | cut -f1))"
-
-    rm -rf "$img_tmp" "$staging"
+    rm -rf "$staging"
 }
 
 # ── Build a pimiproxy-ultralite archive for one arch ─────────────────────────
 _build_ultralite() {
-    local arch="$1"
-    local archive="$RELEASES/pimiproxy-ultralite-${arch}.tar.gz"
+    local arch="$1" mode="$2"   # mode: offline | online
+    local suffix=""; [[ "$mode" == "offline" ]] && suffix="-offline"
+    local archive="$RELEASES/pimiproxy-ultralite-${arch}${suffix}.tar.gz"
 
-    # Map arch to binary naming (mihomo uses amd64/386/arm64/armv7)
-    local bin_match
-    bin_match=$(ls "$BIN_DIR"/mihomo-linux-${arch}-*.gz 2>/dev/null | head -1)
-    if [[ -z "$bin_match" ]]; then
-        skip "pimiproxy-ultralite-${arch}: no mihomo binary in bin/"
-        return 0
+    local bin_match=""
+    if [[ "$mode" == "offline" ]]; then
+        bin_match=$(ls "$BIN_DIR"/mihomo-linux-${arch}-*.gz 2>/dev/null | head -1)
+        if [[ -z "$bin_match" ]]; then
+            skip "pimiproxy-ultralite-${arch}${suffix}: no mihomo binary in bin/"; return 0
+        fi
+        step "pimiproxy-ultralite-${arch}-offline"
+    else
+        step "pimiproxy-ultralite-${arch}  ${dim}(online — downloads the mihomo binary at install time)${reset}"
     fi
 
-    step "pimiproxy-ultralite-${arch}"
-
-    local staging
-    staging=$(mktemp -d)
+    local staging; staging=$(mktemp -d)
     mkdir -p "$staging/pimiproxy-ultralite/bin" \
              "$staging/pimiproxy-ultralite/docker-images"
-
     cp "$ROOT_DIR/pimiproxy-ultralite" "$ROOT_DIR/pimiproxy-ultralite-core.py" \
        "$ROOT_DIR/pimiproxy_common.py" "$ROOT_DIR/README.md" "$staging/pimiproxy-ultralite/"
-    # Ship user-facing docs only — exclude internal planning specs and the
-    # developer-oriented DEV_INSTRUCTIONS.
-    rsync -a --exclude='pmp-*-plan.md' --exclude='DEV_INSTRUCTIONS.md' \
-        --exclude='MAINTAINER.md' \
+    rsync -a --exclude='pmp-*-plan.md' --exclude='DEV_INSTRUCTIONS.md' --exclude='MAINTAINER.md' \
         "$ROOT_DIR/docs/" "$staging/pimiproxy-ultralite/docs/"
-    cp "$bin_match" "$staging/pimiproxy-ultralite/bin/"
     cp "$DOCKER_IMAGES/geoip.metadb" "$DOCKER_IMAGES/geosite.dat" "$DOCKER_IMAGES/country.mmdb" \
        "$staging/pimiproxy-ultralite/docker-images/"
+    [[ "$mode" == "offline" ]] && cp "$bin_match" "$staging/pimiproxy-ultralite/bin/"
 
     tar czf "$archive" -C "$staging" pimiproxy-ultralite
     ok "$(basename "$archive")  ($(du -sh "$archive" | cut -f1))"
-
     rm -rf "$staging"
 }
 
@@ -251,7 +236,7 @@ _check_geodata
 # Clear only the archives we're about to rebuild (don't touch the other variant)
 if [[ $DO_FULL -eq 1 ]]; then
     for a in amd64 arm64 armv7 386; do
-        rm -f "$RELEASES"/pimiproxy-${a}.tar.gz 2>/dev/null
+        rm -f "$RELEASES"/pimiproxy-${a}.tar.gz "$RELEASES"/pimiproxy-${a}-offline.tar.gz 2>/dev/null
     done
 fi
 if [[ $DO_ULTRALITE -eq 1 ]]; then
@@ -260,13 +245,15 @@ fi
 
 if [[ $DO_FULL -eq 1 ]]; then
     for arch in "${FULL_ARCHES[@]}"; do
-        _build_full "$arch"
+        _build_full "$arch" offline
+        _build_full "$arch" online
     done
 fi
 
 if [[ $DO_ULTRALITE -eq 1 ]]; then
     for arch in "${ULTRALITE_ARCHES[@]}"; do
-        _build_ultralite "$arch"
+        _build_ultralite "$arch" offline
+        _build_ultralite "$arch" online
     done
 fi
 

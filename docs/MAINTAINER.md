@@ -571,6 +571,11 @@ default, not a fallback.
 
 ## 12. Release archive matrix
 
+> Each variant is built in two flavors per arch: `*-offline.tar.gz`
+> (self-contained — images/binary + Docker engine + geodata, installs with no network) and
+> `*.tar.gz` (online — source + geodata, fetches the heavy parts at install). Geodata is in both.
+
+
 Produced by `./scripts/3_build-releases.sh`. All archives land in `releases/`
 (gitignored).
 

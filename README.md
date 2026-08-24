@@ -73,17 +73,23 @@ variant — use the ultralite archive on 32-bit x86.
 | openSUSE | ⬜ Untested | ⬜ Untested |
 | Alpine | ⬜ Untested | ⬜ Untested |
 
-### Package Options
+### Package options
 
-| Archive | mihomo | metacubexd | zashboard | pimiproxy-api | pimiproxy-ui |
-|---|:---:|:---:|:---:|:---:|:---:|
-| `pimiproxy-amd64` | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `pimiproxy-arm64` | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `pimiproxy-armv7` | ✅ | ❌ | ✅ | ✅ | ✅ |
-| `pimiproxy-ultralite-amd64` | ✅ | — | — | — | — |
-| `pimiproxy-ultralite-arm64` | ✅ | — | — | — | — |
-| `pimiproxy-ultralite-armv7` | ✅ | — | — | — | — |
-| `pimiproxy-ultralite-386` | ✅ | — | — | — | — |
+Each variant ships in **two flavors** per architecture:
+
+- **`-offline`** — fully self-contained, installs with **no network**: bundles the container images
+  (or the mihomo binary, for ultralite), a static Docker Engine (full only), and geodata. Large.
+- **(no suffix) = online** — small; ships source + geodata and fetches the heavy parts at install
+  time (full: builds `pimiproxy-api`/`pimiproxy-ui` from source, pulls mihomo/dashboard, installs
+  Docker from the network; ultralite: downloads the mihomo binary from GitHub).
+
+| Base name | Offline archive | Online archive | Arches |
+|---|---|---|---|
+| Full (Docker) | `pimiproxy-<arch>-offline.tar.gz` | `pimiproxy-<arch>.tar.gz` | amd64, arm64, armv7 |
+| Ultralite (no Docker) | `pimiproxy-ultralite-<arch>-offline.tar.gz` | `pimiproxy-ultralite-<arch>.tar.gz` | amd64, arm64, armv7, 386 |
+
+Geodata is bundled in **both** flavors (small, and its GitHub source is blocked in China). Offline
+is the right choice for air-gapped / China boxes; online is fine anywhere with normal internet.
 ---
 
 ## Project files
