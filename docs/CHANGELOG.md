@@ -1,5 +1,15 @@
 ## [Unreleased]
 
+### Fixed — API container segfaults on 16 KB-page arm64 kernels (Pi 5)
+- `pimiproxy-api` and `pimiproxy-ui` moved off Alpine (musl libc) onto glibc base images
+  (`python:3.12-slim`, `nginx:1.27`, `node:20-slim`). musl segfaults on 16 KB-page arm64 kernels —
+  e.g. the Raspberry Pi 5's `rpt-rpi-2712` kernel (`PAGE_SIZE=16384`) — so the API container
+  crash-looped with exit 139 (SIGSEGV) and every UI login returned nginx **502**, which the UI
+  showed as "incorrect password". glibc runs on both 4 KB (Pi Zero/2/3/4) and 16 KB (Pi 5) page
+  kernels, so the single `arm64` package now works across the whole Pi range. The API image installs
+  just the static Docker CLI (pinned to the bundled engine version).
+
+
 ### Changed — two release flavors per variant (offline / online)
 - `3_build-releases.sh` now builds **two flavors** of each variant per arch, clearly labeled:
   `pimiproxy-<arch>-offline.tar.gz` (self-contained: images + static Docker engine + geodata) and
