@@ -81,6 +81,15 @@
   All CLI, cron, and API writers now go through them; refresh writes only the three `subscription_*`
   keys and re-reads under the lock after the fetch.
 
+### Removed — `🧭 Meta Quest` group + rules injection
+- `build_config` no longer injects the hardcoded `🧭 Meta Quest` proxy group or its 19
+  `DOMAIN-SUFFIX,…,🧭 Meta Quest` routing rules. These are being moved into the provider/subscription
+  config instead. Group merge is now `provider groups → user groups`; rule order is `user rules →
+  provider rules → MATCH`. The `fake-ip-filter` DNS allow-list (Meta/Oculus/Facebook/connectivity)
+  is retained — it governs DNS resolution, not routing, and is still needed for the Quest to report
+  online. A config with no provider and no user groups now omits `proxy-groups:` entirely instead of
+  emitting an empty group list.
+
 ### Phase 1 — one config generator
 - **`build_config()` unified into `pimiproxy_common.py`.** It previously existed as three
   hand-synced copies (core, ultralite, `config_builder.py`); drift between them had already caused a

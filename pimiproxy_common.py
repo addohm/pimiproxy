@@ -627,16 +627,6 @@ def build_config(cfg: dict, variant: str = "full") -> str:
         L("proxies: []")
         L()
 
-    # Individual proxy server names for the Quest group proxy list
-    _sub_proxy_names = re.findall(
-        r'^\s*-\s*name:\s*["\']?([^"\'\n]+?)["\']?\s*$', sub_proxies,
-        re.MULTILINE) if sub_proxies else []
-
-    # Subscription group names for the Quest group proxy list
-    _sub_group_names = re.findall(
-        r'^\s*-\s*name:\s*["\']?([^"\'\n]+?)["\']?\s*$', sub_groups,
-        re.MULTILINE) if sub_groups else []
-
     # ── proxy-groups ──────────────────────────────────────────────────────────
     # Detect the indent the provider uses for top-level group entries so
     # appended groups land as siblings, not nested inside the last group's
@@ -677,14 +667,6 @@ def build_config(cfg: dict, variant: str = "full") -> str:
         L()
         for line in sub_groups.splitlines():
             L(line)
-        L(f'{gi}- name: "🧭 Meta Quest"')
-        L(f'{ci}type: select')
-        L(f'{ci}proxies:')
-        L(f'{ii}- "DIRECT"')
-        if _sub_group_names:
-            L(f'{ii}- {yaml_quote(_sub_group_names[0])}')
-        for name in _sub_proxy_names:
-            L(f'{ii}- {yaml_quote(name)}')
         for g in user_groups:
             _write_group(g, gi)
         L()
@@ -696,41 +678,13 @@ def build_config(cfg: dict, variant: str = "full") -> str:
                 "type": "select",
                 "proxies": ["DIRECT"]
             }]
-        L("proxy-groups:")
-        for g in user_groups:
-            _write_group(g, "  ")
-        _quest_proxies = ["DIRECT"] + [g["name"] for g in user_groups]
-        L('  - name: "🧭 Meta Quest"')
-        L('    type: select')
-        L('    proxies:')
-        for p in _quest_proxies:
-            L(f'      - {yaml_quote(p)}')
-        L()
+        if user_groups:
+            L("proxy-groups:")
+            for g in user_groups:
+                _write_group(g, "  ")
+            L()
 
     # ── rules ─────────────────────────────────────────────────────────────────
-    # Quest domain rules — always injected before provider/user catch-alls
-    _quest_rules = [
-        "DOMAIN-SUFFIX,meta.com,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,oculus.com,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,oculuscdn.com,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,facebook.com,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,fbcdn.net,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,facebook.net,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,instagram.com,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,lesmills.com,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,lesmillsplus.com,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,lesmillsondemand.com,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,brightcove.com,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,brightcove.net,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,bcovlive.io,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,boltdns.net,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,odderslab.com,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,cognitive3d.com,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,facebook-hardware.com,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,unity3d.com,🧭 Meta Quest",
-        "DOMAIN-SUFFIX,golfplusvr.com,🧭 Meta Quest",
-    ]
-
     if sub_rules:
         # Detect provider indentation so injected rules match
         rule_indent = "  "
@@ -741,9 +695,7 @@ def build_config(cfg: dict, variant: str = "full") -> str:
                 break
         L()
         L("rules:")
-        # Order: Quest rules → user rules → provider rules
-        for r in _quest_rules:
-            L(f"{rule_indent}- {r}")
+        # Order: user rules (highest priority) → provider rules
         for r in user_rules:
             L(f"{rule_indent}- {r}")
         for line in sub_rules.splitlines():
@@ -766,8 +718,6 @@ def build_config(cfg: dict, variant: str = "full") -> str:
             else:
                 user_rules = ["MATCH,DIRECT"]
         L("rules:")
-        for r in _quest_rules:
-            L(f"  - {r}")
         for r in user_rules:
             L(f"  - {r}")
         L()
