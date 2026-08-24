@@ -660,7 +660,7 @@ def build_config(cfg: dict, variant: str = "full") -> str:
             L(f'{ci}tolerance: {g["tolerance"]}')
 
     if sub_groups:
-        # Provider groups verbatim, Quest group appended, then user groups
+        # Provider groups verbatim, then user groups
         gi = _detect_group_indent(sub_groups)
         ci = gi + "  "
         ii = gi + "    "

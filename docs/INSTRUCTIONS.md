@@ -470,14 +470,12 @@ Set the device's WiFi to **static IP** with these values:
 | DNS 1 | pimiproxy device IP |
 | DNS 2 | Your router IP (fallback) |
 
-On the full variant, after install you'll see a prompt:
-
-> **Next step:** Open the dashboard and select a proxy server for the
-> 🧭 Meta Quest group.
-
-Click **Proxies** in the dashboard, find **🧭 Meta Quest**, and pick a
-node. This is the group all gateway-mode traffic from those devices
-routes through.
+Once the device uses pimiproxy as its gateway, its traffic follows the
+routing rules in your config. If you want specific apps (Meta/Oculus/
+Les Mills/Unity, etc.) sent through a chosen proxy, add a proxy group and
+the matching `DOMAIN-SUFFIX` rules to your **provider/subscription config**
+(or as user rules in the management UI), then select a node in that group
+from the dashboard's **Proxies** page.
 
 ---
 

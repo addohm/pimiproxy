@@ -21,7 +21,7 @@ Self-hosted LAN proxy. Mihomo (Clash.Meta) routes device traffic through provide
 - SBCs can't reach registries. Build on dev (`linux/{arm64,amd64,arm/v7}`), `docker save | gzip`, rsync, then on SBC: `docker load -i …` + `docker compose up -d --force-recreate <svc>`. `docker restart` won't apply new images.
 - Scripts: `./scripts/{1_update-upstream,2_rebuild,3_build-releases}.sh`.
 - Auth: API-secret session; `OriginCheckMiddleware` enforces same-host POSTs; SameSite=Strict; `SECRET_KEY` auto-generated at `/pimiproxy/ui-secret.txt`.
-- Config: provider subscription (read-only) + user groups/rules merged on top. `🧭 Meta Quest` is a hardcoded system group.
+- Config: provider subscription (read-only) + user groups/rules merged on top. Group order provider→user; rule order user→provider→MATCH. The `🧭 Meta Quest` group/rules are **not** injected (moved to the provider config); the `fake-ip-filter` DNS entries for those domains stay. `build_config` is a single copy in `pimiproxy_common.py`.
 
 ## Reference
 

@@ -108,7 +108,7 @@ Targets: amd64, arm64, armv7, 386.
 | Config builder | `pimiproxy-api/api/config_builder.py` (in-container) + `pimiproxy-core.py:build_config()` (at install time) | `pimiproxy-ultralite-core.py:build_config()` |
 | Install dir | `/opt/pimiproxy` | `/opt/pimiproxy-lite` |
 | Rules CLI | Via web UI or `configure` menu | `rule-list` / `rule-add` / `rule-remove` |
-| Meta Quest group | Auto-injected into config | Not injected (user adds if needed) |
+| Meta Quest group | Not injected (add to provider/user config) | Not injected (add to provider/user config) |
 
 ### Keeping them in sync
 

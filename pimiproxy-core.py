@@ -2440,12 +2440,6 @@ def do_install():
     print(_SEP)
     print()
 
-    if subscription_url:
-        print(f"  {C.YELLOW}Next step:{C.NC} Open the dashboard and select a proxy server for the")
-        print(f"  {C.BOLD}🧭 Meta Quest{C.NC} group. This group handles Meta/Oculus/Facebook traffic")
-        print(f"  and has no proxy selected by default.")
-        print()
-
     if not has_aes_hardware():
         warn(
             "Hardware AES not available — encryption runs in software. Expect higher latency on heavy traffic."

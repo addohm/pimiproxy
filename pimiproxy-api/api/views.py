@@ -290,7 +290,7 @@ def config_view(request):
         "user_groups":           cfg.get("proxy_groups", []),
         "user_rules":            user_rules,
         "sub_group_names":       sub_group_names,
-        "system_group_names":    ["🧭 Meta Quest"],
+        "system_group_names":    [],
         "sub_rule_count":        len(sub_rule_lines),
         "sub_rules":             sub_rule_lines,
         "proxy_names":           proxy_names,

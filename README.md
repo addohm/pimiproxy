@@ -14,11 +14,12 @@ Once installed, any device on your network can route its traffic through the SBC
 - Exposes a mixed HTTP/SOCKS5 proxy port for other devices to use
 - Provides a web dashboard (Metacubexd or Zashboard) for live traffic monitoring
 - Provides a browser-based management UI for adding proxy groups, rules, and managing your provider URL
-- Supports a two-layer config: your provider's subscription (base) + your own groups and rules (always applied on top)
+- Supports a two-layer config: your provider's subscription (base) + your own groups and rules (always applied on top). Group order is provider→user; rule order is user→provider→MATCH
 - Routes all traffic through Mihomo via TUN — both the host's own traffic and forwarded traffic from devices using it as their DHCP gateway (e.g. Meta Quest)
 - Includes an optional `clash-system on|off` toggle for advanced users to bypass Mihomo for host-originated traffic (gateway clients stay proxied)
 - Sets up mDNS so the SBC is reachable as `pimiproxy.local` on the LAN, and as `pimiproxy.lan` on routers that use `.lan` as the local domain
 - Shows a status banner on every SSH/terminal login — engine state, host-traffic state, proxy count, endpoints, and quick-command reference
+- Validates every config change with Mihomo's own test mode before applying it, and reports real engine health (the controller answering, not just a TUN device existing)
 
 ## What it does not do
 
@@ -37,7 +38,9 @@ Once installed, any device on your network can route its traffic through the SBC
   - Arch / Manjaro / EndeavourOS
   - openSUSE
   - Alpine
-- Internet access (for pulling Docker images if not using offline archives)
+- Internet access is optional: the full release archive bundles the container images **and** a
+  static Docker Engine, so it can install on a fully-offline / air-gapped box (the ultralite variant
+  needs no Docker at all)
 - Root / sudo access
 
 ### Platform compatibility

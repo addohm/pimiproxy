@@ -89,6 +89,9 @@
   is retained — it governs DNS resolution, not routing, and is still needed for the Quest to report
   online. A config with no provider and no user groups now omits `proxy-groups:` entirely instead of
   emitting an empty group list.
+- Removed the leftover install-time "select a proxy for the 🧭 Meta Quest group" next-step message,
+  the API's `system_group_names` (so the UI no longer shows a phantom System group), and the stale
+  docs that described the group as auto-injected (README, INSTRUCTIONS §11, MAINTAINER, CLAUDE, PROMPT).
 
 ### Phase 1 — one config generator
 - **`build_config()` unified into `pimiproxy_common.py`.** It previously existed as three
