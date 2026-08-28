@@ -1,5 +1,43 @@
 ## [Unreleased]
 
+### Added — `pimiproxy doctor`: guided diagnostics
+- New `doctor` subcommand: seven read-only checks over the whole pipeline (engine, device-style
+  connectivity check, delay test of every group's selected server, DNS honesty, Quest store
+  endpoint, UDP/NTP relay, active IPv6-leak probe), each failure printing plain-language numbered
+  fix steps. Exits non-zero when problems are found (cron-able). DNS honesty is verified by
+  TLS-certificate validation of the locally-returned IP — comparing against a reference resolver
+  false-alarms on CDN geo-variance. The IPv6 probe actively solicits Router Advertisements rather
+  than trusting the routing table, which holds stale RA routes long after a router stops
+  advertising.
+
+### Fixed — DNS: GFW poisoning of fake-ip-filter exempted domains
+- Domains exempted from fake-ip (Meta/Oculus, captive checks, NTP, STUN) resolved via the mainland
+  UDP resolvers and got GFW-poisoned answers (`graph.oculus.com` → a dead third-party IP,
+  `edge-mqtt.facebook.com` → a Twitter IP, `connectivitycheck.gstatic.com` → an ISP hijack box that
+  is unreachable once traffic leaves via the proxy — devices then report "limited connection" and
+  gate app downloads). `build_config` now emits: a DoH-by-IP fallback tunneled through the group of
+  the final `MATCH` rule (auto-detected per deployment) with `fallback-filter: geoip: true`;
+  `proxy-server-nameserver` (mainland DNS for provider hostnames — without it the tunneled DoH
+  deadlocks: DoH needs the proxy, the proxy's hostname needs DNS); and a `nameserver-policy`
+  pinning captive-check domains to the tunneled DoH (the geoip filter cannot catch that hijack
+  because the forged answers are CN IPs).
+- New fake-ip-filter built-ins: `+.oculusvr.com`, `+.fbsbx.com`. User-managed additions supported
+  via `fake_ip_filter_extra` (configure → "Manage fake-IP DNS exceptions").
+
+### Fixed — configure menu silently losing a just-edited provider URL
+- "Refresh provider now" fetched from the URL typed in "Manage provider URL", but
+  `save_subscription` persists only the subscription block keys, and the post-refresh reload then
+  destroyed the new URL from the session too — so nothing the user did afterwards (including "Save
+  and apply") could persist it, and the daily cron refresh reverted the whole subscription to the
+  old URL. The refresh handler now persists a session-edited URL under the config lock once a
+  fetch from it has succeeded and validated.
+- "Manage provider URL": pressing Enter now keeps the current URL (it used to clear it); clearing
+  requires explicitly typing `clear`.
+
+### Changed — configure menu order
+- "Save and apply" and "Exit without saving" moved to the bottom of the menu (now 11/12); web UI
+  build is 9, fake-IP DNS exceptions is 10.
+
 ### Fixed — API container segfaults on 16 KB-page arm64 kernels (Pi 5)
 - `pimiproxy-api` and `pimiproxy-ui` moved off Alpine (musl libc) onto glibc base images
   (`python:3.12-slim`, `nginx:1.27`, `node:20-slim`). musl segfaults on 16 KB-page arm64 kernels —

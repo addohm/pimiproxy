@@ -769,6 +769,312 @@ _TEST_GROUPS = [
 ]
 
 
+# =============================================================================
+# DOCTOR  (guided diagnostics)
+# =============================================================================
+def do_doctor():
+    """
+    Guided health check built from real incidents: dead proxy nodes, relays
+    that silently drop UDP, GFW DNS poisoning, ISP captive-check hijack, and
+    IPv6 leaking around the proxy. Every failure prints plain-language fix
+    steps. Read-only — it never changes anything.
+    """
+    import socket
+    import struct
+    import time
+    import urllib.request
+    import urllib.error
+    import urllib.parse
+
+    meta = read_meta()
+    install_dir = Path(meta["install_dir"])
+    api_port = meta.get("api_port", "9090")
+    dash_port = meta.get("dashboard_port", "8080")
+    hostname = meta.get("hostname", "pimiproxy")
+
+    ext_cfg_path = install_dir / ".pimiproxy-config.json"
+    cfg = json.loads(ext_cfg_path.read_text()) if ext_cfg_path.exists() else {}
+    secret = cfg.get("api_secret", meta.get("api_secret", ""))
+
+    problems = []
+
+    def good(msg):
+        print(f"  {C.GREEN}✔{C.NC}  {msg}")
+
+    def fail(title, fix_lines):
+        problems.append(title)
+        print(f"  {C.RED}✖{C.NC}  {title}")
+        print(f"     {C.BOLD}What this means and what to do:{C.NC}")
+        for i, line in enumerate(fix_lines, 1):
+            print(f"       {i}. {line}")
+
+    def summary():
+        print()
+        if not problems:
+            banner("All checks passed — the pipeline is healthy.", C.GREEN)
+        else:
+            banner(f"{len(problems)} problem(s) found", C.RED)
+            for i, t in enumerate(problems, 1):
+                print(f"  {C.RED}{i}.{C.NC} {t}")
+            print(f"\n  Follow the numbered steps shown at each {C.RED}✖{C.NC} above,")
+            print(f"  then run {C.BOLD}sudo pimiproxy doctor{C.NC} again to confirm.")
+            print()
+            sys.exit(1)
+
+    def api(path, timeout=8):
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{api_port}{path}",
+            headers={"Authorization": f"Bearer {secret}"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read().decode())
+
+    banner("pimiproxy doctor", C.CYAN)
+    print("  Checks the whole proxy pipeline and explains anything it finds.")
+    print("  Safe to run at any time — it changes nothing.")
+
+    # ── 1. engine ─────────────────────────────────────────────────────────
+    step("1/7  Proxy engine")
+    try:
+        v = api("/version")
+        good(f"Mihomo is running (v{v.get('version', '?').lstrip('v')}).")
+    except Exception:
+        fail("The proxy engine is not answering.", [
+            "Run: sudo pimiproxy status    (shows which container is down)",
+            "Run: sudo pimiproxy restart",
+            "Still broken? Look at the log: sudo pimiproxy logs mihomo",
+        ])
+        summary()
+        return
+
+    # ── 2. internet through the proxy (same check phones/Quest use) ──────
+    step("2/7  Internet through the proxy")
+    try:
+        t0 = time.monotonic()
+        with urllib.request.urlopen(
+                "http://connectivitycheck.gstatic.com/generate_204",
+                timeout=10) as r:
+            ms = (time.monotonic() - t0) * 1000
+        if r.status == 204:
+            good(f"Connectivity check passed (HTTP 204 in {ms:.0f} ms).")
+        else:
+            raise ValueError(f"HTTP {r.status}")
+    except Exception as e:
+        fail(f"The connectivity check failed ({e}). Devices on this network "
+             "will show 'limited connection' and refuse downloads.", [
+            f"Open the dashboard: http://{hostname}.lan:{dash_port}",
+            "Find the group that carries Google traffic and pick a different "
+            "server (green latency number = alive).",
+            "Run doctor again. If DNS check 4 below also fails, fix that first.",
+        ])
+
+    # ── 3. every group's selected server ──────────────────────────────────
+    step("3/7  Selected server of every group")
+    tested = {}
+    try:
+        prox = api("/proxies")["proxies"]
+        for name, g in sorted(prox.items()):
+            if g.get("type") not in ("Selector", "URLTest", "Fallback",
+                                     "LoadBalance"):
+                continue
+            now = g.get("now") or ""
+            if not now or now == "DIRECT":
+                good(f"{name} → {now or '?'} (nothing to test)")
+                continue
+            if now not in tested:
+                q = urllib.parse.quote(now, safe="")
+                test_url = urllib.parse.quote(
+                    "http://www.gstatic.com/generate_204", safe="")
+                try:
+                    tested[now] = api(
+                        f"/proxies/{q}/delay?timeout=5000&url={test_url}",
+                        timeout=12).get("delay")
+                except Exception:
+                    tested[now] = None
+            if tested[now]:
+                good(f"{name} → {now}  ({tested[now]} ms)")
+            else:
+                fail(f"Group '{name}' points at '{now}', which is NOT "
+                     "responding.", [
+                    f"Open the dashboard: http://{hostname}.lan:{dash_port}",
+                    f"Click the '{name}' group and choose a different server "
+                    "(one showing a green latency number).",
+                    "This can also mean the provider's server is down — "
+                    "picking any other server confirms which it is.",
+                ])
+    except Exception as e:
+        warn(f"Could not enumerate proxy groups: {e}")
+
+    # ── 4. DNS honesty (GFW poisoning / ISP hijack detector) ─────────────
+    # Comparing against a reference resolver false-alarms on CDN geo-variance
+    # (two different real Google/Meta frontends). The reliable test: connect
+    # to the IP the local DNS returned and check the TLS certificate really
+    # belongs to the domain — a poisoned IP can never present a valid cert.
+    step("4/7  DNS honesty for critical domains")
+    import ssl
+    _tls_ctx = ssl.create_default_context()
+    for name in ("graph.oculus.com", "edge-mqtt.facebook.com",
+                 "connectivitycheck.gstatic.com"):
+        try:
+            local = sorted({a.get("data")
+                            for a in api(f"/dns/query?name={name}&type=A",
+                                         timeout=15).get("Answer", [])
+                            if a.get("type") == 1})
+        except Exception:
+            local = []
+        if not local:
+            fail(f"{name}: local DNS gave NO answer.", [
+                "Run: sudo pimiproxy refresh   (rebuilds the DNS config)",
+                "If it persists: sudo pimiproxy restart",
+            ])
+            continue
+        ip = local[0]
+        try:
+            with socket.create_connection((ip, 443), timeout=10) as raw_sock:
+                with _tls_ctx.wrap_socket(raw_sock, server_hostname=name):
+                    pass
+            good(f"{name} → {ip} (TLS certificate verified — answer is "
+                 "genuine)")
+        except ssl.SSLCertVerificationError:
+            fail(f"{name}: the local DNS answer {ip} presents a certificate "
+                 "for a DIFFERENT site — the answer is FORGED (GFW/ISP DNS "
+                 "poisoning).", [
+                "Devices are being sent to fake servers for this domain.",
+                "Run: sudo pimiproxy refresh   — regenerates config.yaml, "
+                "which includes the anti-poisoning DNS setup.",
+                "Run doctor again. If still forged, the installed pimiproxy "
+                "files are outdated — re-run the installer.",
+            ])
+        except Exception as e:
+            fail(f"{name}: the local DNS answer {ip} is unreachable "
+                 f"({e}).", [
+                "Either the answer is a poisoned/blackholed address, or the "
+                "proxy server carrying this traffic is down.",
+                "If step 3 above flagged a dead server, fix that first.",
+                "Otherwise run: sudo pimiproxy refresh   and try again.",
+            ])
+
+    # ── 5. Meta Quest store endpoint ─────────────────────────────────────
+    step("5/7  Meta Quest store endpoint")
+    try:
+        with urllib.request.urlopen("https://graph.oculus.com/",
+                                    timeout=12) as r:
+            good(f"graph.oculus.com reachable over TLS (HTTP {r.status}).")
+    except urllib.error.HTTPError as e:
+        # 4xx from Meta still proves DNS + routing + TLS all work
+        good(f"graph.oculus.com reachable over TLS (HTTP {e.code}).")
+    except Exception as e:
+        fail(f"Cannot reach the Quest store API ({e}).", [
+            "If check 4 flagged graph.oculus.com, fix DNS first — it is "
+            "almost always the cause.",
+            "Otherwise pick a different server for the group that carries "
+            "Meta traffic (dashboard), then run doctor again.",
+        ])
+
+    # ── 6. UDP relay (NTP / clock sync) ──────────────────────────────────
+    step("6/7  UDP through the proxy (device clock sync)")
+    ntp_target = "(no DST-PORT,123 rule found)"
+    try:
+        for line in (install_dir / "config" / "config.yaml").read_text().splitlines():
+            if "DST-PORT,123" in line:
+                ntp_target = line.split(",")[-1].strip()
+                break
+    except OSError:
+        pass
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.settimeout(8)
+    try:
+        t0 = time.time()
+        s.sendto(b"\x1b" + 47 * b"\0", ("216.239.35.0", 123))
+        data, _ = s.recvfrom(48)
+        secs = struct.unpack(">I", data[40:44])[0] - 2208988800
+        drift = abs(time.time() - secs)
+        good(f"NTP reply in {time.time() - t0:.1f}s via {ntp_target} "
+             f"(clock drift {drift:.0f}s).")
+        if drift > 60:
+            warn("This machine's own clock is off by more than a minute — "
+                 "consider checking chrony/systemd-timesyncd on the Pi.")
+    except Exception:
+        fail("No NTP reply came back — device clocks cannot sync. Wrong "
+             "clocks break HTTPS everywhere ('limited connection', store "
+             "errors, certificate warnings).", [
+            "Most proxy servers silently DROP UDP; NTP needs one that "
+            "relays it (hysteria2-based servers do).",
+            f"Port-123 traffic is currently handled by: {ntp_target}",
+            "In the subscription ruleset, point a rule "
+            "'DST-PORT,123,<group>' at a UDP-capable server group, then "
+            "run: sudo pimiproxy refresh",
+        ])
+    finally:
+        s.close()
+
+    # ── 7. IPv6 leak around the proxy ────────────────────────────────────
+    # A stale RA-learned route can linger for its full lifetime after the
+    # router stops advertising, so don't trust the routing table alone:
+    # actively solicit and listen for a fresh Router Advertisement.
+    step("7/7  IPv6 leak around the proxy")
+
+    def _hear_router_advertisement(wait=4.0):
+        """True if a router answers a Router Solicitation, False if silent,
+        None if the probe could not run (no root / no IPv6 stack)."""
+        r4 = subprocess.run(["ip", "route", "show", "default"],
+                            capture_output=True, text=True)
+        m = re.search(r"\bdev (\S+)", r4.stdout or "")
+        ifname = m.group(1) if m else None
+        if not ifname:
+            return None
+        try:
+            s = socket.socket(socket.AF_INET6, socket.SOCK_RAW,
+                              socket.IPPROTO_ICMPV6)
+        except (OSError, PermissionError):
+            return None
+        try:
+            idx = socket.if_nametoindex(ifname)
+            s.setsockopt(socket.IPPROTO_IPV6,
+                         socket.IPV6_MULTICAST_HOPS, 255)
+            s.settimeout(0.5)
+            rs = b"\x85\x00\x00\x00\x00\x00\x00\x00"  # ICMPv6 type 133
+            deadline = time.time() + wait
+            try:
+                s.sendto(rs, ("ff02::2", 0, 0, idx))
+            except OSError:
+                return None
+            while time.time() < deadline:
+                try:
+                    data, _ = s.recvfrom(2048)
+                except socket.timeout:
+                    continue
+                if data and data[0] == 134:  # Router Advertisement
+                    return True
+            return False
+        finally:
+            s.close()
+
+    heard = _hear_router_advertisement()
+    if heard is True:
+        fail("The router is advertising IPv6 on this network. Devices will "
+             "send traffic (and DNS!) over IPv6 STRAIGHT PAST the proxy — "
+             "poisoned answers and blocked sites come back.", [
+            "Log in to the router's admin page.",
+            "Find the IPv6 settings (ASUS: Advanced Settings → IPv6).",
+            "Set Connection Type to 'Disable' and apply.",
+            "Toggle Wi-Fi off/on on affected devices so they drop their "
+            "IPv6 addresses.",
+        ])
+    elif heard is False:
+        good("No router answered an IPv6 solicitation — nothing can slip "
+             "past the proxy over IPv6.")
+        r6 = subprocess.run(["ip", "-6", "route", "show", "default"],
+                            capture_output=True, text=True)
+        if "proto ra" in (r6.stdout or ""):
+            warn("A leftover IPv6 route from earlier advertisements is "
+                 "still cached; it will expire on its own shortly.")
+    else:
+        good("IPv6 probe not possible here — skipped (run doctor with sudo "
+             "for the full check).")
+
+    summary()
+
+
 def do_test():
     import time
     import urllib.request
@@ -1306,11 +1612,13 @@ def do_configure():
         print(f"   {C.CYAN} 6){C.NC} Change API secret")
         print(f"   {C.CYAN} 7){C.NC} Change ports")
         print(f"   {C.CYAN} 8){C.NC} Switch dashboard")
-        print(f"   {C.CYAN} 9){C.NC} Save and apply")
-        print(f"   {C.CYAN}10){C.NC} Exit without saving")
-        print(f"   {C.CYAN}11){C.NC} Enable / rebuild web management UI  {C.DIM}[{_ui_status}]{C.NC}")
+        print(f"   {C.CYAN} 9){C.NC} Enable / rebuild web management UI  {C.DIM}[{_ui_status}]{C.NC}")
+        print(f"   {C.CYAN}10){C.NC} Manage fake-IP DNS exceptions")
         print(f"  {C.DIM}{SEP_LINE}{C.NC}")
-        choice = input(f"  {C.BOLD}Selection{C.NC} {C.DIM}[1-11]{C.NC}: ").strip()
+        print(f"   {C.CYAN}11){C.NC} Save and apply")
+        print(f"   {C.CYAN}12){C.NC} Exit without saving")
+        print(f"  {C.DIM}{SEP_LINE}{C.NC}")
+        choice = input(f"  {C.BOLD}Selection{C.NC} {C.DIM}[1-12]{C.NC}: ").strip()
 
         # ── provider URL ─────────────────────────────────────────────────────
         if choice == "1":
@@ -1320,15 +1628,19 @@ def do_configure():
             print("  Your provider must give you a Clash/Mihomo API URL.")
             print("  It typically looks like:")
             print("    https://provider.example.com/api?token=abc123")
-            print("  Leave blank to clear.")
+            print("  Press Enter to keep the current URL, or type 'clear' to remove it.")
             print()
             url = input("  Provider URL: ").strip()
-            cfg["subscription_url"] = url
-            if url:
-                info(f"Provider URL set.")
-            else:
+            if not url:
+                info("Provider URL unchanged.")
+            elif url.lower() == "clear":
+                cfg["subscription_url"] = ""
                 info("Provider URL cleared.")
-            changed = True
+                changed = True
+            else:
+                cfg["subscription_url"] = url
+                info("Provider URL set.")
+                changed = True
 
         # ── proxy groups ─────────────────────────────────────────────────────
         elif choice == "2":
@@ -1579,6 +1891,18 @@ def do_configure():
             else:
                 if save_subscription(install_dir, url,
                                      test_cmd=_engine_test_cmd(cfg, meta, install_dir)):
+                    # save_subscription persists only the subscription block
+                    # keys, so a URL just edited in option 1 exists nowhere on
+                    # disk — and the reload below would silently discard it
+                    # from the session too (next cron refresh then fetches the
+                    # old URL: the "provider URL reverted" bug). The fetch
+                    # from this URL just succeeded and validated, so persist
+                    # it before reloading.
+                    with config_lock(ext_cfg_path):
+                        stored = load_config(ext_cfg_path)
+                        if stored.get("subscription_url", "") != url:
+                            stored["subscription_url"] = url
+                            write_config(ext_cfg_path, stored)
                     # Reload cfg with the fresh (validated) subscription blocks
                     cfg = load_config(ext_cfg_path)
                     _restart_engine(compose, install_dir, cfg, meta)
@@ -1648,7 +1972,7 @@ def do_configure():
                 compose_changed = True
 
         # ── save and apply ───────────────────────────────────────────────────
-        elif choice == "9":
+        elif choice == "11":
             if not changed and not compose_changed:
                 info("No changes to save.")
                 break
@@ -1657,7 +1981,7 @@ def do_configure():
             # docker compose up will fail for those services
             if not _api_img_ok or not _ui_img_ok:
                 warn("Web UI images are not built yet.")
-                warn("Run option 11 first to build them, then save and apply.")
+                warn("Run option 9 first to build them, then save and apply.")
                 if not confirm("Continue saving anyway?", default=False):
                     continue
 
@@ -1710,12 +2034,12 @@ def do_configure():
                     _restart_engine(compose, install_dir, cfg, meta)
             break
 
-        elif choice == "10":
+        elif choice == "12":
             info("Exiting without saving.")
             break
 
         # ── enable / rebuild web UI ───────────────────────────────────────────
-        elif choice == "11":
+        elif choice == "9":
             _script_dir = Path(__file__).resolve().parent
             _api_archive = _find_archive("pimiproxy-api.tar.gz")
             _ui_archive = _find_archive("pimiproxy-ui.tar.gz")
@@ -1809,6 +2133,54 @@ def do_configure():
                 ui_port = cfg["ui_port"]
                 hostname = meta.get("hostname", "pimiproxy")
                 info(f"Web UI available at: http://{hostname}.lan:{ui_port}")
+
+        # ── fake-IP DNS exceptions ───────────────────────────────────────────
+        elif choice == "10":
+            while True:
+                extras = cfg.get("fake_ip_filter_extra", [])
+                print(f"\n  {C.BOLD}Fake-IP DNS exceptions "
+                      f"({len(extras)} custom):{C.NC}")
+                print("  Domains listed here resolve to REAL IPs instead of")
+                print("  fake-IPs. Built-in exceptions (LAN, connectivity")
+                print("  checks, NTP, STUN, Meta/Oculus) always apply.")
+                for i, e in enumerate(extras, 1):
+                    print(f"    {i}) {e}")
+                print()
+                print("  a) Add exception")
+                print("  r) Remove exception")
+                print("  b) Back")
+                print()
+                sub = input("  Selection: ").strip().lower()
+
+                if sub == "b":
+                    break
+
+                elif sub == "a":
+                    entry = input(
+                        "  Domain pattern (e.g. +.example.com): ").strip()
+                    if not entry:
+                        warn("Pattern cannot be empty.")
+                        continue
+                    if entry in extras:
+                        warn("Already listed.")
+                        continue
+                    extras.append(entry)
+                    cfg["fake_ip_filter_extra"] = extras
+                    info(f"Added {entry} — save and apply (option 11) to activate.")
+                    changed = True
+
+                elif sub == "r":
+                    if not extras:
+                        warn("No custom exceptions to remove.")
+                        continue
+                    idx = input("  Number to remove: ").strip()
+                    if idx.isdigit() and 1 <= int(idx) <= len(extras):
+                        removed = extras.pop(int(idx) - 1)
+                        cfg["fake_ip_filter_extra"] = extras
+                        info(f"Removed {removed} — save and apply (option 11) to activate.")
+                        changed = True
+                    else:
+                        warn("Invalid number.")
 
         else:
             warn("Invalid selection.")
@@ -2992,6 +3364,7 @@ COMMANDS = {
     "refresh": do_refresh,
     "refresh-cron": do_refresh_cron,
     "status": do_status,
+    "doctor": do_doctor,
     "logs": do_logs,
     "restart": do_restart,
     "update": do_update,

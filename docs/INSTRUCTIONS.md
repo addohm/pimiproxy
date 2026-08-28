@@ -353,6 +353,7 @@ sudo pimiproxy-ultralite <subcommand>    # ultralite variant
 ```bash
 sudo pimiproxy                           # show help
 sudo pimiproxy status                    # container health + connectivity test
+sudo pimiproxy doctor                    # guided health check with fix steps
 sudo pimiproxy test                      # test every proxy group
 sudo pimiproxy test --url https://google.com   # single URL, shows matched rule
 sudo pimiproxy refresh                   # re-fetch provider URL

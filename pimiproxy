@@ -207,6 +207,7 @@ ${CYAN}  Setup${NC}
 
 ${CYAN}  Day-to-day${NC}
   ${BOLD}  status${NC}               Container health, TUN state, connectivity test
+  ${BOLD}  doctor${NC}               Guided health check with step-by-step fixes
   ${BOLD}  test${NC} [--url URL]     Test all proxy groups, or a single URL with rule info
   ${BOLD}  logs${NC} [service]       Tail container logs (mihomo, dashboard, api, ui)
   ${BOLD}  restart${NC} [service]    Restart one container or all

@@ -4,6 +4,7 @@
 
 ## Table of contents
 
+0. [Start Here: `pimiproxy doctor`](#0-start-here-pimiproxy-doctor)
 1. [Mihomo: High Latency vs Other Devices](#1-mihomo-high-latency-vs-other-devices)
 2. [Subscription URL: No Proxies Loaded](#2-subscription-url-no-proxies-loaded)
 3. [DNS Port 53 Conflict](#3-dns-port-53-conflict)
@@ -15,6 +16,34 @@
 9. [Devices on the Network Can't Connect to the Proxy](#9-devices-on-the-network-cant-connect-to-the-proxy)
 10. [App Shows No Connectivity Despite Proxy Being Configured](#10-app-shows-no-connectivity-despite-proxy-being-configured)
 11. [`clash-system off` Doesn't Bypass the Proxy](#11-clash-system-off-doesnt-bypass-the-proxy)
+
+---
+
+## 0. Start Here: `pimiproxy doctor`
+
+Before working through any section below, run:
+
+```bash
+sudo pimiproxy doctor
+```
+
+It walks the entire pipeline in order and, for every problem it finds, prints
+plain-language, numbered fix steps. It is read-only — safe to run at any time.
+What it checks, and the real-world failure each check catches:
+
+| Check | Catches |
+|---|---|
+| Proxy engine answering | dead/crash-looping mihomo container |
+| Connectivity check (`generate_204`) | the exact probe phones/headsets use — failure = devices show "limited connection" and refuse downloads |
+| Every group's selected server (delay test) | a group silently pointing at a dead provider server |
+| DNS honesty (TLS-certificate verification of local answers) | GFW DNS poisoning and ISP captive-check hijack — devices sent to forged servers |
+| Meta Quest store endpoint (`graph.oculus.com` over TLS) | store loads failing while games still work |
+| UDP through the proxy (NTP probe) | proxy servers that silently drop UDP — breaks clock sync, QUIC, casting; wrong clocks then break HTTPS everywhere |
+| IPv6 leak (active router solicitation) | the router advertising IPv6, letting devices route (and resolve DNS!) straight past the proxy |
+
+If doctor passes cleanly but a device still misbehaves, reboot the device and
+toggle its Wi-Fi — client-side DNS and endpoint caches outlive server-side
+fixes (Meta devices in particular cache endpoints across reboots).
 
 ---
 

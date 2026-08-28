@@ -479,6 +479,22 @@ def update_config(cfg_path, mutate) -> dict:
 # Builds config.yaml as plain text. We write YAML by hand (no PyYAML
 # dependency) so the installers stay self-contained on a fresh OS.
 # =============================================================================
+def _effective_match_group(cfg: dict) -> str:
+    """
+    Target of the first MATCH rule in the combined rule order (user rules
+    first, then provider rules) — i.e. the group that carries otherwise
+    unmatched traffic. The DoH DNS fallback tunnels through it so fallback
+    queries always leave via the proxy. Returns '' when no MATCH rule
+    exists yet (fresh install), which degrades to untunneled DoH.
+    """
+    for r in cfg.get("rules", []):
+        if isinstance(r, str) and r.strip().upper().startswith("MATCH,"):
+            return r.strip().split(",", 1)[1].strip()
+    m = re.search(r"^\s*-\s*MATCH,(.+?)\s*$",
+                  cfg.get("subscription_rules_yaml", ""), re.MULTILINE)
+    return m.group(1).strip() if m else ""
+
+
 def build_config(cfg: dict, variant: str = "full") -> str:
     """
     Build the Mihomo config.yaml content as a string from a structured dict.
@@ -535,11 +551,42 @@ def build_config(cfg: dict, variant: str = "full") -> str:
     L("  nameserver:")
     L("    - 223.5.5.5")
     L("    - 119.29.29.29")
+    # Proxy-node hostnames must resolve WITHOUT the fallback below, or the
+    # tunneled DoH creates a bootstrap deadlock (DoH needs the proxy, the
+    # proxy's hostname needs DNS, DNS waits on the DoH). Mainland resolvers
+    # have always answered the provider's domains correctly.
+    L("  proxy-server-nameserver:")
+    L("    - 223.5.5.5")
+    L("    - 119.29.29.29")
+    # Plain-UDP overseas resolvers are GFW-poisoned (e.g. Meta/Oculus domains
+    # get bogus or third-party IPs), which silently broke every domain the
+    # fake-ip-filter exempts. Use DoH addressed by IP (no bootstrap lookup),
+    # tunneled through the group the final MATCH rule targets so the queries
+    # leave via the proxy. geoip:true keeps the fast mainland answers for CN
+    # domains and swaps in the clean DoH answer for everything foreign.
+    _fb_group = _effective_match_group(cfg)
+    _fb_via = f"#{_fb_group}" if _fb_group else ""
     L("  fallback:")
-    L("    - 8.8.8.8")
-    L("    - 1.1.1.1")
+    L(f'    - "https://8.8.8.8/dns-query{_fb_via}"')
+    L(f'    - "https://1.1.1.1/dns-query{_fb_via}"')
     L("  fallback-filter:")
-    L("    geoip: false")
+    L("    geoip: true")
+    L("    geoip-code: CN")
+    # Captive-portal check domains are DNS-hijacked by mainland ISPs to
+    # ISP-local IPs, which become unreachable the moment the connection
+    # leaves via the proxy — the device then reports "limited connection"
+    # and (on Quest) gates the store and app downloads. The geoip fallback
+    # filter cannot catch this hijack because the forged answers are CN
+    # IPs, so pin these domains to the tunneled DoH for real addresses.
+    L("  nameserver-policy:")
+    for _cc in ("connectivitycheck.gstatic.com",
+                "connectivitycheck.android.com",
+                "captive.apple.com",
+                "+.msftconnecttest.com",
+                "+.msftncsi.com"):
+        L(f'    "{_cc}":')
+        L(f'      - "https://8.8.8.8/dns-query{_fb_via}"')
+        L(f'      - "https://1.1.1.1/dns-query{_fb_via}"')
     L("  fake-ip-filter:")
     for entry in [
             # LAN / mDNS — never fake-IP local hostnames
@@ -578,6 +625,8 @@ def build_config(cfg: dict, variant: str = "full") -> str:
             "+.messenger.com",
             "+.instagram.com",
             "+.cdninstagram.com",
+            "+.oculusvr.com",
+            "+.fbsbx.com",
             # ── Entries below are commented out ───────────────────────────────
             # Les Mills and Brightcove are listed here for reference but have no
             # effect when using the standard proxy setup (pinasmc:7890), because
@@ -597,6 +646,9 @@ def build_config(cfg: dict, variant: str = "full") -> str:
             # "+.bcovlive.io",
             # "+.boltdns.net",
     ]:
+        L(f'    - "{entry}"')
+    # User-managed additions (pimiproxy configure → fake-IP DNS exceptions)
+    for entry in cfg.get("fake_ip_filter_extra", []):
         L(f'    - "{entry}"')
     L()
 
