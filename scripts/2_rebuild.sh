@@ -6,6 +6,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 DOCKER_IMAGES="$ROOT_DIR/docker-images"
 
+# Version stamped into images as labels; VERSION at the repo root is the
+# single source of truth (see docs/MAINTAINER.md).
+PIMIPROXY_VERSION="$(cat "$ROOT_DIR/VERSION" 2>/dev/null | tr -d '[:space:]')"
+PIMIPROXY_VERSION="${PIMIPROXY_VERSION:-0.0.0-dev}"
+PIMIPROXY_GIT_SHA="$(git -C "$ROOT_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+
 # Defaults assume the user has SSH'd to their SBC at least once. Override
 # either with the env vars or the --target flag. SBC_IMAGES is derived from
 # SBC_USER so swapping the SSH user re-targets the rsync destination too.
@@ -88,7 +94,10 @@ _build_image() {
         local platform="${entry#*:}"
         step "Building ${name} (${arch}, ${platform})…"
         local _blog; _blog="$(mktemp)"
-        if docker buildx build --platform "${platform}" -t "${name}:${arch}" "$context" --load >"$_blog" 2>&1; then
+        if docker buildx build --platform "${platform}" -t "${name}:${arch}" \
+                --label "io.pimiproxy.version=${PIMIPROXY_VERSION}" \
+                --label "io.pimiproxy.git=${PIMIPROXY_GIT_SHA}" \
+                "$context" --load >"$_blog" 2>&1; then
             built_arches+=("${arch}")
             rm -f "$_blog"
         else

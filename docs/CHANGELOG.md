@@ -1,5 +1,38 @@
 ## [Unreleased]
 
+### Added — versioned releases and a real update path for the api/ui images
+- pimiproxy now has a version identity: the `VERSION` file at the repo root is
+  the single source of truth. `2_rebuild.sh` stamps it into the `pimiproxy-api`
+  and `pimiproxy-ui` images as the `io.pimiproxy.version` label (plus the git
+  short SHA), release archives ship a `VERSION` copy next to the core script,
+  and installs record it in `.pimiproxy-meta.json`. `status` and the login
+  banner display it on both variants.
+- `sudo pimiproxy update` is now version-aware for the api/ui pair — they are
+  our own packages with no registry behind them, so previously `update` could
+  only blind-load whatever archive happened to sit on disk (and silently did
+  nothing when none did). Now it reports the installed version, skips archives
+  that aren't newer than what's running, and — fixing a real bug — retags the
+  arch-specific tag from a loaded archive to the `:latest` tag that
+  `docker-compose.yml` actually runs (previously a loaded archive never reached
+  the containers).
+- New optional `update_url` config key (unset by default): when set, and no
+  local archive or source is available, `update` fetches
+  `<update_url>/manifest.json` and, if it advertises a newer version, downloads
+  the per-arch api/ui bundles, verifies their sha256, and loads both
+  atomically — any failure leaves the running images untouched. Requests go
+  through the local Mihomo mixed port first (so the update host is reached via
+  the tunnel, even from China or with host bypass on) and fall back to direct.
+  No default host is baked in — the distribution channel is deliberately left
+  to deployment.
+- `3_build-releases.sh` now emits `releases/updates/` — per-arch
+  `pimiproxy-{api,ui}-<arch>.tar.gz` bundles (~60–77 MB each vs the ~350 MB
+  full archives) plus a `manifest.json` with version and sha256 per file:
+  exactly the layout `update_url` expects, ready to copy onto any static file
+  host. The directory is gitignored (regenerated per release).
+- Fixed the armv7 arch-tag mapping at install time: `linux/arm/v7` previously
+  mapped to a nonexistent `:v7` tag suffix, so armv7 archive installs fell back
+  to whatever tag loaded first.
+
 ### Added — `pimiproxy doctor`: guided diagnostics
 - New `doctor` subcommand: seven read-only checks over the whole pipeline (engine, device-style
   connectivity check, delay test of every group's selected server, DNS honesty, Quest store

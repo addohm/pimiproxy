@@ -317,10 +317,20 @@ architecture at install time and retags it as the canonical image name.
 ## 6. Release process
 
 ```bash
+# 0. Bump the root VERSION file — it is the single source of truth and is
+#    stamped into the api/ui images as the io.pimiproxy.version label.
 ./scripts/1_update-upstream.sh              # fetch latest mihomo + upstream Docker images
-./scripts/2_rebuild.sh                      # build pimiproxy-api + pimiproxy-ui
-./scripts/3_build-releases.sh               # package all archives
+./scripts/2_rebuild.sh                      # build pimiproxy-api + pimiproxy-ui (version-labelled)
+./scripts/3_build-releases.sh               # package all archives + releases/updates/
 ```
+
+Besides the release archives, `3_build-releases.sh` writes `releases/updates/`
+(gitignored): per-arch `pimiproxy-{api,ui}-<arch>.tar.gz` bundles plus a
+`manifest.json` (version + sha256 per file). Copying that directory verbatim
+onto any static file host gives devices with the `update_url` config key set a
+`sudo pimiproxy update` network path — the api/ui images exist on no registry,
+so this is their only over-the-network update channel. Which host (and whose
+name is on it) is deliberately not baked into the repo or the packages.
 
 `scripts/3_build-releases.sh` produces per-arch archives in `releases/`:
 

@@ -1081,3 +1081,51 @@ def pkg_remove(distro: str, *packages):
             run(["zypper", "remove", "-y", *packages], silent=True, check=False)
         elif distro == "alpine":
             run(["apk", "del", *packages], silent=True, check=False)
+
+
+# =============================================================================
+# VERSIONING
+# The VERSION file at the repo root is the single source of truth. Release
+# archives ship a copy next to the core script; images carry it as the
+# io.pimiproxy.version label. Installs record it in .pimiproxy-meta.json.
+# =============================================================================
+def read_local_version() -> str:
+    """
+    Version stamped next to this file (source tree or extracted release
+    archive). Returns "unknown" when no VERSION file is present — e.g. an
+    install dir from a pre-8.0 release.
+    """
+    try:
+        v = (Path(__file__).resolve().parent / "VERSION").read_text().strip()
+        return v or "unknown"
+    except OSError:
+        return "unknown"
+
+
+def parse_version(v: str):
+    """
+    "8.0.0" → (8, 0, 0). Tolerates a leading "v" and non-numeric tails
+    ("8.1.0-rc1" → (8, 1, 0)). Returns None for unparseable/unknown input,
+    so callers can treat "can't compare" separately from "older".
+    """
+    if not v:
+        return None
+    m = re.match(r"v?(\d+)(?:\.(\d+))?(?:\.(\d+))?", v.strip())
+    if not m:
+        return None
+    return tuple(int(g or 0) for g in m.groups())
+
+
+def version_newer(candidate: str, current: str) -> bool:
+    """
+    True when `candidate` is strictly newer than `current`. If the CURRENT
+    version is unknown (pre-versioning install) any parseable candidate
+    counts as newer; an unparseable candidate never does.
+    """
+    cand = parse_version(candidate)
+    if cand is None:
+        return False
+    cur = parse_version(current)
+    if cur is None:
+        return True
+    return cand > cur

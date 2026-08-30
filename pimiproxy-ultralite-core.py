@@ -40,6 +40,7 @@ from pimiproxy_common import (
     SUBSCRIPTION_KEYS, config_path, config_lock, load_config, write_config,
     update_config, CONFIG_CANDIDATE, install_config, mihomo_test_cmd_native,
     wait_for_controller, engine_health, print_engine_health, preflight_conflicts,
+    read_local_version,
 )
 
 
@@ -325,7 +326,9 @@ def build_banner(cfg: dict, meta: dict) -> str:
     L("_N=$'\\033[0m'     # reset")
     L("_S='  ──────────────────────────────────────────'")
     L()
-    L('printf "\\n${_C}${_B}  pimiproxy-ultralite${_N}\\n%s\\n" "$_S"')
+    version = meta.get("version", "")
+    _vtag = f" ${{_D}}v{version}${{_N}}" if version and version != "unknown" else ""
+    L(f'printf "\\n${{_C}}${{_B}}  pimiproxy-ultralite${{_N}}{_vtag}\\n%s\\n" "$_S"')
     L()
     L("# ── Proxy engine ─────────────────────────────────────────────────────")
     L("# Liveness = the engine's controller answers on its port. No secret is")
@@ -504,6 +507,8 @@ def do_status():
     hostname    = meta.get("hostname",   "pimiproxy")
 
     banner("pimiproxy-ultralite status", C.CYAN)
+
+    info(f"pimiproxy version: {meta.get('version', 'unknown (pre-8.0 install)')}")
 
     # ── engine ────────────────────────────────────────────────────────────────
     step("Engine")
@@ -1577,6 +1582,7 @@ def do_install():
         "mixed_port":  mixed_port,
         "api_secret":  api_secret,
         "arch":        arch,
+        "version":     read_local_version(),
     }
     write_meta(meta)
 

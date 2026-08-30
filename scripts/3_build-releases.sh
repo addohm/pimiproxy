@@ -8,6 +8,10 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 RELEASES="$ROOT_DIR/releases"
 DOCKER_IMAGES="$ROOT_DIR/docker-images"
 BIN_DIR="$ROOT_DIR/bin"
+UPDATES="$RELEASES/updates"
+
+PIMIPROXY_VERSION="$(cat "$ROOT_DIR/VERSION" 2>/dev/null | tr -d '[:space:]')"
+PIMIPROXY_VERSION="${PIMIPROXY_VERSION:-0.0.0-dev}"
 
 # Architectures we try to produce releases for.
 # Full variant: no 386 — requires metacubexd, zashboard, and
@@ -153,7 +157,8 @@ _build_full() {
              "$staging/pimiproxy/pimiproxy-api" \
              "$staging/pimiproxy/pimiproxy-ui"
     cp "$ROOT_DIR/pimiproxy" "$ROOT_DIR/pimiproxy-core.py" \
-       "$ROOT_DIR/pimiproxy_common.py" "$ROOT_DIR/README.md" "$staging/pimiproxy/"
+       "$ROOT_DIR/pimiproxy_common.py" "$ROOT_DIR/README.md" \
+       "$ROOT_DIR/VERSION" "$staging/pimiproxy/"
     rsync -a --exclude='pmp-*-plan.md' --exclude='DEV_INSTRUCTIONS.md' --exclude='MAINTAINER.md' \
         "$ROOT_DIR/docs/" "$staging/pimiproxy/docs/"
     # Geodata is bundled in BOTH flavors — small, and its source (GitHub) is
@@ -213,7 +218,8 @@ _build_ultralite() {
     mkdir -p "$staging/pimiproxy-ultralite/bin" \
              "$staging/pimiproxy-ultralite/docker-images"
     cp "$ROOT_DIR/pimiproxy-ultralite" "$ROOT_DIR/pimiproxy-ultralite-core.py" \
-       "$ROOT_DIR/pimiproxy_common.py" "$ROOT_DIR/README.md" "$staging/pimiproxy-ultralite/"
+       "$ROOT_DIR/pimiproxy_common.py" "$ROOT_DIR/README.md" \
+       "$ROOT_DIR/VERSION" "$staging/pimiproxy-ultralite/"
     rsync -a --exclude='pmp-*-plan.md' --exclude='DEV_INSTRUCTIONS.md' --exclude='MAINTAINER.md' \
         "$ROOT_DIR/docs/" "$staging/pimiproxy-ultralite/docs/"
     cp "$DOCKER_IMAGES/geoip.metadb" "$DOCKER_IMAGES/geosite.dat" "$DOCKER_IMAGES/country.mmdb" \
@@ -223,6 +229,53 @@ _build_ultralite() {
     tar czf "$archive" -C "$staging" pimiproxy-ultralite
     ok "$(basename "$archive")  ($(du -sh "$archive" | cut -f1))"
     rm -rf "$staging"
+}
+
+# ── Update bundles ───────────────────────────────────────────────────────────
+# Small per-arch api+ui image bundles + a manifest, for `pimiproxy update` to
+# fetch from a configured update_url (any static file host). Not committed to
+# git (releases/updates/ is gitignored) — the hosting channel is decided at
+# publish time.
+_build_update_bundles() {
+    step "Update bundles (releases/updates/, v${PIMIPROXY_VERSION})"
+    rm -rf "$UPDATES"
+    mkdir -p "$UPDATES"
+    local manifest_files=()
+    for arch in "${FULL_ARCHES[@]}"; do
+        for img in pimiproxy-api pimiproxy-ui; do
+            if ! docker image inspect "${img}:${arch}" >/dev/null 2>&1; then
+                skip "${img}:${arch} not in Docker — no update bundle for ${arch}"
+                continue 2
+            fi
+        done
+        for img in pimiproxy-api pimiproxy-ui; do
+            local out="$UPDATES/${img}-${arch}.tar.gz"
+            docker save "${img}:${arch}" | gzip > "$out"
+            manifest_files+=("$(basename "$out")")
+        done
+        ok "update bundles for ${arch}"
+    done
+    if [[ ${#manifest_files[@]} -eq 0 ]]; then
+        skip "no update bundles built — manifest not written"
+        return 0
+    fi
+    {
+        echo "{"
+        echo "  \"version\": \"${PIMIPROXY_VERSION}\","
+        echo "  \"files\": {"
+        local i last=$(( ${#manifest_files[@]} - 1 ))
+        for i in "${!manifest_files[@]}"; do
+            local f="${manifest_files[$i]}" comma=","
+            [[ $i -eq $last ]] && comma=""
+            local sum size
+            sum=$(sha256sum "$UPDATES/$f" | cut -d' ' -f1)
+            size=$(stat -c %s "$UPDATES/$f")
+            echo "    \"$f\": {\"sha256\": \"$sum\", \"size\": $size}$comma"
+        done
+        echo "  }"
+        echo "}"
+    } > "$UPDATES/manifest.json"
+    ok "manifest.json written (v${PIMIPROXY_VERSION})"
 }
 
 # ── Build ────────────────────────────────────────────────────────────────────
@@ -248,6 +301,7 @@ if [[ $DO_FULL -eq 1 ]]; then
         _build_full "$arch" offline
         _build_full "$arch" online
     done
+    _build_update_bundles
 fi
 
 if [[ $DO_ULTRALITE -eq 1 ]]; then

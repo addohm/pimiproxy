@@ -40,6 +40,7 @@ from pimiproxy_common import (
     SUBSCRIPTION_KEYS, config_path, config_lock, load_config, write_config,
     update_config, CONFIG_CANDIDATE, install_config, mihomo_test_cmd_docker,
     wait_for_controller, engine_health, print_engine_health, preflight_conflicts,
+    read_local_version, version_newer,
 )
 
 
@@ -237,6 +238,25 @@ def _host_arch() -> str:
         "armv7l":  "linux/arm/v7",
         "armv6l":  "linux/arm/v6",
     }.get(platform.machine(), f"linux/{platform.machine()}")
+
+
+def _arch_tag_suffix(arch: str) -> str:
+    """Docker platform string → our image tag suffix ("linux/arm/v7" → "armv7")."""
+    return {
+        "linux/amd64": "amd64",
+        "linux/arm64": "arm64",
+        "linux/arm/v7": "armv7",
+        "linux/386": "386",
+    }.get(arch, arch.split("/")[-1])
+
+
+def _image_version(tag: str) -> str:
+    """The io.pimiproxy.version label of a local image, or "" if absent."""
+    r = run(["docker", "image", "inspect", tag, "--format",
+             '{{index .Config.Labels "io.pimiproxy.version"}}'],
+            capture=True, check=False, silent=True)
+    v = (r.stdout or "").strip()
+    return "" if v in ("", "<no value>") else v
 
 
 def _find_archive(archive: str) -> "Path | None":
@@ -565,7 +585,9 @@ def build_banner(cfg: dict, meta: dict) -> str:
     L("_N=$'\\033[0m'     # reset")
     L("_S='  ──────────────────────────────────────────'")
     L()
-    L('printf "\\n${_C}${_B}  pimiproxy${_N}\\n%s\\n" "$_S"')
+    version = meta.get("version", "")
+    _vtag = f" ${{_D}}v{version}${{_N}}" if version and version != "unknown" else ""
+    L(f'printf "\\n${{_C}}${{_B}}  pimiproxy${{_N}}{_vtag}\\n%s\\n" "$_S"')
     L()
     L("# ── Proxy engine ─────────────────────────────────────────────────────")
     L("# Liveness = the engine's controller answers on its port. No secret is")
@@ -650,6 +672,8 @@ def do_status():
     hostname = meta.get("hostname", "pimiproxy")
 
     banner("pimiproxy status", C.CYAN)
+
+    info(f"pimiproxy version: {meta.get('version', 'unknown (pre-8.0 install)')}")
 
     # ── containers ────────────────────────────────────────────────────────────
     step("Containers")
@@ -1390,6 +1414,110 @@ def do_system():
 # =============================================================================
 # UPDATE
 # =============================================================================
+def _update_from_url(base_url: str, current_ver: str, suffix: str, meta: dict,
+                     adopt, pairs) -> "str | None":
+    """
+    Network update path for the api/ui pair: fetch <update_url>/manifest.json
+    (written by 3_build-releases.sh), and when it advertises a newer version,
+    download the per-arch bundles, verify their sha256, and load + retag both.
+    All-or-nothing: any failure leaves the running images untouched and the
+    recorded version unchanged.
+
+    Requests go through the local mihomo mixed port first, so the update host
+    is reached via the tunnel even when clash-system has host traffic on
+    bypass; falls back to a direct connection if the proxy path fails.
+    Returns the new version string on success, else None.
+    """
+    import hashlib
+    import tempfile
+    import urllib.request
+
+    mixed_port = meta.get("mixed_port", "7890")
+    proxy = f"http://127.0.0.1:{mixed_port}"
+    openers = [
+        ("via proxy", urllib.request.build_opener(
+            urllib.request.ProxyHandler({"http": proxy, "https": proxy}))),
+        ("direct", urllib.request.build_opener(urllib.request.ProxyHandler({}))),
+    ]
+
+    manifest = None
+    opener = None
+    for _label, _opener in openers:
+        try:
+            with Spinner(f"Fetching manifest ({_label})"):
+                with _opener.open(f"{base_url}/manifest.json", timeout=30) as resp:
+                    manifest = json.loads(resp.read().decode("utf-8"))
+            opener = _opener
+            break
+        except Exception as e:
+            warn(f"manifest.json ({_label}): {e}")
+    if manifest is None:
+        warn("Could not reach the update host — skipping api/ui update.")
+        return None
+
+    remote_ver = str(manifest.get("version", "")).strip()
+    if not version_newer(remote_ver, current_ver):
+        info(f"Update host offers v{remote_ver or '?'} — running v{current_ver}; "
+             "already up to date.")
+        return None
+    info(f"Update available: v{current_ver} → v{remote_ver}")
+
+    files = manifest.get("files", {})
+    for _svc, _tag, _ in pairs:
+        _entry = files.get(f"{_svc}-{suffix}.tar.gz")
+        if not isinstance(_entry, dict) or not _entry.get("sha256"):
+            warn(f"{_svc}-{suffix}.tar.gz missing from manifest — aborting "
+                 "(api and ui must update together).")
+            return None
+
+    # Download + verify BOTH before loading either. Temp files live in the
+    # install dir, not /tmp — /tmp can be a small tmpfs on SBCs.
+    tmp_dir = meta.get("install_dir", "/opt/pimiproxy")
+    downloads = []
+    try:
+        for _svc, _tag, _ in pairs:
+            fname = f"{_svc}-{suffix}.tar.gz"
+            entry = files[fname]
+            fd, tmp_path = tempfile.mkstemp(suffix=".tar.gz", dir=tmp_dir)
+            downloads.append((_svc, _tag, tmp_path))
+            digest = hashlib.sha256()
+            try:
+                with Spinner(f"Downloading {fname}"):
+                    with opener.open(f"{base_url}/{fname}", timeout=600) as resp, \
+                            os.fdopen(fd, "wb") as out:
+                        while True:
+                            chunk = resp.read(1 << 20)
+                            if not chunk:
+                                break
+                            digest.update(chunk)
+                            out.write(chunk)
+            except Exception as e:
+                warn(f"{fname}: download failed: {e} — aborting update.")
+                return None
+            if digest.hexdigest() != str(entry["sha256"]).strip().lower():
+                warn(f"{fname}: sha256 mismatch — aborting update.")
+                return None
+
+        for _svc, _tag, tmp_path in downloads:
+            with Spinner(f"Loading {_svc} v{remote_ver}"):
+                result = run(["docker", "load", "-i", tmp_path], capture=True)
+            chosen = adopt(result, _tag)
+            if chosen is None:
+                warn(f"{_svc}: downloaded bundle unusable — not recording "
+                     "the new version.")
+                return None
+            if chosen != _tag:
+                run(["docker", "tag", chosen, _tag], silent=True)
+        info(f"api + ui updated to v{remote_ver}.")
+        return remote_ver
+    finally:
+        for _, _, tmp_path in downloads:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+
 def do_update():
     meta = read_meta()
     install_dir = Path(meta["install_dir"])
@@ -1443,25 +1571,109 @@ def do_update():
         _pull(METACUBEXD_IMAGE, "metacubexd.tar.gz", "metacubexd")
 
     # ── pimiproxy images ──────────────────────────────────────────────────────
+    # api and ui are OUR packages — no registry carries them, so updates come
+    # from (in order): a local archive, the source tree next to this script, or
+    # the configured update_url (a static file host serving manifest.json +
+    # per-arch bundles built by 3_build-releases.sh). They share the /api
+    # contract, so they always update together as one versioned unit.
     _script_dir = Path(__file__).resolve().parent
+    _suffix = _arch_tag_suffix(arch)
+    current_ver = meta.get("version") or _image_version("pimiproxy-api:latest") \
+        or "unknown"
 
-    for _svc, _tag, _archive_name in [
+    def _adopt_loaded(result, tag: str) -> "str | None":
+        """Pick the host-arch tag out of a `docker load` result and verify its
+        platform. Returns the loaded tag WITHOUT retagging — callers retag to
+        `tag` (what docker-compose.yml references) only once they have decided
+        the image should actually go live, so an old archive can never
+        silently downgrade the running tag."""
+        loaded = [l.split("Loaded image:")[-1].strip()
+                  for l in (result.stdout + result.stderr).splitlines()
+                  if "Loaded image:" in l]
+        chosen = next((t for t in loaded if t.endswith(f":{_suffix}")),
+                      loaded[0] if loaded else None)
+        if not chosen:
+            # Archive was already loaded once — nothing new printed. The tag
+            # may still exist locally from that earlier load.
+            chosen = f"{tag.split(':')[0]}:{_suffix}"
+        r = run(["docker", "image", "inspect", chosen,
+                 "--format", "{{.Os}}/{{.Architecture}}"],
+                capture=True, check=False, silent=True)
+        img_platform = r.stdout.strip()
+        if not img_platform:
+            return None
+        # inspect omits the variant ("linux/arm" for linux/arm/v7) — prefix match
+        if not arch.startswith(img_platform):
+            warn(f"Archive image is {img_platform} but this host is {arch} — ignoring.")
+            return None
+        return chosen
+
+    step("pimiproxy api + ui")
+    info(f"Installed version: {current_ver}")
+
+    _pairs = [
         ("pimiproxy-api", "pimiproxy-api:latest", "pimiproxy-api.tar.gz"),
         ("pimiproxy-ui",  "pimiproxy-ui:latest",  "pimiproxy-ui.tar.gz"),
-    ]:
-        step(_svc)
-        _archive = _find_archive(_archive_name)
-        _src = _script_dir / _svc
-        if _archive:
-            with Spinner(f"Loading {_svc} from archive"):
-                run(["docker", "load", "-i", str(_archive)], silent=True)
-            info(f"{_svc} loaded from archive.")
-        elif _src.exists():
-            info(f"Building {_svc} from source…")
-            run(["docker", "build", "-t", _tag, str(_src)], silent=False)
-            info(f"{_svc} built.")
+    ]
+    _new_ver = None
+    _locally_covered = all(
+        _find_archive(name) or (_script_dir / svc).exists()
+        for svc, _, name in _pairs)
+
+    if _locally_covered:
+        for _svc, _tag, _archive_name in _pairs:
+            _archive = _find_archive(_archive_name)
+            _src = _script_dir / _svc
+            if _archive:
+                with Spinner(f"Loading {_svc} from archive"):
+                    result = run(["docker", "load", "-i", str(_archive)],
+                                 capture=True)
+                chosen = _adopt_loaded(result, _tag)
+                if chosen is None:
+                    warn(f"Could not use {_archive_name} — skipping {_svc}.")
+                    continue
+                _av = _image_version(chosen)
+                if _av and current_ver != "unknown" \
+                        and not version_newer(_av, current_ver):
+                    info(f"{_svc}: archive is v{_av}, running v{current_ver} — "
+                         "already up to date.")
+                else:
+                    # Unstamped archives (pre-8.0) go live unconditionally —
+                    # the user placed the file deliberately.
+                    if chosen != _tag:
+                        run(["docker", "tag", chosen, _tag], silent=True)
+                    info(f"{_svc} updated from archive"
+                         + (f" (v{_av})." if _av else " (no version stamp)."))
+                    if _av:
+                        _new_ver = _av
+            elif _src.exists():
+                info(f"Building {_svc} from source…")
+                run(["docker", "build", "-t", _tag, str(_src)], silent=False)
+                info(f"{_svc} built.")
+    else:
+        _partial = [name for _, _, name in _pairs if _find_archive(name)]
+        if _partial:
+            warn(f"Found {', '.join(_partial)} but not its counterpart — api "
+                 "and ui share the /api contract and update together; "
+                 "skipping local archives.")
+        _cfg_path = install_dir / ".pimiproxy-config.json"
+        _cfg = json.loads(_cfg_path.read_text()) if _cfg_path.exists() else {}
+        _update_url = str(_cfg.get("update_url") or "").strip().rstrip("/")
+        if _update_url:
+            _new_ver = _update_from_url(_update_url, current_ver, _suffix,
+                                        meta, _adopt_loaded, _pairs)
         else:
-            warn(f"No archive or source found for {_svc} — skipping.")
+            if not _partial:
+                warn("No archive or source found for pimiproxy-api / "
+                     "pimiproxy-ui — skipping.")
+            info("To update: rsync a new release's docker-images/*.tar.gz next")
+            info("to this script, or set \"update_url\" in "
+                 ".pimiproxy-config.json to a host serving update bundles.")
+
+    if _new_ver:
+        meta["version"] = _new_ver
+        write_meta(meta)
+        info(f"Recorded version {_new_ver} in install metadata.")
 
     # ── Recreate all containers ───────────────────────────────────────────────
     step("Recreating containers")
@@ -2436,8 +2648,7 @@ def do_install():
     _api_src = _script_dir / "pimiproxy-api"
     _ui_src = _script_dir / "pimiproxy-ui"
 
-    arch_suffix = {"linux/arm64": "arm64", "linux/amd64": "amd64"}.get(
-        arch, arch.split("/")[-1])
+    arch_suffix = _arch_tag_suffix(arch)
 
     for _svc, _tag, _svc_archive, _svc_src in [
         ("pimiproxy-api", "pimiproxy-api:latest", _api_archive, _api_src),
@@ -2647,6 +2858,7 @@ def do_install():
         "arch": arch,
         "compose_bin": compose[0],
         "compose_sub": compose[1],
+        "version": read_local_version(),
     }
     write_meta(meta)
 

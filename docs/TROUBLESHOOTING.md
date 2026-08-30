@@ -16,6 +16,7 @@
 9. [Devices on the Network Can't Connect to the Proxy](#9-devices-on-the-network-cant-connect-to-the-proxy)
 10. [App Shows No Connectivity Despite Proxy Being Configured](#10-app-shows-no-connectivity-despite-proxy-being-configured)
 11. [`clash-system off` Doesn't Bypass the Proxy](#11-clash-system-off-doesnt-bypass-the-proxy)
+12. [`update` Says "No archive or source found for pimiproxy-api — skipping"](#12-update-says-no-archive-or-source-found-for-pimiproxy-api--skipping)
 
 ---
 
@@ -525,3 +526,15 @@ systemctl status pimiproxy-bypass.service
 ### Cause D: Gateway-client traffic also seems affected
 
 Gateway clients (Meta Quest etc. using this device as their DHCP gateway) should **always** be proxied regardless of the toggle — the toggle only touches the `OUTPUT` chain, not `FORWARD`. If gateway clients can't reach anything, it's unrelated to `clash-system`. Check §9 and §10.
+
+---
+
+## 12. `update` Says "No archive or source found for pimiproxy-api — skipping"
+
+`pimiproxy-api` and `pimiproxy-ui` are pimiproxy's own images — no public registry carries them, so `sudo pimiproxy update` can only refresh them from something it can reach:
+
+1. **A release archive's images on disk** — put a newer release's `docker-images/pimiproxy-api.tar.gz` and `docker-images/pimiproxy-ui.tar.gz` next to the installed script (e.g. rsync the extracted release folder to the device) and rerun `sudo pimiproxy update`. Since v8.0.0 the archives are version-stamped: `update` tells you the running vs archive version and skips archives that aren't newer.
+2. **The source tree** — if the full source folder sits next to the installed script, `update` rebuilds both images locally (needs the device to reach a package registry, so usually dev-machine-only).
+3. **A configured update host** — set `"update_url"` in `/opt/pimiproxy/.pimiproxy-config.json` to the base URL of a host serving the `releases/updates/` directory (`manifest.json` + per-arch bundles) produced by `3_build-releases.sh`. `update` then downloads, sha256-verifies, and loads both images when a newer version is offered. The download goes through the local proxy tunnel first, so it works where the update host is otherwise blocked.
+
+If none of the three exist, `update` still refreshes mihomo and the dashboard but leaves api/ui as they are — that's what the warning means. Check the running version anytime with `sudo pimiproxy status`.
