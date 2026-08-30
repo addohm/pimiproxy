@@ -453,7 +453,10 @@ sudo ./pimiproxy restart pimiproxy-ui   # Restart UI only
 sudo ./pimiproxy update
 ```
 
-Pulls the latest Docker images for all containers and recreates them. Safe to run at any time.
+Safe to run at any time, and version-aware since v8.0.0 — it prints the installed pimiproxy version (also shown by `status` and the login banner) and never downgrades.
+
+- **mihomo and the dashboard** load from `.tar.gz` archives in `docker-images/` when present, otherwise pull from the registry (through the proxy tunnel).
+- **pimiproxy-api and pimiproxy-ui** are pimiproxy's own images — no registry carries them. They update as one unit, from the first of these that exists: a *newer* release archive's `docker-images/pimiproxy-{api,ui}.tar.gz` next to the installed script; the full source tree next to the script (rebuilds locally); or a static host configured via the optional `update_url` key in `/opt/pimiproxy/.pimiproxy-config.json` (downloads are sha256-verified, applied all-or-nothing, and fetched through the local proxy tunnel first). With none of the three available, `update` refreshes the other containers and reports that api/ui were skipped — see TROUBLESHOOTING §12.
 
 ### Test proxy connectivity
 

@@ -198,7 +198,8 @@ sudo ./pimiproxy <subcommand>
 | `test [--url URL]` | Test proxy groups for connectivity; use `--url` to test a single URL |
 | `logs [service]` | Tail live container logs (default: mihomo; also: dashboard, pimiproxy-api, pimiproxy-ui) |
 | `restart [service]` | Restart one container or all |
-| `update` | Pull latest Docker images and recreate containers |
+| `update` | Version-aware update: refreshes mihomo/dashboard from archives or the registry; updates the pimiproxy api/ui pair from a newer release archive, local source, or a configured `update_url` host — never downgrades |
+| `doctor` | Run guided read-only diagnostics across the whole pipeline; prints numbered fix steps and exits non-zero when problems are found |
 | `hostname <name>` | Change the system hostname (max 24 chars, alphanumeric + hyphens), restart avahi-daemon, and optionally reboot |
 | `debug [url]` | Fetch a provider URL with the Clash User-Agent and inspect the response |
 | `export [dir]` | Export user config, cached provider YAML, and final config.yaml to a directory |
@@ -257,7 +258,8 @@ sudo ./pimiproxy logs pimiproxy-ui     # UI logs
 sudo ./pimiproxy restart               # All containers
 sudo ./pimiproxy restart mihomo        # Mihomo only
 
-# Update to latest images
+# Update to newer images (shows installed vs available version; skips
+# anything that isn't newer than what's running)
 sudo ./pimiproxy update
 
 # Change hostname

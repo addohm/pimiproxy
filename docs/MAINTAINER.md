@@ -27,10 +27,12 @@ pimiproxy codebase. For end-user installation and usage see
 
 ```
 /srv/aidev/pimiproxy/
+├── VERSION                       # Single source of truth for the release version
 ├── pimiproxy                  # Full-variant bootstrap
 ├── pimiproxy-core.py             # Full-variant installer + subcommands
 ├── pimiproxy-ultralite        # Ultralite bootstrap
 ├── pimiproxy-ultralite-core.py   # Ultralite installer + subcommands
+├── pimiproxy_common.py           # Helpers shared by both cores (shipped alongside them)
 ├── pimiproxy-api/                # Django REST API container source
 │   ├── Dockerfile
 │   ├── manage.py
@@ -41,9 +43,11 @@ pimiproxy codebase. For end-user installation and usage see
 │   ├── nginx.conf
 │   ├── package.json
 │   └── src/
-├── bin/                          # Mihomo release binaries (.gz) — ultralite
-├── docker-images/                # Docker image archives + geodata
-│   ├── mihomo.tar.gz             # Multi-arch (arm64 + amd64)
+├── bin/                          # Mihomo release binaries (.gz) — ultralite (Git LFS)
+├── docker-engine/                # Static Docker engine bundles per arch (gitignored;
+│                                 #   fetched by 1_update-upstream.sh --docker)
+├── docker-images/                # Docker image archives + geodata (Git LFS)
+│   ├── mihomo.tar.gz             # Multi-arch (amd64 + arm64 + armv7)
 │   ├── metacubexd.tar.gz
 │   ├── zashboard.tar.gz
 │   ├── pimiproxy-api.tar.gz
@@ -51,14 +55,17 @@ pimiproxy codebase. For end-user installation and usage see
 │   ├── geoip.metadb
 │   ├── geosite.dat
 │   └── country.mmdb
-├── releases/                     # Output of 3_build-releases.sh (gitignored)
+├── releases/                     # Output of 3_build-releases.sh (Git LFS)
+│   └── updates/                  # Per-arch api/ui update bundles + manifest.json
+│                                 #   for the update_url channel (gitignored)
 ├── scripts/                      # Developer/maintainer helper scripts
 │   ├── 1_update-upstream.sh      # Pull latest mihomo bins + upstream Docker images
-│   ├── 2_rebuild.sh              # Build pimiproxy-api/ui Docker images
+│   ├── 2_rebuild.sh              # Build pimiproxy-api/ui Docker images (version-labelled)
 │   └── 3_build-releases.sh       # Package everything into release archives
-├── CLAUDE.md                     # Instructions for Claude Code sessions
+├── CLAUDE.md                     # Instructions for Claude Code sessions (gitignored)
 └── docs/
     ├── INSTRUCTIONS.md           # End-user install & usage guide
+    ├── DEV_INSTRUCTIONS.md       # Full install walkthrough, prompt by prompt
     ├── TROUBLESHOOTING.md        # End-user troubleshooting
     ├── CHANGELOG.md              # Per-version change log
     ├── MAINTAINER.md             # This file
@@ -255,12 +262,13 @@ ssh $USER@pimiproxy.lan "sudo cat /opt/pimiproxy/.pimiproxy-meta.json"
 
 ## 5. Docker image build & deploy
 
-Two scripts handle image lifecycle. Both are dev-machine-only
-(gitignored).
+Two scripts handle image lifecycle. Both are dev-machine-only.
 
 ### `scripts/2_rebuild.sh` — build pimiproxy-api and pimiproxy-ui
 
-Multi-arch (arm64 + amd64), saves as a single tarball per image with
+Multi-arch (amd64 + arm64 + armv7, each stamped with the
+`io.pimiproxy.version` / `io.pimiproxy.git` labels from `VERSION` and
+git), saves as a single tarball per image with
 `image:arm64` and `image:amd64` tags.
 
 ```bash
@@ -332,22 +340,11 @@ onto any static file host gives devices with the `update_url` config key set a
 so this is their only over-the-network update channel. Which host (and whose
 name is on it) is deliberately not baked into the repo or the packages.
 
-`scripts/3_build-releases.sh` produces per-arch archives in `releases/`:
-
-| Archive | Variant | Arch |
-|---|---|---|
-| `pimiproxy-arm64.tar.gz` | Full | arm64 |
-| `pimiproxy-amd64.tar.gz` | Full | amd64 |
-| `pimiproxy-ultralite-arm64.tar.gz` | Ultralite | arm64 |
-| `pimiproxy-ultralite-amd64.tar.gz` | Ultralite | amd64 |
-| `pimiproxy-ultralite-armv7.tar.gz` | Ultralite | armv7 |
-
-Full archives are ~175 MB (Docker images are heavy). Ultralite archives
-are ~12 MB.
-
-`scripts/3_build-releases.sh` extracts the single-arch image from each multi-arch
-tarball via `docker load` + `docker save <image>:<arch>` so the release
-only contains what the target architecture needs.
+`scripts/3_build-releases.sh` produces two flavors per variant per arch
+(offline / online) — see §12 for the full archive matrix, sizes, and
+contents. It extracts the single-arch image from each multi-arch tarball
+via `docker load` + `docker save <image>:<arch>` so a release only
+contains what the target architecture needs.
 
 ---
 
@@ -587,34 +584,45 @@ default, not a fallback.
 
 
 Produced by `./scripts/3_build-releases.sh`. All archives land in `releases/`
-(gitignored).
+(tracked via Git LFS); the `releases/updates/` bundles + `manifest.json` for
+the `update_url` channel are gitignored and copied to the update host at
+publish time.
 
-Seven archives are produced in a full build:
+Fourteen archives are produced in a full build (two flavors × seven
+variant/arch combinations):
 
-| Archive | Variant | Arch | Approx size |
+| Archive (offline / online) | Variant | Arch | Approx size |
 |---|---|---|---|
-| `pimiproxy-amd64.tar.gz` | Full | amd64 (x86_64) | ~177 MB |
-| `pimiproxy-arm64.tar.gz` | Full | arm64 (aarch64) | ~175 MB |
-| `pimiproxy-armv7.tar.gz` | Full | armv7 (32-bit ARM) | ~115 MB — ships zashboard only (no metacubexd armv7 upstream) |
-| `pimiproxy-ultralite-amd64.tar.gz` | Ultralite | amd64 | ~13 MB |
-| `pimiproxy-ultralite-arm64.tar.gz` | Ultralite | arm64 | ~12 MB |
-| `pimiproxy-ultralite-armv7.tar.gz` | Ultralite | armv7 | ~12 MB |
-| `pimiproxy-ultralite-386.tar.gz` | Ultralite | 386 | ~13 MB |
+| `pimiproxy-amd64[-offline].tar.gz` | Full | amd64 (x86_64) | ~360 MB / ~11 MB |
+| `pimiproxy-arm64[-offline].tar.gz` | Full | arm64 (aarch64) | ~345 MB / ~11 MB |
+| `pimiproxy-armv7[-offline].tar.gz` | Full | armv7 (32-bit ARM) | ~281 MB / ~11 MB — offline ships zashboard only (no metacubexd armv7 upstream) |
+| `pimiproxy-ultralite-amd64[-offline].tar.gz` | Ultralite | amd64 | ~23 MB / ~11 MB |
+| `pimiproxy-ultralite-arm64[-offline].tar.gz` | Ultralite | arm64 | ~22 MB / ~11 MB |
+| `pimiproxy-ultralite-armv7[-offline].tar.gz` | Ultralite | armv7 | ~22 MB / ~11 MB |
+| `pimiproxy-ultralite-386[-offline].tar.gz` | Ultralite | 386 | ~23 MB / ~11 MB |
 
-No full-variant 386 archive: pimiproxy-ui's node:20-alpine base has no
-386 variant, so the Docker build fails. Users on 32-bit x86 should use
+No full-variant 386 archive: pimiproxy-ui's Node build stage has no
+386 base image, so the Docker build fails. Users on 32-bit x86 should use
 `pimiproxy-ultralite-386.tar.gz`.
 
 ### What's inside each archive
 
-**Full (`pimiproxy-<arch>.tar.gz`):**
+**Full (`pimiproxy-<arch>-offline.tar.gz`; the online flavor omits
+`docker-engine/` and the five image tarballs):**
 ```
 pimiproxy/
+├── VERSION
 ├── pimiproxy
 ├── pimiproxy-core.py
+├── pimiproxy_common.py
+├── README.md
+├── docs/                       (user docs; maintainer/dev docs excluded)
+├── docker-engine/
+│   ├── docker-<arch>.tgz       (static engine bundle)
+│   └── docker-compose-<arch>
 ├── docker-images/
 │   ├── mihomo.tar.gz           (single-arch)
-│   ├── metacubexd.tar.gz       (single-arch)
+│   ├── metacubexd.tar.gz       (single-arch; amd64/arm64 only)
 │   ├── zashboard.tar.gz        (single-arch)
 │   ├── pimiproxy-api.tar.gz    (single-arch)
 │   ├── pimiproxy-ui.tar.gz     (single-arch)
@@ -625,17 +633,30 @@ pimiproxy/
 └── pimiproxy-ui/               (source — fallback)
 ```
 
-**Ultralite (`pimiproxy-ultralite-<arch>.tar.gz`):**
+**Ultralite (`pimiproxy-ultralite-<arch>-offline.tar.gz`; the online
+flavor omits `bin/` and downloads the binary at install):**
 ```
 pimiproxy-ultralite/
+├── VERSION
 ├── pimiproxy-ultralite
 ├── pimiproxy-ultralite-core.py
+├── pimiproxy_common.py
+├── README.md
+├── docs/
 ├── bin/
 │   └── mihomo-linux-<arch>-<version>.gz
 └── docker-images/
     ├── geoip.metadb
     ├── geosite.dat
     └── country.mmdb
+```
+
+**Update bundles (`releases/updates/`, for the `update_url` channel):**
+```
+updates/
+├── manifest.json               (version + sha256 + size per file)
+├── pimiproxy-api-<arch>.tar.gz (single-arch, ~75 MB; amd64/arm64/armv7)
+└── pimiproxy-ui-<arch>.tar.gz  (single-arch, ~60–71 MB)
 ```
 
 ### armv7 and 386 availability

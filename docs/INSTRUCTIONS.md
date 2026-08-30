@@ -361,7 +361,8 @@ sudo pimiproxy logs                      # tail Mihomo logs
 sudo pimiproxy logs dashboard            # tail dashboard logs
 sudo pimiproxy restart                   # restart all containers
 sudo pimiproxy restart mihomo            # restart one container
-sudo pimiproxy update                    # pull latest Docker images
+sudo pimiproxy update                    # update to newer images (never downgrades)
+sudo pimiproxy doctor                    # guided diagnostics with fix steps
 sudo pimiproxy configure                 # interactive config menu
 sudo pimiproxy hostname newname          # change hostname
 sudo pimiproxy china-repos               # switch package repos to Aliyun
