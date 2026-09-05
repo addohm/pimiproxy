@@ -1,5 +1,26 @@
 ## [Unreleased]
 
+### Added — provider-managed `fake-ip-filter` and `nameserver-policy`
+- The subscription's `dns` block is no longer discarded wholesale: refresh now
+  lifts `fake-ip-filter` entries and `nameserver-policy` mappings out of it
+  (hand-parsed — no PyYAML; quoted keys like `'geosite:cn'`, inline flow
+  lists, and block lists all handled) and caches them in
+  `.pimiproxy-config.json` (`subscription_fake_ip_filter`,
+  `subscription_nameserver_policy`). Everything else in the provider's dns
+  block stays ignored — the generated dns section (nameserver ordering,
+  tunneled DoH fallback, hijack) is load-bearing and remains local.
+- `build_config` merges them without duplicates: fake-ip-filter emits the
+  local fleet-proven baseline first, then user extras, then provider entries —
+  all deduplicated, so a provider carrying the same baseline adds nothing
+  twice; nameserver-policy emits the local captive-portal defaults with
+  provider entries overriding on pattern collision and appended otherwise.
+  No provider DNS data → output identical to before.
+- The CLI/cron and API refresh paths now share one `subscription_updates()`
+  helper (config key writes can't drift); the API falls back gracefully when
+  running against an older mounted `pimiproxy_common.py`. Verified against
+  the live addohm.net-served config (108 provider fake-ip entries) with
+  `mihomo -t` passing on both merged and no-provider outputs.
+
 ### Added — versioned releases and a real update path for the api/ui images
 - pimiproxy now has a version identity: the `VERSION` file at the repo root is
   the single source of truth. `2_rebuild.sh` stamps it into the `pimiproxy-api`

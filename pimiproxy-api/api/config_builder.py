@@ -56,3 +56,13 @@ engine_health      = _common.engine_health
 yaml_quote         = _common.yaml_quote
 fetch_subscription = _common.fetch_subscription
 extract_yaml_blocks = _common.extract_yaml_blocks
+# Older mounted pimiproxy_common.py copies predate subscription_updates(); an
+# updated API container must not crash against them (the update_url channel
+# ships containers independently of the install dir). Fall back to the three
+# classic keys — matching what such an old copy's build_config can consume.
+subscription_updates = getattr(_common, "subscription_updates", None) or (
+    lambda blocks: {
+        "subscription_proxies_yaml": blocks.get("proxies", ""),
+        "subscription_groups_yaml": blocks.get("proxy-groups", ""),
+        "subscription_rules_yaml": blocks.get("rules", ""),
+    })

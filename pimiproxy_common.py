@@ -276,9 +276,11 @@ def extract_yaml_blocks(content: str) -> dict:
     """
     Extract top-level YAML blocks by name from a Clash/Mihomo config.
     Returns a dict mapping block name -> raw text for 'proxies', 'proxy-groups',
-    'rules'. Works whether the URL returns a full config or a proxies-only list.
+    'rules', and 'dns' (the raw dns block is parsed further by
+    parse_dns_overrides, never emitted verbatim). Works whether the URL
+    returns a full config or a proxies-only list.
     """
-    target_keys = {"proxies", "proxy-groups", "rules"}
+    target_keys = {"proxies", "proxy-groups", "rules", "dns"}
     lines = content.splitlines(keepends=True)
     blocks = {}
     current_key = None
@@ -297,6 +299,114 @@ def extract_yaml_blocks(content: str) -> dict:
         blocks[current_key] = "".join(lines[current_start:]).rstrip()
 
     return blocks
+
+
+def parse_dns_overrides(dns_yaml: str) -> dict:
+    """
+    Pull `fake-ip-filter` entries and `nameserver-policy` mappings out of a
+    provider's raw `dns:` block without PyYAML (the cores must stay
+    dependency-free on a fresh OS). Everything else in the provider's dns
+    block is deliberately ignored — the generated dns section (nameserver,
+    fallback, hijack, bootstrap ordering) is load-bearing and stays local.
+
+    Returns {"fake_ip_filter": [pattern, ...],
+             "nameserver_policy": [[pattern, [server, ...]], ...]}  (ordered).
+
+    Handles the styles real configs emit: block list items at or below the
+    key's indent, inline flow lists ("key: [a, b]"), single inline values,
+    quoted or bare keys and values, comments and blank lines. On a duplicate
+    nameserver-policy pattern the last one wins (YAML map semantics).
+    """
+    def _unquote(s: str) -> str:
+        s = s.strip()
+        if len(s) >= 2 and s[0] == s[-1] and s[0] in ('"', "'"):
+            s = s[1:-1]
+        return s.strip()
+
+    def _split_servers(val: str) -> list:
+        val = val.strip()
+        if val.startswith("[") and val.endswith("]"):
+            parts = val[1:-1].split(",")
+        else:
+            parts = [val]
+        return [x for x in (_unquote(p) for p in parts) if x]
+
+    fake_ip: list = []
+    fake_seen: set = set()
+    ns_policy: list = []          # ordered [pattern, [servers]] entries
+    ns_index: dict = {}           # pattern -> entry (for last-wins updates)
+    section = None                # "fake" | "policy" | None
+    section_indent = -1
+    cur_pattern = None
+
+    for raw in dns_yaml.splitlines():
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        indent = len(raw) - len(raw.lstrip())
+        stripped = raw.strip()
+
+        if stripped.startswith("- ") or stripped == "-":
+            item = _unquote(stripped[1:])
+            if not item:
+                continue
+            if section == "fake":
+                if item not in fake_seen:
+                    fake_seen.add(item)
+                    fake_ip.append(item)
+            elif section == "policy" and cur_pattern is not None:
+                ns_index[cur_pattern][1].append(item)
+            continue
+
+        # Split "key: value". A quoted key may itself contain ":" (mihomo
+        # policy patterns like 'geosite:cn'), so close the quote first.
+        if stripped[0] in ('"', "'"):
+            _q_end = stripped.find(stripped[0], 1)
+            _rest = stripped[_q_end + 1:] if _q_end != -1 else ""
+            if _q_end == -1 or not _rest.lstrip().startswith(":"):
+                continue
+            key = stripped[1:_q_end].strip()
+            val = _rest.lstrip()[1:].strip()
+        else:
+            if ":" not in stripped:
+                continue
+            key_part, _, val_part = stripped.partition(":")
+            key = key_part.strip()
+            val = val_part.strip()
+
+        if section == "policy" and indent > section_indent and key:
+            # A nameserver-policy pattern, with servers inline or on
+            # following "- " lines.
+            servers = _split_servers(val) if val else []
+            if key in ns_index:
+                ns_index[key][1][:] = servers
+            else:
+                entry = [key, servers]
+                ns_index[key] = entry
+                ns_policy.append(entry)
+            cur_pattern = key
+            continue
+        if section == "fake" and indent > section_indent:
+            continue  # unexpected nesting inside fake-ip-filter — skip
+
+        # A key at or above the open section's indent closes it.
+        cur_pattern = None
+        if key == "fake-ip-filter":
+            section, section_indent = "fake", indent
+            if val:  # inline flow list: fake-ip-filter: [a, b]
+                for item in _split_servers(val):
+                    if item not in fake_seen:
+                        fake_seen.add(item)
+                        fake_ip.append(item)
+                section = None
+        elif key == "nameserver-policy":
+            section, section_indent = "policy", indent
+        else:
+            section, section_indent = None, -1
+
+    return {
+        "fake_ip_filter": fake_ip,
+        "nameserver_policy": [e for e in ns_policy if e[1]],
+    }
 
 
 def fetch_subscription(url: str) -> dict:
@@ -343,7 +453,37 @@ def fetch_subscription(url: str) -> dict:
         rule_count = blocks["rules"].count("    - ")
         info(f"Found {rule_count} rules from provider — will use instead of defaults.")
 
+    # The provider's dns block is never emitted verbatim (the generated dns
+    # section is load-bearing), but its fake-ip-filter and nameserver-policy
+    # are lifted out and merged into the generated one by build_config.
+    if "dns" in blocks:
+        overrides = parse_dns_overrides(blocks.pop("dns"))
+        if overrides["fake_ip_filter"]:
+            blocks["fake_ip_filter"] = overrides["fake_ip_filter"]
+            info(f"Found {len(overrides['fake_ip_filter'])} fake-ip-filter "
+                 "entries from provider — will merge (deduplicated).")
+        if overrides["nameserver_policy"]:
+            blocks["nameserver_policy"] = overrides["nameserver_policy"]
+            info(f"Found {len(overrides['nameserver_policy'])} nameserver-policy "
+                 "entries from provider — will merge (provider wins on overlap).")
+
     return blocks
+
+
+def subscription_updates(blocks: dict) -> dict:
+    """
+    The .pimiproxy-config.json key updates a fetched subscription implies.
+    Shared by save_subscription (CLI / cron / installer) and the API's
+    refresh view so the two refresh paths can never drift. Keys listed in
+    SUBSCRIPTION_KEYS must match exactly what this returns.
+    """
+    return {
+        "subscription_proxies_yaml": blocks.get("proxies", ""),
+        "subscription_groups_yaml": blocks.get("proxy-groups", ""),
+        "subscription_rules_yaml": blocks.get("rules", ""),
+        "subscription_fake_ip_filter": blocks.get("fake_ip_filter", []),
+        "subscription_nameserver_policy": blocks.get("nameserver_policy", []),
+    }
 
 
 def save_subscription(install_path, url: str, test_cmd=None, variant: str = "full") -> bool:
@@ -371,9 +511,7 @@ def save_subscription(install_path, url: str, test_cmd=None, variant: str = "ful
     cfg_file = config_path(install_path)
     with config_lock(cfg_file):
         cfg = load_config(cfg_file)
-        cfg["subscription_proxies_yaml"] = blocks.get("proxies", "")
-        cfg["subscription_groups_yaml"] = blocks.get("proxy-groups", "")
-        cfg["subscription_rules_yaml"] = blocks.get("rules", "")
+        cfg.update(subscription_updates(blocks))
         if test_cmd is not None:
             ok, why = install_config(install_path / "config",
                                      build_config(cfg, variant), test_cmd)
@@ -405,10 +543,13 @@ def save_subscription(install_path, url: str, test_cmd=None, variant: str = "ful
 CONFIG_JSON_NAME = ".pimiproxy-config.json"
 
 # Keys owned by the subscription refresh path. A refresh must only write these.
+# Must stay in lockstep with subscription_updates().
 SUBSCRIPTION_KEYS = (
     "subscription_proxies_yaml",
     "subscription_groups_yaml",
     "subscription_rules_yaml",
+    "subscription_fake_ip_filter",
+    "subscription_nameserver_policy",
 )
 
 
@@ -578,16 +719,52 @@ def build_config(cfg: dict, variant: str = "full") -> str:
     # and (on Quest) gates the store and app downloads. The geoip fallback
     # filter cannot catch this hijack because the forged answers are CN
     # IPs, so pin these domains to the tunneled DoH for real addresses.
-    L("  nameserver-policy:")
+    # Provider-supplied nameserver-policy entries (lifted from the
+    # subscription's dns block at refresh time) are merged on top: the
+    # provider wins on a pattern both define, and its extra patterns are
+    # appended after the local baseline. Local defaults still apply for
+    # anything the provider doesn't set.
+    _ns_policy = []            # ordered [pattern, [servers]] entries
+    _ns_index = {}
     for _cc in ("connectivitycheck.gstatic.com",
                 "connectivitycheck.android.com",
                 "captive.apple.com",
                 "+.msftconnecttest.com",
                 "+.msftncsi.com"):
-        L(f'    "{_cc}":')
-        L(f'      - "https://8.8.8.8/dns-query{_fb_via}"')
-        L(f'      - "https://1.1.1.1/dns-query{_fb_via}"')
+        _entry = [_cc, [f"https://8.8.8.8/dns-query{_fb_via}",
+                        f"https://1.1.1.1/dns-query{_fb_via}"]]
+        _ns_index[_cc] = _entry
+        _ns_policy.append(_entry)
+    for _sub_entry in cfg.get("subscription_nameserver_policy") or []:
+        try:
+            _pat, _servers = _sub_entry[0], list(_sub_entry[1])
+        except (IndexError, TypeError, ValueError):
+            continue
+        # A quote or newline in a pattern/server would break the hand-built
+        # YAML — no legitimate entry contains either.
+        if (not _pat or not _servers or '"' in _pat or "\n" in _pat
+                or any('"' in s or "\n" in s for s in _servers)):
+            continue
+        if _pat in _ns_index:
+            _ns_index[_pat][1][:] = _servers
+        else:
+            _entry = [_pat, _servers]
+            _ns_index[_pat] = _entry
+            _ns_policy.append(_entry)
+    L("  nameserver-policy:")
+    for _pat, _servers in _ns_policy:
+        L(f'    "{_pat}":')
+        for _srv in _servers:
+            L(f'      - "{_srv}"')
     L("  fake-ip-filter:")
+    _fake_seen = set()
+
+    def _emit_fake(entry):
+        if entry and entry not in _fake_seen and '"' not in entry \
+                and "\n" not in entry:
+            _fake_seen.add(entry)
+            L(f'    - "{entry}"')
+
     for entry in [
             # LAN / mDNS — never fake-IP local hostnames
             # Double-suffix patterns (*.lan.lan, *.local.lan) handle resolv.conf
@@ -646,10 +823,16 @@ def build_config(cfg: dict, variant: str = "full") -> str:
             # "+.bcovlive.io",
             # "+.boltdns.net",
     ]:
-        L(f'    - "{entry}"')
+        _emit_fake(entry)
     # User-managed additions (pimiproxy configure → fake-IP DNS exceptions)
     for entry in cfg.get("fake_ip_filter_extra", []):
-        L(f'    - "{entry}"')
+        _emit_fake(entry)
+    # Provider-supplied entries (lifted from the subscription's dns block at
+    # refresh time). The local baseline stays authoritative and emits first;
+    # anything the provider adds beyond it is appended, deduplicated — so a
+    # provider that carries the same fleet-proven list produces no duplicates.
+    for entry in cfg.get("subscription_fake_ip_filter") or []:
+        _emit_fake(entry)
     L()
 
     # ── proxies / proxy-groups / rules ────────────────────────────────────────

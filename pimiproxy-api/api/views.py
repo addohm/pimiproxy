@@ -19,7 +19,7 @@ from django.views.decorators.http import require_http_methods
 from api.config_builder import (
     CONFIG_CANDIDATE, build_config, config_lock, engine_health,
     fetch_subscription, install_config, load_config, mihomo_test_cmd_docker,
-    update_config, wait_for_controller, write_config,
+    subscription_updates, update_config, wait_for_controller, write_config,
 )
 
 # ── Paths (mounted volume) ────────────────────────────────────────────────────
@@ -452,9 +452,7 @@ def refresh_view(request):
     # URL, rules, groups) is preserved rather than overwritten with the
     # snapshot taken before the fetch.
     def _apply(cfg):
-        cfg["subscription_proxies_yaml"] = blocks.get("proxies", "")
-        cfg["subscription_groups_yaml"]  = blocks.get("proxy-groups", "")
-        cfg["subscription_rules_yaml"]   = blocks.get("rules", "")
+        cfg.update(subscription_updates(blocks))
 
     cfg, failure = _commit(_apply)
     if failure:
