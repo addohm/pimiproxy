@@ -358,6 +358,8 @@ contains what the target architecture needs.
   "subscription_proxies_yaml": "proxies:\n  - name: ...",
   "subscription_groups_yaml":  "proxy-groups:\n  - name: ...",
   "subscription_rules_yaml":   "rules:\n  - DOMAIN-SUFFIX,...",
+  "subscription_fake_ip_filter":     [ "*.lan", "+.meta.com", "..." ],
+  "subscription_nameserver_policy":  [ ["+.example.com", ["223.5.5.5"]] ],
   "proxy_groups": [ {...user groups...} ],
   "rules":        [ "TYPE,value,target", ... ],
   "api_port":     "9090",
@@ -378,6 +380,24 @@ contains what the target architecture needs.
 The user layer is always applied on top of the provider layer — this
 lets users override provider routing without editing the subscription
 YAML.
+
+### Provider DNS lifting
+
+The provider's `dns:` block is never emitted verbatim — the generated dns
+section (nameserver ordering, tunneled DoH fallback, dns-hijack) is
+load-bearing and stays local. Refresh instead lifts two structures out of it
+via `parse_dns_overrides()` (hand parser, no PyYAML — handles quoted keys
+like `'geosite:cn'`, inline flow lists, block lists) and caches them in the
+keys shown above. `build_config()` then merges, dedup-safe:
+
+- **fake-ip-filter** — local fleet-proven baseline → `fake_ip_filter_extra`
+  (user) → provider entries; every entry emitted at most once.
+- **nameserver-policy** — local captive-portal defaults first; a provider
+  entry for the same pattern overrides it, new patterns are appended.
+
+No provider DNS data → output identical to the pre-lifting behavior. Both
+refresh writers (CLI/cron `save_subscription`, API `refresh_view`) go through
+`subscription_updates()` so their key writes cannot drift.
 
 ### fake-ip-filter
 

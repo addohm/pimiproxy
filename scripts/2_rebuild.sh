@@ -122,8 +122,25 @@ _build_image() {
     ok "${name} saved (${built_arches[*]})"
 }
 
-build_api() { _build_image pimiproxy-api; }
-build_ui()  { _build_image pimiproxy-ui; }
+# QEMU binfmt handlers do not survive a reboot (or some kernel upgrades), and
+# without them every non-native build dies with "exec format error" — which
+# buildx surfaces as an opaque exit 255 on the first RUN. Re-register
+# automatically before building rather than silently shipping an
+# amd64-only tarball.
+_ensure_binfmt() {
+    if [[ ! -e /proc/sys/fs/binfmt_misc/qemu-aarch64 || ! -e /proc/sys/fs/binfmt_misc/qemu-arm ]]; then
+        step "QEMU binfmt handlers missing — re-registering (lost on reboot)…"
+        if docker run --privileged --rm tonistiigi/binfmt --install arm64,arm >/dev/null 2>&1; then
+            ok "binfmt handlers registered (qemu-aarch64, qemu-arm)"
+        else
+            echo "  Could not register binfmt handlers — non-amd64 builds will fail." >&2
+            echo "  Run manually: docker run --privileged --rm tonistiigi/binfmt --install arm64,arm" >&2
+        fi
+    fi
+}
+
+build_api() { _ensure_binfmt; _build_image pimiproxy-api; }
+build_ui()  { _ensure_binfmt; _build_image pimiproxy-ui; }
 
 pull_third_party() {
     mkdir -p "$DOCKER_IMAGES"
