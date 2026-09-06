@@ -28,7 +28,7 @@ Categories: `Added`, `Fixed`, `Changed`, `Removed`.
 - The CLI/cron and API refresh paths now share one `subscription_updates()`
   helper (config key writes can't drift); the API falls back gracefully when
   running against an older mounted `pimiproxy_common.py`. Verified against
-  the live addohm.net-served config (108 provider fake-ip entries) with
+  the live provider-served config (108 provider fake-ip entries) with
   `mihomo -t` passing on both merged and no-provider outputs.
 
 ### Added — versioned releases and a real update path for the api/ui images
