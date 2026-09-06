@@ -68,6 +68,7 @@ pimiproxy codebase. For end-user installation and usage see
     ├── DEV_INSTRUCTIONS.md       # Full install walkthrough, prompt by prompt
     ├── TROUBLESHOOTING.md        # End-user troubleshooting
     ├── CHANGELOG.md              # Per-version change log
+    ├── VERSION_HISTORY.md        # Narrative per-version overview
     ├── MAINTAINER.md             # This file
     └── IMAGE_VERSIONS.md         # Tracked upstream image versions
 ```

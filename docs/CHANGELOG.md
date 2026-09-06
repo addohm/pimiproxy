@@ -1,3 +1,13 @@
+# Changelog
+
+All notable changes to pimiproxy are documented here.
+For a narrative per-version overview, see [VERSION_HISTORY.md](VERSION_HISTORY.md).
+
+Format: `[version] — date` followed by categorised changes.
+Categories: `Added`, `Fixed`, `Changed`, `Removed`.
+
+---
+
 ## [Unreleased]
 
 ### Added — provider-managed `fake-ip-filter` and `nameserver-policy`
@@ -474,15 +484,6 @@ Complete rewrite in Python. The bash script is retired.
 ### Changed
 - Entire script rewritten to eliminate all heredocs from file-generation paths. Heredocs remain only for the outer script structure (none), not for any generated file content.
 - `compose_run()` function replaces all direct `$COMPOSE` variable invocations — compose is never stored as a space-separated string in a variable or file again.
-
----
-
-# Changelog
-
-All notable changes to pimiproxy are documented here.
-
-Format: `[version] — date` followed by categorised changes.
-Categories: `Added`, `Fixed`, `Changed`, `Removed`.
 
 ---
 
