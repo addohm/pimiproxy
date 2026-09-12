@@ -42,6 +42,8 @@ ${bold}Options:${reset}
   --full          Build pimiproxy (Docker) archives for all available arches
   --ultralite     Build pimiproxy-ultralite archives for all available arches
   --all           Both (default if no flags given)
+  --allow-stale   Package even when bundled upstream components (mihomo,
+                  dashboards) are behind their latest releases
 
 ${bold}Supported architectures:${reset}
   amd64   (x86_64)    — Intel/AMD 64-bit PCs, servers, most VMs
@@ -69,6 +71,7 @@ EOF
 # ── Argument parsing ─────────────────────────────────────────────────────────
 DO_FULL=0
 DO_ULTRALITE=0
+ALLOW_STALE=0
 
 if [[ $# -eq 0 ]]; then
     DO_FULL=1; DO_ULTRALITE=1
@@ -79,6 +82,7 @@ while [[ $# -gt 0 ]]; do
         --full)      DO_FULL=1 ;;
         --ultralite) DO_ULTRALITE=1 ;;
         --all)       DO_FULL=1; DO_ULTRALITE=1 ;;
+        --allow-stale) ALLOW_STALE=1 ;;
         -h|--help)   usage ;;
         *)           echo "Unknown flag: $1"; usage ;;
     esac
@@ -99,6 +103,71 @@ _check_geodata() {
             exit 1
         fi
     done
+}
+
+# ── Upstream freshness ───────────────────────────────────────────────────────
+# Offline archives bundle mihomo and a dashboard, so whatever sits on disk at
+# package time is what users run — potentially for months. Nothing used to
+# check it, and the bundle silently drifted ~5 months behind. Compare what
+# docs/IMAGE_VERSIONS.md records (written by 1_update-upstream.sh from the real
+# artifacts) against current upstream releases, and refuse to package when
+# behind unless --allow-stale says otherwise.
+_latest_tag() {   # <owner/repo> — redirect, not the rate-limited REST API
+    curl -fsSL --max-time 20 -o /dev/null -w '%{url_effective}' \
+        "https://github.com/$1/releases/latest" 2>/dev/null \
+        | sed -n 's|.*/releases/tag/||p'
+}
+
+_recorded_version() {   # <component>
+    sed -n "s|^## $1 \(.*\)$|\1|p" "$ROOT_DIR/docs/IMAGE_VERSIONS.md" 2>/dev/null | head -1
+}
+
+_check_upstream_freshness() {
+    step "Upstream freshness"
+    if [[ ! -f "$ROOT_DIR/docs/IMAGE_VERSIONS.md" ]]; then
+        skip "docs/IMAGE_VERSIONS.md missing — run ./scripts/1_update-upstream.sh"
+        echo; return 0
+    fi
+
+    local stale=() checked=0 entry comp repo have latest
+    for entry in "mihomo:MetaCubeX/mihomo" \
+                 "mihomo-binary:MetaCubeX/mihomo" \
+                 "metacubexd:MetaCubeX/metacubexd" \
+                 "zashboard:Zephyruso/zashboard"; do
+        comp="${entry%%:*}"; repo="${entry#*:}"
+        have="$(_recorded_version "$comp")"
+        [[ -z "$have" || "$have" == "unknown" ]] && continue
+        latest="$(_latest_tag "$repo")"
+        if [[ -z "$latest" ]]; then
+            skip "${comp}: could not reach GitHub — freshness unknown"
+            continue
+        fi
+        checked=$((checked + 1))
+        if [[ "$have" == "$latest" ]]; then
+            ok "${comp} ${have} (current)"
+        else
+            fail "${comp} ${have} — latest is ${latest}"
+            stale+=("${comp} ${have} -> ${latest}")
+        fi
+    done
+
+    if [[ ${#stale[@]} -gt 0 ]]; then
+        echo
+        if [[ $ALLOW_STALE -eq 1 ]]; then
+            echo "  ${bold}Packaging stale upstream anyway (--allow-stale):${reset}" >&2
+            printf '    %s\n' "${stale[@]}" >&2
+            echo
+            return 0
+        fi
+        fail "Refusing to package: ${#stale[@]} upstream component(s) behind."
+        echo "    Refresh:   ./scripts/1_update-upstream.sh --all" >&2
+        echo "    Rebuild:   ./scripts/2_rebuild.sh" >&2
+        echo "    Or ship as-is deliberately: re-run with --allow-stale" >&2
+        echo >&2
+        exit 1
+    fi
+    [[ $checked -eq 0 ]] && skip "no components could be checked"
+    echo
 }
 
 mkdir -p "$RELEASES"
@@ -284,6 +353,7 @@ echo "${bold}${cyan}pimiproxy release builder${reset}"
 echo "${bold}────────────────────────────────────────${reset}"
 echo
 
+_check_upstream_freshness
 _check_geodata
 
 # Clear only the archives we're about to rebuild (don't touch the other variant)

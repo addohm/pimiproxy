@@ -14,6 +14,48 @@ _Nothing yet. Bump `VERSION` and add the entry here with every change._
 
 ---
 
+## [8.4.0] — 2026-09-12
+
+### Changed — upstream components refreshed after a five-month drift
+- Everything bundled from upstream was last pulled in April and nothing in the
+  pipeline noticed. Refreshed:
+
+  | Component | Was | Now |
+  |---|---|---|
+  | mihomo (image + ultralite binaries) | v1.19.23 | **v1.19.30** |
+  | metacubexd | v1.244.2 | **v1.273.1** |
+  | zashboard | v3.3.0 | **v3.26.0** |
+  | geodata (geoip/geosite/country) | April | refetched |
+
+- `MIHOMO_BIN_VERSION` in the ultralite core — the pin used by the online
+  flavor's GitHub download fallback — moved to v1.19.30 to match the bundled
+  binaries; it would otherwise have fetched an engine older than the one in
+  the offline archive.
+- Engine compatibility verified with `mihomo -t` under v1.19.30 against four
+  configs: the real config off a live device, freshly generated output for
+  both variants including lifted provider DNS overrides, and a no-provider
+  fresh install.
+
+### Added — the build refuses to package stale upstream components
+- `docs/IMAGE_VERSIONS.md` was hand-maintained and nothing read or wrote it,
+  so it recorded what someone remembered rather than what shipped.
+  `1_update-upstream.sh` now generates it from the artifacts themselves —
+  mihomo's version from its `org.opencontainers.image.version` label, the
+  dashboards' from the upstream release tag captured at pull time. (The
+  dashboards can't be read from their images: metacubexd carries no labels,
+  and zashboard's report its Caddy base image, so a naive label check would
+  claim zashboard is "v2.11.2".)
+- `3_build-releases.sh` now runs an upstream-freshness preflight before
+  packaging, comparing the recorded versions against current upstream
+  releases, and **exits non-zero rather than shipping stale components**.
+  `--allow-stale` overrides deliberately. Offline archives are what China
+  users actually run, so a months-old engine should be a decision, not an
+  accident. Unreachable GitHub degrades to a warning rather than blocking.
+- Both scripts read versions from the `/releases/latest` redirect instead of
+  the GitHub REST API, which rate-limits per IP and had already started
+  returning 403 on this machine — silently breaking any API-based check.
+  `1_update-upstream.sh`'s mihomo lookup used that API and now doesn't.
+
 ## [8.3.0] — 2026-09-12
 
 ### Changed — the dashboard is no longer an install question

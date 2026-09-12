@@ -420,7 +420,7 @@ def build_banner(cfg: dict, meta: dict) -> str:
 # =============================================================================
 # MIHOMO BINARY FINDER
 # =============================================================================
-MIHOMO_BIN_VERSION = "v1.19.23"  # matches the bundled binary; used by the online install download
+MIHOMO_BIN_VERSION = "v1.19.30"  # matches the bundled binary; used by the online install download
 
 
 def _host_arch() -> str:

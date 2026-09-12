@@ -9,6 +9,7 @@ root `VERSION` file, is stamped into the api/ui images
 
 | Version | Date | Theme |
 |---|---|---|
+| [8.4.0](#840--2026-09-12) | 2026-09-12 | Upstream refreshed (mihomo v1.19.30, dashboards, geodata) and a build guard against shipping stale components |
 | [8.3.0](#830--2026-09-12) | 2026-09-12 | Dashboard chosen automatically — one less install question |
 | [8.2.0](#820--2026-09-12) | 2026-09-12 | Reinstalling preserves the existing configuration |
 | [8.1.0](#810--2026-09-12) | 2026-09-12 | Reliability remediation, doctor, versioned releases + update path, provider-managed DNS, `version` command, boot-time host-traffic toggle |
@@ -22,6 +23,17 @@ root `VERSION` file, is stamped into the api/ui images
 | [2.0.0–2.2.0](#20x--2026-04-11) | 2026-04-11 | The bash era: single-script install, hard lessons in heredocs |
 
 ---
+
+## 8.4.0 — 2026-09-12
+
+Everything bundled from upstream — mihomo, both dashboards, the geodata — had
+been frozen since April while five months of pimiproxy work built on top of
+it, and no part of the pipeline was capable of noticing. This release refreshes
+all of it (mihomo v1.19.23 → v1.19.30, metacubexd v1.244.2 → v1.273.1,
+zashboard v3.3.0 → v3.26.0) and makes the drift impossible to repeat:
+`IMAGE_VERSIONS.md` is now generated from the artifacts rather than typed by
+hand, and the release builder checks it against live upstream and refuses to
+package anything behind unless told `--allow-stale`.
 
 ## 8.3.0 — 2026-09-12
 
