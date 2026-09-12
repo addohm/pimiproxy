@@ -41,7 +41,7 @@ from pimiproxy_common import (
     update_config, CONFIG_CANDIDATE, install_config, mihomo_test_cmd_docker,
     wait_for_controller, engine_health, print_engine_health, preflight_conflicts,
     read_local_version, resolve_version, set_version_tag, version_newer,
-    boot_bypass_enabled, apply_boot_bypass,
+    boot_bypass_enabled, apply_boot_bypass, load_prior_install,
 )
 
 
@@ -2508,6 +2508,51 @@ def do_install():
     arch = _host_arch()
     dash_choice = 1
 
+    # ── existing install? ─────────────────────────────────────────────────────
+    # Reinstalling is a supported path (preflight allows it over our own
+    # install), so adopt what is already configured instead of resetting to
+    # defaults and asking for the provider URL again.
+    prior, prior_dir = load_prior_install(META_PATH, install_dir)
+    prior_url = ""
+    if prior:
+        step("Existing install detected")
+        _u = str(prior.get("subscription_url") or "")
+        _groups = prior.get("proxy_groups") or []
+        _rules = prior.get("rules") or []
+        _extras = prior.get("fake_ip_filter_extra") or []
+        info(f"Install dir     : {prior.get('install_dir') or prior_dir}")
+        info(f"Provider URL    : {_u if _u else '(none)'}")
+        info(f"User groups     : {len(_groups)}")
+        info(f"User rules      : {len(_rules)}")
+        info(f"DNS exceptions  : {len(_extras)}")
+        info(f"Ports           : proxy {prior.get('mixed_port', '?')}, "
+             f"API {prior.get('api_port', '?')}, "
+             f"dashboard {prior.get('dashboard_port', '?')}, "
+             f"UI {prior.get('ui_port', '?')}")
+        print()
+        print("  Reuse keeps all of the above — provider URL, groups, rules,")
+        print("  DNS exceptions, ports and API secret — and only reinstalls the")
+        print("  software around them.")
+        print()
+        print(f"  {C.YELLOW}Declining starts from defaults and DISCARDS the groups,")
+        print(f"  rules and DNS exceptions listed above, and resets the API")
+        print(f"  secret (the web UI password) to 'pimiproxy'.{C.NC}")
+        print()
+        if confirm("Reuse these settings?", default=True):
+            install_dir = prior.get("install_dir") or prior_dir
+            dashboard_port = str(prior.get("dashboard_port") or dashboard_port)
+            ui_port = str(prior.get("ui_port") or ui_port)
+            api_port = str(prior.get("api_port") or api_port)
+            mixed_port = str(prior.get("mixed_port") or mixed_port)
+            api_secret = str(prior.get("api_secret") or api_secret)
+            prior_url = _u
+            info("Existing settings adopted — prompts below are pre-filled.")
+        else:
+            # Start clean: nothing from the old config is carried forward.
+            prior = {}
+            warn("Starting from defaults — previous groups, rules and DNS "
+                 "exceptions will be discarded.")
+
     # ── express / advanced ────────────────────────────────────────────────────
     step("Install mode")
     print()
@@ -2586,11 +2631,26 @@ def do_install():
     print("  not an app download link. If unsure, leave blank. You can add")
     print("  it later via the web UI or by running:")
     print("    sudo ./pimiproxy configure")
+    if prior_url:
+        print("  " + "─" * 42)
+        print(f"  Currently set: {prior_url}")
+        print("  Press Enter to keep it, type a new URL to replace it, or")
+        print("  type 'clear' to remove it.")
     print("  " + "─" * 42)
     print()
     while True:
-        subscription_url = input("  Provider URL [leave blank to skip]: ").strip()
+        _prompt = ("  Provider URL [Enter = keep current]: " if prior_url
+                   else "  Provider URL [leave blank to skip]: ")
+        subscription_url = input(_prompt).strip()
         if not subscription_url:
+            # Keep whatever the previous install had (empty on a fresh box).
+            subscription_url = prior_url
+            if subscription_url:
+                info("Keeping the existing provider URL.")
+            break
+        if prior_url and subscription_url.lower() == "clear":
+            subscription_url = ""
+            info("Provider URL cleared.")
             break
         # Basic URL validation
         if not subscription_url.startswith(("http://", "https://")):
@@ -2834,26 +2894,35 @@ def do_install():
     # ── config ────────────────────────────────────────────────────────────────
     step("Mihomo config")
 
-    cfg = {
+    # Start from the prior config (empty unless reusing) so the user layer —
+    # groups, rules, DNS exceptions, update_url, refresh settings — and any
+    # key this installer doesn't know about survive a reinstall. Only the
+    # install-owned keys below are overwritten unconditionally.
+    cfg = dict(prior)
+    cfg.update({
         "api_port": api_port,
         "api_secret": api_secret,
         "mixed_port": mixed_port,
         "install_dir": install_dir,
         "subscription_url": subscription_url,
-        "proxy_providers": {},
-        "proxy_groups": [],
-        "rules": [],
-        "subscription_proxies_yaml": "",
-        "subscription_groups_yaml": "",
-        "subscription_rules_yaml": "",
         "engine_image": engine,
         "dashboard_image": dashboard,
         "dash_name": dash_name,
         "dashboard_port": dashboard_port,
         "ui_port": ui_port,
-        "auto_refresh_enabled": True,
-        "refresh_interval_days": 1,
-    }
+    })
+    cfg.setdefault("proxy_providers", {})
+    cfg.setdefault("proxy_groups", [])
+    cfg.setdefault("rules", [])
+    cfg.setdefault("subscription_proxies_yaml", "")
+    cfg.setdefault("subscription_groups_yaml", "")
+    cfg.setdefault("subscription_rules_yaml", "")
+    cfg.setdefault("auto_refresh_enabled", True)
+    cfg.setdefault("refresh_interval_days", 1)
+    if not subscription_url:
+        # No provider: drop any cached blocks so stale proxies don't linger.
+        for _k in SUBSCRIPTION_KEYS:
+            cfg[_k] = [] if isinstance(cfg.get(_k), list) else ""
 
     # ── subscription pre-fetch ────────────────────────────────────────────────
     # Fetch before writing config so proxies/groups/rules are included on first start

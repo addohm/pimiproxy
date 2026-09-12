@@ -1283,6 +1283,48 @@ def pkg_remove(distro: str, *packages):
 
 
 # =============================================================================
+# PRIOR INSTALL DISCOVERY
+# Reinstalling over an existing install used to start from hardcoded defaults
+# and write a fresh config, silently discarding the provider URL, user groups
+# and rules, DNS exceptions, and resetting ports and the API secret. The
+# installer now reads what is already there first so it can seed its prompts
+# and preserve the user layer.
+# =============================================================================
+def load_prior_install(meta_path, default_install_dir):
+    """
+    Read an existing install's config for seeding installer prompts.
+
+    The meta file lives at a fixed path per variant and records the real
+    install_dir (which an advanced install may have moved), so it is read
+    first and the config is then looked up relative to it.
+
+    Returns (cfg, install_dir). `cfg` is empty when there is no prior install
+    or its config can't be parsed — in which case the caller behaves exactly
+    as it did before this existed.
+    """
+    meta_path = Path(meta_path)
+    install_dir = default_install_dir
+    try:
+        if meta_path.exists():
+            meta = json.loads(meta_path.read_text())
+            install_dir = meta.get("install_dir") or default_install_dir
+    except (OSError, ValueError):
+        warn(f"{meta_path} is unreadable — ignoring previous install metadata.")
+
+    cfg_file = config_path(install_dir)
+    try:
+        if cfg_file.exists():
+            loaded = json.loads(cfg_file.read_text())
+            if isinstance(loaded, dict):
+                return loaded, install_dir
+            warn(f"{cfg_file} is not a config object — ignoring it.")
+    except (OSError, ValueError):
+        warn(f"{cfg_file} exists but could not be parsed — "
+             "ignoring previous settings.")
+    return {}, install_dir
+
+
+# =============================================================================
 # BOOT-TIME HOST-TRAFFIC BYPASS
 # `clash-system on|off` toggles host traffic at runtime; pimiproxy-bypass.service
 # re-applies the "off" (direct) choice after every boot. The unit's ordering

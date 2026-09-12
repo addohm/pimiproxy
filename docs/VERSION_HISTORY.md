@@ -9,6 +9,7 @@ root `VERSION` file, is stamped into the api/ui images
 
 | Version | Date | Theme |
 |---|---|---|
+| [8.2.0](#820--2026-09-12) | 2026-09-12 | Reinstalling preserves the existing configuration |
 | [8.1.0](#810--2026-09-12) | 2026-09-12 | Reliability remediation, doctor, versioned releases + update path, provider-managed DNS, `version` command, boot-time host-traffic toggle |
 | [7.0.0](#700--2026-04-20) | 2026-04-20 | Host-traffic toggle returns; shared common module; API hardening |
 | [6.1.0](#610--2026-04-16) | 2026-04-16 | Always-on TUN — toggle removed |
@@ -20,6 +21,17 @@ root `VERSION` file, is stamped into the api/ui images
 | [2.0.0–2.2.0](#20x--2026-04-11) | 2026-04-11 | The bash era: single-script install, hard lessons in heredocs |
 
 ---
+
+## 8.2.0 — 2026-09-12
+
+Reinstalling over a working install used to behave as if the box were fresh:
+it re-asked for the provider URL and quietly threw away user groups, user
+rules, DNS exceptions and the refresh schedule, resetting ports and the web-UI
+password to defaults along the way. The installer now finds the existing
+config, shows what it found, and offers to reuse it — pre-filling every prompt
+and merging over the old config so the user layer (and any key a later version
+adds) survives. Declining is still available, and now says what it will
+discard.
 
 ## 8.1.0 — 2026-09-12
 

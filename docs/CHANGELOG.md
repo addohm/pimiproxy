@@ -14,6 +14,38 @@ _Nothing yet. Bump `VERSION` and add the entry here with every change._
 
 ---
 
+## [8.2.0] — 2026-09-12
+
+### Fixed — reinstalling no longer discards the existing configuration
+- `do_install()` began from hardcoded defaults and wrote a brand-new
+  `.pimiproxy-config.json`, so reinstalling over a working install asked for
+  the provider URL again as if the box were fresh — and silently discarded
+  **user proxy groups, user rules, `fake_ip_filter_extra` DNS exceptions,
+  `update_url`, and the refresh schedule**, while resetting the ports and the
+  `api_secret` (the web UI password) back to defaults. In express mode the
+  port/secret reset happened with no prompt at all. Only a provider whose
+  subscription supplies all groups and rules made the loss invisible.
+- The installer now reads the existing install first (`load_prior_install()`
+  in `pimiproxy_common.py`, which follows `install_dir` out of
+  `.pimiproxy-meta.json` so a relocated install is found) and, when one is
+  present, summarises it — provider URL, group/rule/exception counts, ports —
+  then asks **"Reuse these settings?"** (default yes). Reuse pre-fills every
+  prompt from the old values; declining is still possible and now states
+  plainly what will be discarded.
+- The provider URL prompt accepts Enter to keep the current URL (and `clear`
+  to remove it), matching how `configure` → "Manage provider URL" already
+  behaves.
+- Config is now built by merging over the prior dict rather than replacing
+  it, so the whole user layer — plus any key a future version adds that this
+  installer doesn't know about — survives a reinstall. Clearing the provider
+  URL drops the cached subscription blocks so stale proxies don't linger.
+- A prior config that is missing or unparseable is ignored with a warning and
+  the installer behaves exactly as it did before, so a corrupt file can never
+  block an install.
+- Both variants; verified against a simulated prior install covering
+  discovery via relocated `install_dir`, no-prior-install, corrupt config,
+  full user-layer preservation, URL clearing, and declining reuse.
+
 ## [8.1.0] — 2026-09-12
 
 > Supersedes the internal 8.0.0 build, which was never distributed: the
