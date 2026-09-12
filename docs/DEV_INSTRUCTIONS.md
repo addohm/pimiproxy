@@ -212,17 +212,20 @@ If you provide a URL, the installer will fetch it immediately and validate that 
 
 If you leave it blank, the proxy will still run but will pass all traffic through directly (no upstream provider). You can add a subscription later by running `sudo ./pimiproxy configure`.
 
-### Dashboard choice
-**Default: `1` (Metacubexd)**
+### Dashboard
 
-Two dashboard options are available:
+**Not asked — chosen automatically.** The installer picks **Metacubexd** on
+amd64 and arm64, and **Zashboard** on armv7 (upstream publishes no armv7
+Metacubexd image). If only one of the two images is present, that one is used.
+Reinstalling keeps whichever dashboard the previous install was running.
 
-| Option | Description |
+| Dashboard | Description |
 |--------|-------------|
-| **Metacubexd** | Clean, standard dashboard. Good for most users. |
-| **Zashboard** | More detailed, power-user focused. More controls and stats. |
+| **Metacubexd** | Clean, standard dashboard. The default. |
+| **Zashboard** | More detailed, power-user focused. More controls and stats. Used on armv7. |
 
-Both connect to the same Mihomo instance. You can switch between them at any time without reinstalling — use option 8 in the `configure` menu.
+Both connect to the same Mihomo instance. Switch between them at any time
+without reinstalling — option 8 in the `configure` menu.
 
 ---
 

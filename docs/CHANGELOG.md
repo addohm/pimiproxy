@@ -14,6 +14,23 @@ _Nothing yet. Bump `VERSION` and add the entry here with every change._
 
 ---
 
+## [8.3.0] — 2026-09-12
+
+### Changed — the dashboard is no longer an install question
+- The advanced install asked "Metacubexd or Zashboard?", a choice with no real
+  decision behind it: Metacubexd is right everywhere it is published, and
+  armv7 has no Metacubexd image upstream so the answer is forced. The
+  installer now selects it — Metacubexd on amd64/arm64, Zashboard on armv7 —
+  and prints which it picked and why instead of asking.
+- If only one dashboard image is present, that one is used regardless of arch
+  (unchanged behaviour, now the same code path).
+- Reinstalling keeps whichever dashboard the previous install was running, so
+  a box switched to Zashboard via `configure` is no longer silently reverted —
+  the same class of reinstall regression fixed for the rest of the config in
+  8.2.0.
+- `configure` → "Switch dashboard" is unchanged: the choice is still available
+  after install, just not during it.
+
 ## [8.2.0] — 2026-09-12
 
 ### Fixed — reinstalling no longer discards the existing configuration

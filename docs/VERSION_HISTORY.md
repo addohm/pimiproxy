@@ -9,6 +9,7 @@ root `VERSION` file, is stamped into the api/ui images
 
 | Version | Date | Theme |
 |---|---|---|
+| [8.3.0](#830--2026-09-12) | 2026-09-12 | Dashboard chosen automatically — one less install question |
 | [8.2.0](#820--2026-09-12) | 2026-09-12 | Reinstalling preserves the existing configuration |
 | [8.1.0](#810--2026-09-12) | 2026-09-12 | Reliability remediation, doctor, versioned releases + update path, provider-managed DNS, `version` command, boot-time host-traffic toggle |
 | [7.0.0](#700--2026-04-20) | 2026-04-20 | Host-traffic toggle returns; shared common module; API hardening |
@@ -21,6 +22,15 @@ root `VERSION` file, is stamped into the api/ui images
 | [2.0.0–2.2.0](#20x--2026-04-11) | 2026-04-11 | The bash era: single-script install, hard lessons in heredocs |
 
 ---
+
+## 8.3.0 — 2026-09-12
+
+Install friction: the advanced installer asked which dashboard to use, but
+there was never a real choice — Metacubexd is right wherever it is published,
+and armv7 has no Metacubexd image upstream. The installer now decides
+(Metacubexd on amd64/arm64, Zashboard on armv7), says which and why, and keeps
+whatever a previous install was running. `configure` still switches it
+afterwards.
 
 ## 8.2.0 — 2026-09-12
 

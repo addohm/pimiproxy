@@ -2678,18 +2678,27 @@ def do_install():
         die("No dashboard archive found. Place metacubexd.tar.gz or "
             "zashboard.tar.gz in docker-images/ and re-run.")
 
-    if not _has_metacubexd:
-        info("Metacubexd not available for this arch — using Zashboard.")
+    # The dashboard is chosen for you rather than prompted for: metacubexd
+    # everywhere it exists, zashboard on armv7 (upstream publishes no armv7
+    # metacubexd image). One less install question with no real choice behind
+    # it — `configure` → "Switch dashboard" still changes it afterwards.
+    _prior_dash = str(prior.get("dash_name") or "") if prior else ""
+    if _prior_dash == "zashboard" and _has_zashboard:
         dash_choice = 2
-    elif not _has_zashboard:
-        info("Zashboard not available for this arch — using Metacubexd.")
+        info("Dashboard: Zashboard (keeping the existing choice).")
+    elif _prior_dash == "metacubexd" and _has_metacubexd:
         dash_choice = 1
-    elif not express:
-        print()
-        dash_choice = choose("Dashboard", [
-            "Metacubexd  (standard, default)",
-            "Zashboard   (power user, more stats)",
-        ])
+        info("Dashboard: Metacubexd (keeping the existing choice).")
+    elif not _has_metacubexd:
+        dash_choice = 2
+        info("Dashboard: Zashboard (metacubexd publishes no image for this arch).")
+    elif not _has_zashboard:
+        dash_choice = 1
+        info("Dashboard: Metacubexd.")
+    else:
+        dash_choice = 2 if arch == "linux/arm/v7" else 1
+        info(f"Dashboard: {'Zashboard' if dash_choice == 2 else 'Metacubexd'}"
+             f" (selected for {arch}).")
 
     # ── hostname ──────────────────────────────────────────────────────────────
     step("Hostname")
