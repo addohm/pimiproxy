@@ -401,11 +401,23 @@ sudo pimiproxy system status    # show current state
 standalone `clash-system` binary at `/usr/local/bin/clash-system` is
 also installed and takes the same arguments.)
 
-The toggle is not persistent across reboots by default. To make a
-`clash-system off` state survive reboots, choose the advanced install
-mode and answer *yes* to "Bypass proxy for this device's traffic on
-boot?" — that installs a systemd unit which reapplies `off` once Mihomo
-is up.
+Those change the running state only. What happens **after a reboot** is a
+separate setting:
+
+```bash
+sudo pimiproxy system boot          # show the boot setting
+sudo pimiproxy system boot off      # host traffic direct after every boot
+sudo pimiproxy system boot on       # host traffic via the proxy after every boot
+```
+
+`boot off` installs a systemd unit that reapplies the bypass once Mihomo
+is up; `boot on` removes it. Either one also takes effect immediately, so
+the running state and the boot setting never disagree. `sudo pimiproxy
+system status` reports both.
+
+The same setting is available in `configure` → "Host traffic on boot",
+and the advanced install mode asks for its initial value ("Bypass proxy
+for this device's traffic on boot?").
 
 ---
 

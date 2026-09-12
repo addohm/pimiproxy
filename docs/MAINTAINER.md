@@ -206,10 +206,13 @@ Implementation (`/usr/local/bin/clash-system`):
   interface's address
 - Only mangles `OUTPUT` (local traffic). `FORWARD` is untouched so
   gateway clients still route through TUN via Mihomo's auto-route rules
-- Toggle doesn't persist across reboots by default. The advanced install
-  prompt "Bypass proxy for this device's traffic on boot?" installs an
-  optional `pimiproxy-bypass.service` that runs `clash-system off`
-  after Mihomo starts
+- The runtime toggle doesn't survive a reboot on its own; the persistent
+  setting is `pimiproxy-bypass.service`, which runs `clash-system off`
+  after Mihomo starts. The advanced-install prompt "Bypass proxy for this
+  device's traffic on boot?" chooses the initial value, and it is
+  changeable afterwards via `pimiproxy system boot [on|off|status]` or
+  `configure` → "Host traffic on boot" (both apply immediately as well as
+  at boot). See `apply_boot_bypass()` in `pimiproxy_common.py`
 
 ---
 
@@ -487,7 +490,7 @@ should get its own detailed commit rather than being batched.
 | `/etc/profile.d/pimiproxy-banner.sh` | Login banner (also sourced from `/etc/bash.bashrc` / `/etc/bashrc` for desktop terminals) |
 | `/etc/cron.daily/pimiproxy-refresh` | Daily provider refresh |
 | `/etc/sysctl.d/99-pimiproxy.conf` | IP forwarding |
-| `/etc/systemd/system/pimiproxy-bypass.service` | Optional — installed only if advanced install opts in to "bypass on boot" |
+| `/etc/systemd/system/pimiproxy-bypass.service` | Optional — present when host traffic bypasses on boot (`pimiproxy system boot off`, or the advanced-install prompt) |
 
 ### Ultralite variant
 
@@ -503,7 +506,7 @@ should get its own detailed commit rather than being batched.
 | `/usr/local/bin/pimiproxy-ultralite` | Symlink → install-dir wrapper |
 | `/usr/local/bin/clash-system` | Host-traffic bypass toggle |
 | `/etc/systemd/system/mihomo.service` | systemd unit |
-| `/etc/systemd/system/pimiproxy-bypass.service` | Optional — installed only if advanced install opts in |
+| `/etc/systemd/system/pimiproxy-bypass.service` | Optional — present when host traffic bypasses on boot (`pimiproxy-ultralite system boot off`, or the advanced-install prompt) |
 
 ### Docker socket mount (full only)
 

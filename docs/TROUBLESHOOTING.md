@@ -517,7 +517,13 @@ Firefox, Chrome, some Docker containers cache DNS internally. After toggling, th
 
 ### Cause C: You want bypass to survive reboot
 
-By default, the bypass is runtime-only. After reboot, state resets to "on". To persist, install with advanced mode and answer yes to *"Bypass proxy for this device's traffic on boot?"* — this installs `pimiproxy-bypass.service` which reapplies the bypass after Mihomo comes up. Check status:
+By default the bypass is runtime-only: after a reboot, host traffic goes back through the proxy. To make it persist, set the boot behaviour (no reinstall needed):
+
+```bash
+sudo pimiproxy system boot off
+```
+
+This installs and enables `pimiproxy-bypass.service`, which reapplies the bypass once Mihomo is up. `sudo pimiproxy system boot on` reverts it, and `sudo pimiproxy system boot` (or `system status`) reports the current setting. The same toggle is in `configure` → "Host traffic on boot". The install-time prompt *"Bypass proxy for this device's traffic on boot?"* sets the initial value. Check the unit:
 
 ```bash
 systemctl status pimiproxy-bypass.service

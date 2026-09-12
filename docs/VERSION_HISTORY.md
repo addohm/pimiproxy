@@ -2,14 +2,14 @@
 
 A narrative overview of every release: what each version was *about*, in a few
 lines. For the full itemized changes behind any entry, see
-[CHANGELOG.md](CHANGELOG.md). Since 8.0.0 the release version lives in the
+[CHANGELOG.md](CHANGELOG.md). Since 8.1.0 the release version lives in the
 root `VERSION` file, is stamped into the api/ui images
 (`io.pimiproxy.version` label), ships inside every archive, and is shown by
 `status` and the login banner.
 
 | Version | Date | Theme |
 |---|---|---|
-| [8.0.0 (unreleased)](#800--in-progress-2026-08--09) | in progress | Reliability remediation, doctor, versioned releases + update path, provider-managed DNS |
+| [8.1.0](#810--2026-09-12) | 2026-09-12 | Reliability remediation, doctor, versioned releases + update path, provider-managed DNS, `version` command, boot-time host-traffic toggle |
 | [7.0.0](#700--2026-04-20) | 2026-04-20 | Host-traffic toggle returns; shared common module; API hardening |
 | [6.1.0](#610--2026-04-16) | 2026-04-16 | Always-on TUN — toggle removed |
 | [6.0.0](#600--2026-04-15) | 2026-04-15 | pimiproxy-ultralite: the Docker-free variant |
@@ -21,7 +21,7 @@ root `VERSION` file, is stamped into the api/ui images
 
 ---
 
-## 8.0.0 — in progress (2026-08 → 09)
+## 8.1.0 — 2026-09-12
 
 The reliability release, driven by faults observed on a real, long-running
 install. The remediation work landed in phases: one shared `build_config()`
@@ -45,6 +45,17 @@ bundles + manifest for the unset-by-default `update_url` channel); and
 **provider-managed DNS** — refresh now lifts `fake-ip-filter` and
 `nameserver-policy` out of the subscription's dns block and merges them,
 deduplicated, into the generated config.
+
+Rounding it out, two things that had no way to be answered or changed after
+install: a **`version` command** (`pimiproxy version`, the one subcommand that
+needs no `sudo`) with the version stamped into every banner and the help
+header, and a **boot-time host-traffic toggle** — the install prompt "Bypass
+proxy for this device's traffic on boot?" became a live setting via
+`pimiproxy system boot [on|off|status]` and a `configure` menu entry, instead
+of a one-shot choice that required a reinstall to revisit.
+
+An 8.0.0 was built and committed during this work but never distributed; the
+release is 8.1.0.
 
 ## 7.0.0 — 2026-04-20
 
@@ -113,7 +124,7 @@ Two days of rapid platformization on the new Python base:
   fwmark-based clash-system rewrite, expanded fake-ip-filter (connectivity
   checks, NTP, STUN, streaming DRM domains).
 - **4.7.0** — the `🧭 Meta Quest` proxy group injection (later moved to the
-  provider config in 8.0.0).
+  provider config in 8.1.0).
 
 ## 3.0.0 — 2026-04-11
 

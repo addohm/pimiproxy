@@ -10,6 +10,43 @@ Categories: `Added`, `Fixed`, `Changed`, `Removed`.
 
 ## [Unreleased]
 
+_Nothing yet. Bump `VERSION` and add the entry here with every change._
+
+---
+
+## [8.1.0] — 2026-09-12
+
+> Supersedes the internal 8.0.0 build, which was never distributed: the
+> `version` command and the boot-toggle work below landed before release, so
+> everything since 7.0.0 ships as 8.1.0.
+
+### Added — boot-time host-traffic setting is now changeable
+- The install prompt *"Bypass proxy for this device's traffic on boot?"* was a
+  one-shot decision: the only way to change it afterwards was a reinstall or
+  hand-editing systemd. It is now a first-class setting, reachable two ways:
+  - **`sudo pimiproxy system boot [on|off|status]`** — `on` = host traffic via
+    the proxy after every boot, `off` = direct (installs and enables
+    `pimiproxy-bypass.service`), bare `boot` reports the current setting.
+    Idempotent, and it applies to the running system too, so the live state
+    can't silently disagree with what the next reboot will do.
+  - **`configure` → "Host traffic on boot"** — shows the current setting
+    inline in the menu and takes effect immediately (it toggles a systemd
+    unit, so there is nothing to stage behind "Save and apply").
+- `sudo pimiproxy system status` now also reports the boot setting; the
+  runtime state alone never said what a reboot would do.
+- `system` was entirely absent from `--help`; both wrappers gained a **Host
+  traffic** section covering the runtime and boot toggles, noting that gateway
+  clients (e.g. a Quest) stay proxied regardless.
+- Full configure menu renumbered: "Host traffic on boot" is 11, Save is 12,
+  Exit is 13. Ultralite: 8, 9, 10.
+- The systemd mechanics moved into `pimiproxy_common.py`
+  (`boot_bypass_enabled()` / `apply_boot_bypass()`), with each variant
+  supplying its own unit text via `build_bypass_service()` — the full variant
+  orders on `docker.service`, ultralite on `mihomo.service`. Verified the
+  refactored unit text is byte-identical to what installs shipped before.
+  State is read back from systemd rather than stored in config, so a manual
+  `systemctl disable` can't leave a stale recorded value.
+
 ### Added — `version` command and version stamping across the UI
 - `pimiproxy version` (also `--version` / `-v`, both variants) prints the
   installed version and exits. Handled in the wrapper before the root check,

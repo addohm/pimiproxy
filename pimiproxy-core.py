@@ -41,6 +41,7 @@ from pimiproxy_common import (
     update_config, CONFIG_CANDIDATE, install_config, mihomo_test_cmd_docker,
     wait_for_controller, engine_health, print_engine_health, preflight_conflicts,
     read_local_version, resolve_version, set_version_tag, version_newer,
+    boot_bypass_enabled, apply_boot_bypass,
 )
 
 
@@ -446,6 +447,32 @@ def build_compose(cfg: dict) -> str:
 
 
 BYPASS_SERVICE_PATH = Path("/etc/systemd/system/pimiproxy-bypass.service")
+
+
+def build_bypass_service() -> str:
+    """
+    pimiproxy-bypass.service — re-applies `clash-system off` (host traffic
+    direct) after every boot. Waits up to 30 s for the mihomo container to
+    bring the TUN up; docker.service is the correct ordering dependency on
+    the full variant because mihomo runs inside Docker. ExecStop restores
+    host traffic to the proxy, so disabling the unit takes effect at once.
+    """
+    return (
+        "[Unit]\n"
+        "Description=pimiproxy — apply clash-system bypass after mihomo is up\n"
+        "After=docker.service\n"
+        "Requires=docker.service\n"
+        "\n"
+        "[Service]\n"
+        "Type=oneshot\n"
+        "RemainAfterExit=yes\n"
+        "ExecStartPre=/bin/sh -c 'for i in $(seq 1 30); do [ -d /sys/class/net/mihomo ] && exit 0; sleep 1; done; exit 1'\n"
+        f"ExecStart={CLASH_SYSTEM_PATH} off\n"
+        f"ExecStop={CLASH_SYSTEM_PATH} on\n"
+        "\n"
+        "[Install]\n"
+        "WantedBy=multi-user.target\n"
+    )
 
 
 # =============================================================================
@@ -1396,17 +1423,59 @@ def do_restart():
 # =============================================================================
 # SYSTEM — host-traffic bypass toggle (dispatches to /usr/local/bin/clash-system)
 # =============================================================================
+def boot_state_label() -> str:
+    """What host traffic will do after the next reboot."""
+    return ("direct (bypass)" if boot_bypass_enabled(BYPASS_SERVICE_PATH)
+            else "via proxy")
+
+
+def set_boot_bypass(target: str) -> None:
+    """
+    Apply a boot-time host-traffic setting. `target` uses the same words as
+    the runtime toggle: "on" = via proxy after boot (no bypass unit),
+    "off" = direct after boot (bypass unit installed and enabled).
+    """
+    if not CLASH_SYSTEM_PATH.exists():
+        die("clash-system not installed — run `sudo pimiproxy install` to add it")
+    want_bypass = (target == "off")
+    if want_bypass == boot_bypass_enabled(BYPASS_SERVICE_PATH):
+        info(f"Host traffic on boot is already: {boot_state_label()}")
+        return
+    if apply_boot_bypass(want_bypass, BYPASS_SERVICE_PATH, build_bypass_service()):
+        # Enabling starts the unit and disabling runs its ExecStop, so the
+        # running state always ends up matching the boot state — no surprise
+        # change on the next reboot.
+        info(f"Host traffic on boot: {boot_state_label()}")
+        info("Applied to the running system too.")
+
+
 def do_system():
     action = sys.argv[2].lower() if len(sys.argv) > 2 else "status"
+
+    # `system boot [on|off|status]` — the persistent setting, previously
+    # choosable only at install time.
+    if action == "boot":
+        target = sys.argv[3].lower() if len(sys.argv) > 3 else "status"
+        if target not in {"on", "off", "status"}:
+            die(f"Unknown boot setting '{target}'. Use: on, off, status")
+        if target == "status":
+            info(f"Host traffic on boot: {boot_state_label()}")
+        else:
+            set_boot_bypass(target)
+        return
+
     if action not in {"on", "off", "status"}:
-        die(f"Unknown action '{action}'. Use: on, off, status")
-    script = Path("/usr/local/bin/clash-system")
-    if not script.exists():
+        die(f"Unknown action '{action}'. Use: on, off, status, boot [on|off]")
+    if not CLASH_SYSTEM_PATH.exists():
         die("clash-system not installed — run `sudo pimiproxy install` to add it")
     try:
-        subprocess.run([str(script), action], check=False)
+        subprocess.run([str(CLASH_SYSTEM_PATH), action], check=False)
     except KeyboardInterrupt:
         print()
+        return
+    # The runtime state alone doesn't say what a reboot will do; show both.
+    if action == "status":
+        info(f"Host traffic on boot: {boot_state_label()}")
 
 
 # =============================================================================
@@ -1824,11 +1893,13 @@ def do_configure():
         print(f"   {C.CYAN} 8){C.NC} Switch dashboard")
         print(f"   {C.CYAN} 9){C.NC} Enable / rebuild web management UI  {C.DIM}[{_ui_status}]{C.NC}")
         print(f"   {C.CYAN}10){C.NC} Manage fake-IP DNS exceptions")
+        print(f"   {C.CYAN}11){C.NC} Host traffic on boot  "
+              f"{C.DIM}[{boot_state_label()}]{C.NC}")
         print(f"  {C.DIM}{SEP_LINE}{C.NC}")
-        print(f"   {C.CYAN}11){C.NC} Save and apply")
-        print(f"   {C.CYAN}12){C.NC} Exit without saving")
+        print(f"   {C.CYAN}12){C.NC} Save and apply")
+        print(f"   {C.CYAN}13){C.NC} Exit without saving")
         print(f"  {C.DIM}{SEP_LINE}{C.NC}")
-        choice = input(f"  {C.BOLD}Selection{C.NC} {C.DIM}[1-12]{C.NC}: ").strip()
+        choice = input(f"  {C.BOLD}Selection{C.NC} {C.DIM}[1-13]{C.NC}: ").strip()
 
         # ── provider URL ─────────────────────────────────────────────────────
         if choice == "1":
@@ -2182,7 +2253,7 @@ def do_configure():
                 compose_changed = True
 
         # ── save and apply ───────────────────────────────────────────────────
-        elif choice == "11":
+        elif choice == "12":
             if not changed and not compose_changed:
                 info("No changes to save.")
                 break
@@ -2244,7 +2315,7 @@ def do_configure():
                     _restart_engine(compose, install_dir, cfg, meta)
             break
 
-        elif choice == "12":
+        elif choice == "13":
             info("Exiting without saving.")
             break
 
@@ -2376,7 +2447,7 @@ def do_configure():
                         continue
                     extras.append(entry)
                     cfg["fake_ip_filter_extra"] = extras
-                    info(f"Added {entry} — save and apply (option 11) to activate.")
+                    info(f"Added {entry} — save and apply (option 12) to activate.")
                     changed = True
 
                 elif sub == "r":
@@ -2387,10 +2458,32 @@ def do_configure():
                     if idx.isdigit() and 1 <= int(idx) <= len(extras):
                         removed = extras.pop(int(idx) - 1)
                         cfg["fake_ip_filter_extra"] = extras
-                        info(f"Removed {removed} — save and apply (option 11) to activate.")
+                        info(f"Removed {removed} — save and apply (option 12) to activate.")
                         changed = True
                     else:
                         warn("Invalid number.")
+
+        # ── host traffic on boot ─────────────────────────────────────────────
+        # Takes effect immediately (and persists) rather than waiting for
+        # "Save and apply", which only writes config.yaml — this toggles a
+        # systemd unit, so there is nothing to stage.
+        elif choice == "11":
+            print(f"\n  {C.BOLD}Host traffic on boot:{C.NC} {boot_state_label()}")
+            print()
+            print("  Controls this device's OWN traffic after a reboot.")
+            print("  Devices using this box as their gateway (e.g. a Quest)")
+            print("  are ALWAYS proxied either way — this never affects them.")
+            print()
+            print("    via proxy        — host traffic goes through Mihomo")
+            print("    direct (bypass)  — host traffic skips Mihomo")
+            print()
+            print("  Applies to the running system as well as the next boot.")
+            print()
+            _pick = choose("Host traffic on boot", [
+                "via proxy",
+                "direct (bypass)",
+            ], default=1 if not boot_bypass_enabled(BYPASS_SERVICE_PATH) else 2)
+            set_boot_bypass("on" if _pick == 1 else "off")
 
         else:
             warn("Invalid selection.")
@@ -2897,36 +2990,10 @@ def do_install():
     CLASH_SYSTEM_PATH.chmod(0o755)
     info(f"Installed {CLASH_SYSTEM_PATH}  (advanced: sudo clash-system [on|off|status])")
 
+    apply_boot_bypass(boot_bypass, BYPASS_SERVICE_PATH, build_bypass_service())
     if boot_bypass:
-        # Wait (up to 30s) for the mihomo Docker container to bring up the TUN,
-        # then apply the bypass. docker.service is the right ordering dep on the
-        # full variant (mihomo runs inside Docker).
-        BYPASS_SERVICE_PATH.write_text(
-            "[Unit]\n"
-            "Description=pimiproxy — apply clash-system bypass after mihomo is up\n"
-            "After=docker.service\n"
-            "Requires=docker.service\n"
-            "\n"
-            "[Service]\n"
-            "Type=oneshot\n"
-            "RemainAfterExit=yes\n"
-            "ExecStartPre=/bin/sh -c 'for i in $(seq 1 30); do [ -d /sys/class/net/mihomo ] && exit 0; sleep 1; done; exit 1'\n"
-            f"ExecStart={CLASH_SYSTEM_PATH} off\n"
-            f"ExecStop={CLASH_SYSTEM_PATH} on\n"
-            "\n"
-            "[Install]\n"
-            "WantedBy=multi-user.target\n"
-        )
-        run(["systemctl", "daemon-reload"], silent=True, check=False)
-        run(["systemctl", "enable", "pimiproxy-bypass.service"], silent=True, check=False)
-        run(["systemctl", "start",  "pimiproxy-bypass.service"], silent=True, check=False)
-        info("pimiproxy-bypass.service enabled: host traffic bypasses proxy on boot.")
-    else:
-        if BYPASS_SERVICE_PATH.exists():
-            run(["systemctl", "disable", "--now", "pimiproxy-bypass.service"],
-                silent=True, check=False)
-            BYPASS_SERVICE_PATH.unlink()
-            run(["systemctl", "daemon-reload"], silent=True, check=False)
+        info("Host traffic bypasses the proxy on boot "
+             "(change later: sudo pimiproxy system boot on).")
 
     # ── login banner ──────────────────────────────────────────────────────────
     step("Login banner")

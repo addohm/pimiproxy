@@ -248,6 +248,11 @@ ${CYAN}  Maintenance${NC}
   ${BOLD}  debug${NC} [url]          Fetch a provider URL with Clash User-Agent
   ${BOLD}  export${NC} [dir]         Export config to a directory
 
+${CYAN}  Host traffic${NC}  ${DIM}(gateway clients are always proxied, regardless)${NC}
+  ${BOLD}  system${NC} [on|off]      This device's own traffic: via proxy (on) or direct (off)
+  ${BOLD}  system status${NC}        Show host-traffic state, now and after reboot
+  ${BOLD}  system boot${NC} [on|off] Set what host traffic does after every reboot
+
 ${CYAN}  Mirrors${NC}
   ${BOLD}  china-repos${NC}          Switch system package repos to Aliyun
   ${BOLD}  standard-repos${NC}       Restore original system package repos
@@ -258,6 +263,7 @@ ${CYAN}  Examples${NC}
     sudo ./pimiproxy status
     sudo ./pimiproxy test --url https://youtube.com
     sudo ./pimiproxy logs mihomo
+    sudo ./pimiproxy system boot off
 "
     exit 0
 fi

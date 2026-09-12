@@ -1283,6 +1283,55 @@ def pkg_remove(distro: str, *packages):
 
 
 # =============================================================================
+# BOOT-TIME HOST-TRAFFIC BYPASS
+# `clash-system on|off` toggles host traffic at runtime; pimiproxy-bypass.service
+# re-applies the "off" (direct) choice after every boot. The unit's ordering
+# dependency differs per variant (docker.service vs mihomo.service), so each core
+# supplies its own unit text while the systemd mechanics live here.
+#
+# State is read back from systemd rather than stored in config: the unit is the
+# single source of truth, so a manual `systemctl disable` can never leave the
+# recorded state lying.
+# =============================================================================
+def boot_bypass_enabled(unit_path) -> bool:
+    """True when the bypass unit is installed AND enabled at boot."""
+    unit_path = Path(unit_path)
+    if not unit_path.exists():
+        return False
+    return run_ok(["systemctl", "is-enabled", unit_path.name])
+
+
+def apply_boot_bypass(enabled: bool, unit_path, unit_text: str) -> bool:
+    """
+    Install+enable (enabled=True) or disable+remove (False) the bypass unit.
+    Idempotent: safe to call when already in the requested state. Returns True
+    on success, False when systemd isn't available to act on.
+    """
+    unit_path = Path(unit_path)
+    if not shutil.which("systemctl"):
+        warn("systemctl not found — boot-time bypass needs systemd.")
+        return False
+
+    if enabled:
+        unit_path.parent.mkdir(parents=True, exist_ok=True)
+        unit_path.write_text(unit_text)
+        run(["systemctl", "daemon-reload"], silent=True, check=False)
+        run(["systemctl", "enable", unit_path.name], silent=True, check=False)
+        # Starting it applies the bypass now, so the running state matches what
+        # the next boot will do — no surprise on reboot.
+        run(["systemctl", "start", unit_path.name], silent=True, check=False)
+    else:
+        if unit_path.exists():
+            # Stopping runs ExecStop (`clash-system on`), restoring host traffic
+            # to the proxy immediately rather than at the next boot.
+            run(["systemctl", "disable", "--now", unit_path.name],
+                silent=True, check=False)
+            unit_path.unlink()
+            run(["systemctl", "daemon-reload"], silent=True, check=False)
+    return True
+
+
+# =============================================================================
 # VERSIONING
 # The VERSION file at the repo root is the single source of truth. Release
 # archives ship a copy next to the core script; images carry it as the
