@@ -40,7 +40,7 @@ from pimiproxy_common import (
     SUBSCRIPTION_KEYS, config_path, config_lock, load_config, write_config,
     update_config, CONFIG_CANDIDATE, install_config, mihomo_test_cmd_native,
     wait_for_controller, engine_health, print_engine_health, preflight_conflicts,
-    read_local_version,
+    read_local_version, resolve_version, set_version_tag,
 )
 
 
@@ -507,8 +507,6 @@ def do_status():
     hostname    = meta.get("hostname",   "pimiproxy")
 
     banner("pimiproxy-ultralite status", C.CYAN)
-
-    info(f"pimiproxy version: {meta.get('version', 'unknown (pre-8.0 install)')}")
 
     # ── engine ────────────────────────────────────────────────────────────────
     step("Engine")
@@ -1544,6 +1542,12 @@ def do_install():
         shutil.copy2(_common_src, common_dest)
         info(f"Shared helpers copied to {common_dest}.")
 
+    # VERSION — so the installed tree can report its own version (and
+    # read_local_version() works from /opt, not just an extracted archive).
+    _version_src = Path(__file__).resolve().parent / "VERSION"
+    if _version_src.exists():
+        shutil.copy2(_version_src, install_path / "VERSION")
+
     # Copy the wrapper script if available, and symlink for global access
     _wrapper_src = Path(__file__).resolve().parent / "pimiproxy-ultralite"
     wrapper_dest = install_path / "pimiproxy-ultralite"
@@ -2230,6 +2234,17 @@ def main():
         print(f"     {C.BOLD}sudo pimiproxy-ultralite {' '.join(sys.argv[1:]) or '<command>'}{C.NC}")
         print(f"     (or {C.DIM}sudo /opt/pimiproxy-lite/pimiproxy-ultralite <command>{C.NC})")
         print()
+
+    # Resolve the running version once so every banner can show it. Read the
+    # meta file directly rather than via read_meta(), which warns when absent
+    # (it legitimately is, during install).
+    _meta = {}
+    try:
+        if META_PATH.exists():
+            _meta = json.loads(META_PATH.read_text())
+    except (OSError, ValueError):
+        pass
+    set_version_tag(resolve_version(_meta))
 
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     cmd  = args[0] if args else "install"

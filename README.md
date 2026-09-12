@@ -199,6 +199,7 @@ sudo ./pimiproxy <subcommand>
 | `logs [service]` | Tail live container logs (default: mihomo; also: dashboard, pimiproxy-api, pimiproxy-ui) |
 | `restart [service]` | Restart one container or all |
 | `update` | Version-aware update: refreshes mihomo/dashboard from archives or the registry; updates the pimiproxy api/ui pair from a newer release archive, local source, or a configured `update_url` host — never downgrades |
+| `version` | Print the installed version and exit — the only subcommand that does not need `sudo` (also `--version` / `-v`) |
 | `doctor` | Run guided read-only diagnostics across the whole pipeline; prints numbered fix steps and exits non-zero when problems are found |
 | `hostname <name>` | Change the system hostname (max 24 chars, alphanumeric + hyphens), restart avahi-daemon, and optionally reboot |
 | `debug [url]` | Fetch a provider URL with the Clash User-Agent and inspect the response |

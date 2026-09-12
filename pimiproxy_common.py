@@ -54,9 +54,25 @@ def warn(msg):
 SEP_LINE = "─" * 42
 
 
+# Set once at startup by each core's main() (see set_version_tag) so every
+# banner can show what version the user is running without threading meta
+# through every call site.
+_VERSION_TAG = None
+
+
+def set_version_tag(version):
+    """Record the running version for banner(). "unknown"/empty disables it."""
+    global _VERSION_TAG
+    version = str(version or "").strip()
+    _VERSION_TAG = version if version and version != "unknown" else None
+
+
 def banner(msg, colour=C.CYAN):
     print(f"\n{colour}{C.BOLD}{SEP_LINE}")
-    print(f"  {msg}")
+    if _VERSION_TAG:
+        print(f"  {msg}{C.NC}{colour}{C.DIM}  v{_VERSION_TAG}{C.NC}{colour}{C.BOLD}")
+    else:
+        print(f"  {msg}")
     print(f"{SEP_LINE}{C.NC}\n")
 
 
@@ -1283,6 +1299,20 @@ def read_local_version() -> str:
         return v or "unknown"
     except OSError:
         return "unknown"
+
+
+def resolve_version(meta: dict = None) -> str:
+    """
+    The version this install is running: `version` from .pimiproxy-meta.json
+    (recorded at install time) first, falling back to a VERSION file sitting
+    next to this module (source tree or extracted release archive).
+    "unknown" when neither is available — e.g. a pre-8.0 install.
+    """
+    if meta:
+        v = str(meta.get("version") or "").strip()
+        if v:
+            return v
+    return read_local_version()
 
 
 def parse_version(v: str):

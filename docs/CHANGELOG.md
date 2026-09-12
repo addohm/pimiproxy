@@ -10,6 +10,22 @@ Categories: `Added`, `Fixed`, `Changed`, `Removed`.
 
 ## [Unreleased]
 
+### Added — `version` command and version stamping across the UI
+- `pimiproxy version` (also `--version` / `-v`, both variants) prints the
+  installed version and exits. Handled in the wrapper before the root check,
+  so unlike every other subcommand it needs no `sudo` — previously the only
+  ways to see the version were a full `status` run or the SSH login banner.
+- Every banner now carries the version: `configure`, `doctor`, `status`,
+  `test`, `update`, `debug`, `install`, `export`, and `uninstall`, plus the
+  `--help` header. `main()` resolves it once at startup via
+  `set_version_tag()`, so no call site needs threading. Falls back silently to
+  the unversioned banner on a pre-8.0 install.
+- Both installers now copy `VERSION` into the install dir. It was shipped in
+  release archives but never installed, so `read_local_version()` returned
+  "unknown" from `/opt` and the version survived only in
+  `.pimiproxy-meta.json`. Version resolution now prefers meta and falls back
+  to that file (`resolve_version()`).
+
 ### Added — provider-managed `fake-ip-filter` and `nameserver-policy`
 - The subscription's `dns` block is no longer discarded wholesale: refresh now
   lifts `fake-ip-filter` entries and `nameserver-policy` mappings out of it
