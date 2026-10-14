@@ -8,7 +8,7 @@ __pycache__/
 # scripts/
 
 # Claude
-CLAUDE.md
+#CLAUDE.md
 .claude/
 .playwright-mcp/
 
