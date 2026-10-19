@@ -3,6 +3,21 @@
 
 # Python
 __pycache__/
+.venv/
+venv/
+
+# Local env / secrets
+.env
+.env.*
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Logs
+*.log
 
 # Dev helper script
 # scripts/
