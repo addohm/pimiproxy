@@ -16,6 +16,21 @@ _Nothing yet. Bump `VERSION` and add the entry here with every change._
 
 ## [8.4.1] — 2026-10-25
 
+### Changed — release archives move to GitHub Releases; binaries leave git
+- `bin/`, `docker-images/`, and `releases/` were tracked with Git LFS. Every
+  release added 1.3–1.9 GiB that history kept forever, the repository reached
+  20.4 GiB of LFS data against GitHub's free 10 GiB, and pushes were blocked.
+- The three directories are now gitignored and Git LFS is dropped
+  (`.gitattributes` removed). The repository history was rewritten without
+  them, so **existing clones must be re-cloned** — don't push from an old one.
+- Release archives are published as GitHub Release assets (no total-size or
+  bandwidth limit) by the new `scripts/4_publish-release.sh`, which tags
+  `v<VERSION>`, attaches every `releases/*.tar.gz`, takes its notes from this
+  changelog, and refuses archives carrying a different `VERSION`.
+- A fresh clone has no build inputs: run `1_update-upstream.sh --all` and
+  `2_rebuild.sh` before `3_build-releases.sh`. The build scripts' hints no
+  longer suggest `git lfs pull`.
+
 ### Changed — upstream components refreshed
 
   | Component | Was | Now |

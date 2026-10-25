@@ -242,9 +242,9 @@ fi
 
 # ── Geodata ──────────────────────────────────────────────────────────────────
 # Shipped into the install's config dir so Mihomo never needs GitHub at
-# runtime (geo-auto-update is off). These are Git LFS objects in the repo;
-# a clone without `git lfs pull` holds 132-byte pointer files instead, and
-# 3_build-releases.sh refuses to package those.
+# runtime (geo-auto-update is off). Not committed (docker-images/ is
+# gitignored), so a fresh clone must fetch them here; 3_build-releases.sh
+# refuses to package missing or truncated files.
 GEODATA_BASE="https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest"
 GEODATA_FILES=(geoip.metadb geosite.dat country.mmdb)
 

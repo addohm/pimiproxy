@@ -43,10 +43,12 @@ pimiproxy codebase. For end-user installation and usage see
 │   ├── nginx.conf
 │   ├── package.json
 │   └── src/
-├── bin/                          # Mihomo release binaries (.gz) — ultralite (Git LFS)
+├── bin/                          # Mihomo release binaries (.gz) — ultralite (gitignored;
+│                                 #   fetched by 1_update-upstream.sh --bins)
 ├── docker-engine/                # Static Docker engine bundles per arch (gitignored;
 │                                 #   fetched by 1_update-upstream.sh --docker)
-├── docker-images/                # Docker image archives + geodata (Git LFS)
+├── docker-images/                # Docker image archives + geodata (gitignored; fetched by
+│                                 #   1_update-upstream.sh, api/ui built by 2_rebuild.sh)
 │   ├── mihomo.tar.gz             # Multi-arch (amd64 + arm64 + armv7)
 │   ├── metacubexd.tar.gz
 │   ├── zashboard.tar.gz
@@ -55,14 +57,16 @@ pimiproxy codebase. For end-user installation and usage see
 │   ├── geoip.metadb
 │   ├── geosite.dat
 │   └── country.mmdb
-├── releases/                     # Output of 3_build-releases.sh (Git LFS)
+├── releases/                     # Output of 3_build-releases.sh (gitignored; published as
+│                                 #   GitHub Release assets by 4_publish-release.sh)
 │   └── updates/                  # Per-arch api/ui update bundles + manifest.json
 │                                 #   for the update_url channel (gitignored)
 ├── scripts/                      # Developer/maintainer helper scripts
 │   ├── 1_update-upstream.sh      # Pull latest mihomo bins + upstream Docker images
 │   ├── 2_rebuild.sh              # Build pimiproxy-api/ui Docker images (version-labelled)
-│   └── 3_build-releases.sh       # Package everything into release archives
-├── CLAUDE.md                     # Instructions for Claude Code sessions (gitignored)
+│   ├── 3_build-releases.sh       # Package everything into release archives
+│   └── 4_publish-release.sh      # Publish releases/*.tar.gz as GitHub Release v<VERSION>
+├── CLAUDE.md                     # Instructions for Claude Code sessions
 └── docs/
     ├── INSTRUCTIONS.md           # End-user install & usage guide
     ├── DEV_INSTRUCTIONS.md       # Full install walkthrough, prompt by prompt
@@ -334,7 +338,19 @@ architecture at install time and retags it as the canonical image name.
 ./scripts/1_update-upstream.sh              # fetch latest mihomo + upstream Docker images
 ./scripts/2_rebuild.sh                      # build pimiproxy-api + pimiproxy-ui (version-labelled)
 ./scripts/3_build-releases.sh               # package all archives + releases/updates/
+# commit + push, then:
+./scripts/4_publish-release.sh              # GitHub Release v<VERSION> with every archive attached
 ```
+
+**Binaries are never committed.** `bin/`, `docker-images/`, and `releases/` are gitignored —
+they were Git LFS-tracked until 8.4.1, when the accumulated history (20.4 GiB) passed GitHub's
+free LFS quota; history was rewritten without them and the repo recreated. A fresh clone
+therefore starts empty: `1_update-upstream.sh --all` fetches the upstream inputs and
+`2_rebuild.sh` builds api/ui before `3_build-releases.sh` can package anything. Archives reach
+users as **GitHub Release assets** (no total-size or bandwidth limit; each file under 2 GiB).
+`4_publish-release.sh` needs the GitHub CLI (`gh auth login`), tags `v<VERSION>` at the current
+commit (so push first), uses the version's CHANGELOG section as release notes, and refuses to run
+if any archive carries a different `VERSION`. `--draft` creates it unpublished for review.
 
 Besides the release archives, `3_build-releases.sh` writes `releases/updates/`
 (gitignored): per-arch `pimiproxy-{api,ui}-<arch>.tar.gz` bundles plus a
@@ -608,8 +624,9 @@ default, not a fallback.
 
 
 Produced by `./scripts/3_build-releases.sh`. All archives land in `releases/`
-(tracked via Git LFS); the `releases/updates/` bundles + `manifest.json` for
-the `update_url` channel are gitignored and copied to the update host at
+(gitignored) and are published as GitHub Release assets by
+`./scripts/4_publish-release.sh`; the `releases/updates/` bundles +
+`manifest.json` for the `update_url` channel are copied to the update host at
 publish time.
 
 Fourteen archives are produced in a full build (two flavors × seven

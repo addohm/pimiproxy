@@ -46,7 +46,8 @@ Once installed, any device on your network can route its traffic through the SBC
 ### Platform compatibility
 
 Pre-built release archives are produced for both the full (Docker) and
-ultralite (native binary) variants. Availability depends on whether
+ultralite (native binary) variants, and attached to each release on this
+repository's **GitHub Releases** page. Availability depends on whether
 upstream Docker images publish the target platform — ultralite has
 broader arch coverage because it ships a single self-contained binary.
 
@@ -105,7 +106,7 @@ is the right choice for air-gapped / China boxes; online is fine anywhere with n
 | `docker-images/` | *(optional)* Pre-pulled `.tar.gz` image archives for offline install |
 | `bin/` | *(optional)* Mihomo release binaries for offline/ultralite installs |
 
-The `.tar.gz` archives are not included in the repository. See [docs/INSTRUCTIONS.md](docs/INSTRUCTIONS.md) for how to prepare them.
+The `.tar.gz` archives are not committed to the repository — download them from the GitHub Releases page. See [docs/INSTRUCTIONS.md](docs/INSTRUCTIONS.md) for which one to pick and how to install it, and [docs/MAINTAINER.md](docs/MAINTAINER.md) to build them yourself.
 
 ---
 

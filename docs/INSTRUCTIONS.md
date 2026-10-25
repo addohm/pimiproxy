@@ -83,7 +83,8 @@ You'll need:
 
 ## 2. Pick the right archive
 
-Download the archive that matches your device's CPU architecture. Run
+Download the archive that matches your device's CPU architecture from the
+repository's GitHub Releases page (each release lists every archive). Run
 `uname -m` on the device to find out:
 
 | `uname -m` output | CPU | Full archive | Ultralite archive |

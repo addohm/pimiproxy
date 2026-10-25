@@ -94,12 +94,13 @@ _check_geodata() {
     for f in geoip.metadb geosite.dat country.mmdb; do
         local path="$DOCKER_IMAGES/$f"
         [[ -f "$path" ]] || { fail "Missing: docker-images/$f"; exit 1; }
-        # A Git LFS pointer is ~130 bytes and starts with a version line.
+        # A truncated download (or a Git LFS pointer from a pre-8.4.1 clone) is
+        # tiny; mihomo would load it as empty geodata.
         # Shipping one as geodata gives Mihomo an unreadable database at
         # runtime with no way to fetch a real one (geo-auto-update is off).
         if [[ $(stat -c %s "$path") -lt 100000 ]] || head -c 40 "$path" | grep -q "git-lfs"; then
-            fail "docker-images/$f is a Git LFS pointer, not real geodata."
-            echo "    Run:  git lfs pull --include='docker-images/*'   or   ./scripts/1_update-upstream.sh --geodata" >&2
+            fail "docker-images/$f is truncated or a Git LFS pointer, not real geodata."
+            echo "    Run:  ./scripts/1_update-upstream.sh --geodata" >&2
             exit 1
         fi
     done
@@ -183,7 +184,7 @@ _has_arch_tag() {
     # that silently omits the arch. Fail loudly instead of skipping.
     if [[ $(stat -c %s "$archive" 2>/dev/null || echo 0) -lt 100000 ]] || head -c 40 "$archive" 2>/dev/null | grep -q "git-lfs"; then
         fail "docker-images/$(basename "$archive") is a Git LFS pointer or truncated, not a real image archive."
-        echo "    Run:  git lfs pull --include='docker-images/*'   or   ./scripts/1_update-upstream.sh" >&2
+        echo "    Run:  ./scripts/1_update-upstream.sh --images   (pimiproxy-api/ui: ./scripts/2_rebuild.sh)" >&2
         exit 1
     fi
     docker load -i "$archive" >/dev/null 2>&1 || return 1
@@ -252,8 +253,8 @@ _build_full() {
         local de_comp="$ROOT_DIR/docker-engine/docker-compose-${arch}"
         if [[ -f "$de_tgz" ]]; then
             if [[ $(stat -c %s "$de_tgz" 2>/dev/null || echo 0) -lt 10000000 ]] || head -c 40 "$de_tgz" | grep -q "git-lfs"; then
-                fail "docker-engine/docker-${arch}.tgz is a Git LFS pointer, not the real bundle."
-                echo "    Run:  git lfs pull --include='docker-engine/*'   or   ./scripts/1_update-upstream.sh --docker" >&2
+                fail "docker-engine/docker-${arch}.tgz is truncated, not the real bundle."
+                echo "    Run:  ./scripts/1_update-upstream.sh --docker" >&2
                 exit 1
             fi
             mkdir -p "$staging/pimiproxy/docker-engine"
@@ -389,6 +390,9 @@ echo "${bold}──────────────────────�
 if ls "$RELEASES"/*.tar.gz &>/dev/null; then
     echo "${bold}${green}Done.${reset} Archives in ${bold}releases/${reset}:"
     ls -lh "$RELEASES"/*.tar.gz | awk '{printf "  %-50s %s\n", $NF, $5}'
+    echo
+    echo "  Archives are not committed. Once the release commit is pushed, publish"
+    echo "  them as GitHub Release v${PIMIPROXY_VERSION}:  ./scripts/4_publish-release.sh"
 else
     fail "No archives built — check prerequisites."
 fi
