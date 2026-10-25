@@ -2,23 +2,23 @@
      Regenerate by re-running that script. -->
 # Bundled upstream versions
 
-Last fetched: 2026-09-12
+Last fetched: 2026-10-25
 
-## mihomo v1.19.30
+## mihomo v1.19.33
 docker.io/metacubex/mihomo:latest
-https://github.com/MetaCubeX/mihomo/releases/tag/v1.19.30
+https://github.com/MetaCubeX/mihomo/releases/tag/v1.19.33
 
-## mihomo-binary v1.19.30
-bin/mihomo-linux-<arch>-v1.19.30.gz  (ultralite variant)
-https://github.com/MetaCubeX/mihomo/releases/tag/v1.19.30
+## mihomo-binary v1.19.33
+bin/mihomo-linux-<arch>-v1.19.33.gz  (ultralite variant)
+https://github.com/MetaCubeX/mihomo/releases/tag/v1.19.33
 
 ## metacubexd v1.273.1
 ghcr.io/metacubex/metacubexd:latest
 https://github.com/MetaCubeX/metacubexd/releases/tag/v1.273.1
 
-## zashboard v3.26.0
+## zashboard v3.29.1
 ghcr.io/zephyruso/zashboard:latest
-https://github.com/Zephyruso/zashboard/releases/tag/v3.26.0
+https://github.com/Zephyruso/zashboard/releases/tag/v3.29.1
 
 ## pimiproxy-api / pimiproxy-ui
 Built locally by scripts/2_rebuild.sh from this repo; versioned by the
