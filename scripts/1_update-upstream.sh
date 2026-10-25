@@ -11,21 +11,25 @@ VERSIONS_DOC="$ROOT_DIR/docs/IMAGE_VERSIONS.md"
 # Latest release tag for a GitHub repo, read from the /releases/latest
 # redirect. Deliberately not the REST API: it rate-limits per IP (unauth'd,
 # 60/hour) and has blocked this machine before, which would silently break
-# version checks. Prints nothing on failure.
+# version checks. Prints nothing on failure — the `|| true` matters: under
+# pipefail a curl failure would otherwise fail the caller's assignment and
+# set -e would exit silently before its empty-result handling ran.
 latest_tag() {   # latest_tag <owner/repo>
     curl -fsSL -o /dev/null -w '%{url_effective}' \
         "https://github.com/$1/releases/latest" 2>/dev/null \
-        | sed -n 's|.*/releases/tag/||p'
+        | sed -n 's|.*/releases/tag/||p' || true
 }
 
 # Version baked into a pulled image's OCI label. Authoritative for mihomo;
 # useless for the dashboards (metacubexd sets no labels, and zashboard's
 # label reports its Caddy base image, not zashboard) — so callers only use
-# this where it is known to be meaningful.
+# this where it is known to be meaningful. Prints nothing (and succeeds) when
+# the image or label is missing; `|| true` for the same pipefail reason as above
+# (grep -v also exits 1 when it filters everything out).
 image_label_version() {   # image_label_version <image:tag>
     docker image inspect "$1" \
         --format '{{index .Config.Labels "org.opencontainers.image.version"}}' \
-        2>/dev/null | grep -v '^<no value>$'
+        2>/dev/null | grep -v '^<no value>$' || true
 }
 DOCKER_IMAGES="$ROOT_DIR/docker-images"
 

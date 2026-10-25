@@ -77,6 +77,11 @@ _Nothing yet. Bump `VERSION` and add the entry here with every change._
   assignment and killed the script mid-check, with no message, before any
   archive was packaged. The lookup now tolerates failure, so the skip path
   runs.
+- `1_update-upstream.sh` had the same flaw in `latest_tag` and
+  `image_label_version`: a slow GitHub or a missing image label exited the
+  script silently after the downloads, before `docs/IMAGE_VERSIONS.md` was
+  written. Both now return empty on failure and the existing fallbacks
+  (`unknown`, the "could not determine the latest mihomo release" error) run.
 
 ---
 
