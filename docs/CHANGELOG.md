@@ -16,6 +16,25 @@ _Nothing yet. Bump `VERSION` and add the entry here with every change._
 
 ## [8.4.1] — 2026-10-25
 
+### Changed — upstream components refreshed
+
+  | Component | Was | Now |
+  |---|---|---|
+  | mihomo (image + ultralite binaries) | v1.19.30 | **v1.19.33** |
+  | zashboard | v3.26.0 | **v3.29.1** |
+  | metacubexd | v1.273.1 | v1.273.1 (unchanged) |
+
+- `MIHOMO_BIN_VERSION` in the ultralite core (the online flavor's GitHub
+  download pin) moved to v1.19.33 to match the bundled binaries.
+- Engine compatibility verified with `mihomo -t` under v1.19.33 (and
+  v1.19.30 as a baseline) against five freshly generated configs: full and
+  ultralite with a provider using two-space indentation, user groups/rules
+  and lifted provider DNS overrides; a four-space-indented provider with
+  appended user groups; a proxies-only subscription; and a no-provider
+  fresh install. All pass on both versions with no warnings, and a negative
+  control (MATCH to an undefined group) is rejected. Not re-tested against
+  a live device's config.
+
 ### Fixed — container logs grew without bound
 - Docker's `json-file` log driver never rotates by default, and mihomo at
   `log-level: info` writes a line per connection, so `mihomo`'s log under
