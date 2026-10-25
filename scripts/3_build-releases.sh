@@ -113,9 +113,12 @@ _check_geodata() {
 # artifacts) against current upstream releases, and refuse to package when
 # behind unless --allow-stale says otherwise.
 _latest_tag() {   # <owner/repo> — redirect, not the rate-limited REST API
+    # `|| true`: under pipefail a curl failure (timeout, 429) fails the
+    # caller's assignment and set -e exits silently, before the "could not
+    # reach GitHub" skip below can run.
     curl -fsSL --max-time 20 -o /dev/null -w '%{url_effective}' \
         "https://github.com/$1/releases/latest" 2>/dev/null \
-        | sed -n 's|.*/releases/tag/||p'
+        | sed -n 's|.*/releases/tag/||p' || true
 }
 
 _recorded_version() {   # <component>

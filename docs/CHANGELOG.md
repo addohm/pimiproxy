@@ -36,6 +36,14 @@ _Nothing yet. Bump `VERSION` and add the entry here with every change._
 - Ultralite is unaffected: its mihomo logs to journald, which caps its own
   size.
 
+### Fixed — release builder exited silently when GitHub was slow
+- `3_build-releases.sh`'s upstream freshness check is meant to skip a
+  component it can't look up ("could not reach GitHub"). Under
+  `set -euo pipefail` a curl timeout or HTTP error instead failed the
+  assignment and killed the script mid-check, with no message, before any
+  archive was packaged. The lookup now tolerates failure, so the skip path
+  runs.
+
 ---
 
 ## [8.4.0] — 2026-09-12
