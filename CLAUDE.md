@@ -139,7 +139,7 @@ sudo docker compose -f /opt/pimiproxy/docker-compose.yml up -d --force-recreate 
 | `/opt/pimiproxy/.pimiproxy-config.json` | Live config — read/written by the API container |
 | `/opt/pimiproxy/.pimiproxy-meta.json` | Install metadata (install_dir, hostname, ports, compose bin) |
 | `/opt/pimiproxy/config/config.yaml` | Generated Mihomo config — rebuilt by config_builder on every write |
-| `/opt/pimiproxy/docker-compose.yml` | Runtime compose file — pre-built images, no `build:` directive |
+| `/opt/pimiproxy/docker-compose.yml` | Runtime compose file — pre-built images, no `build:` directive, json-file log rotation (3 × 10 MB) on every service. Rewritten by `install`, `update`, and configure's port/dashboard changes |
 | `/opt/pimiproxy/ui-secret.txt` | Django `SECRET_KEY` (mounted as `/pimiproxy/ui-secret.txt`) |
 | `/usr/local/bin/pimiproxy` | Symlink → `/opt/pimiproxy/pimiproxy` |
 | `/usr/local/bin/clash-system` | Host-traffic bypass toggle |

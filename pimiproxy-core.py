@@ -407,6 +407,16 @@ def build_compose(cfg: dict) -> str:
     def L(s=""):
         lines.append(s)
 
+    def log_rotation():
+        # Docker's json-file driver never rotates by default, and mihomo at
+        # log-level info writes a line per connection — on an SBC's SD card
+        # that grows until the disk fills. Cap each container at 3 x 10 MB.
+        L("    logging:")
+        L("      driver: json-file")
+        L("      options:")
+        L("        max-size: 10m")
+        L('        max-file: "3"')
+
     L("services:")
     L()
     L("  mihomo:")
@@ -417,6 +427,7 @@ def build_compose(cfg: dict) -> str:
     L("    privileged: true")
     L("    volumes:")
     L("      - ./config:/root/.config/mihomo")
+    log_rotation()
     L()
     L("  dashboard:")
     L(f"    image: {dashboard}")
@@ -424,6 +435,7 @@ def build_compose(cfg: dict) -> str:
     L("    restart: unless-stopped")
     L("    ports:")
     L(f'      - "{dash_port}:80"')
+    log_rotation()
     L()
     L("  pimiproxy-api:")
     L("    image: pimiproxy-api:latest")
@@ -432,6 +444,7 @@ def build_compose(cfg: dict) -> str:
     L("    volumes:")
     L(f"      - {install_dir}:/pimiproxy:z")
     L("      - /var/run/docker.sock:/var/run/docker.sock")
+    log_rotation()
     L()
     L("  pimiproxy-ui:")
     L("    image: pimiproxy-ui:latest")
@@ -441,6 +454,7 @@ def build_compose(cfg: dict) -> str:
     L(f'      - "{ui_port}:80"')
     L("    depends_on:")
     L("      - pimiproxy-api")
+    log_rotation()
     L()
 
     return "\n".join(lines)
@@ -1741,6 +1755,22 @@ def do_update():
         meta["version"] = _new_ver
         write_meta(meta)
         info(f"Recorded version {_new_ver} in install metadata.")
+
+    # ── Regenerate docker-compose.yml ─────────────────────────────────────────
+    # Otherwise only install and configure's port/dashboard changes rewrite it,
+    # so installs from older releases would never pick up compose-level
+    # changes such as log rotation.
+    _compose_path = install_dir / "docker-compose.yml"
+    try:
+        _compose_text = build_compose(
+            load_config(install_dir / ".pimiproxy-config.json"))
+    except KeyError as e:
+        warn(f"Config is missing {e} — keeping the existing docker-compose.yml.")
+    else:
+        if not _compose_path.exists() \
+                or _compose_path.read_text() != _compose_text:
+            _compose_path.write_text(_compose_text)
+            info("docker-compose.yml regenerated.")
 
     # ── Recreate all containers ───────────────────────────────────────────────
     step("Recreating containers")

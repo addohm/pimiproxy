@@ -483,7 +483,7 @@ should get its own detailed commit rather than being batched.
 | `/opt/pimiproxy/.pimiproxy-config.json` | Live config, read/written by API container |
 | `/opt/pimiproxy/.pimiproxy-meta.json` | Install metadata (ports, paths, arch) |
 | `/opt/pimiproxy/config/config.yaml` | Generated Mihomo config |
-| `/opt/pimiproxy/docker-compose.yml` | Runtime compose file (no `build:` directive — uses pre-loaded images) |
+| `/opt/pimiproxy/docker-compose.yml` | Runtime compose file (no `build:` directive — uses pre-loaded images; every service rotates logs at 3 × 10 MB). Rewritten by `install`, `update`, and configure's port/dashboard changes |
 | `/opt/pimiproxy/ui-secret.txt` | Django SECRET_KEY for pimiproxy-api |
 | `/usr/local/bin/pimiproxy` | Symlink → `/opt/pimiproxy/pimiproxy` |
 | `/usr/local/bin/clash-system` | Host-traffic bypass toggle |

@@ -17,6 +17,7 @@
 10. [App Shows No Connectivity Despite Proxy Being Configured](#10-app-shows-no-connectivity-despite-proxy-being-configured)
 11. [`clash-system off` Doesn't Bypass the Proxy](#11-clash-system-off-doesnt-bypass-the-proxy)
 12. [`update` Says "No archive or source found for pimiproxy-api — skipping"](#12-update-says-no-archive-or-source-found-for-pimiproxy-api--skipping)
+13. [Disk Filling Up with Container Logs](#13-disk-filling-up-with-container-logs)
 
 ---
 
@@ -226,7 +227,7 @@ cd /opt/pimiproxy && docker compose logs --tail=50 mihomo
 cat /opt/pimiproxy/docker-compose.yml
 ```
 
-The mihomo service should have `network_mode: host` and `privileged: true`. If either is missing, re-run the installer to regenerate it:
+The mihomo service should have `network_mode: host` and `privileged: true`, and every service a `logging:` block. If any is missing, re-run the installer to regenerate it:
 
 ```bash
 sudo ./pimiproxy install
@@ -544,3 +545,17 @@ Gateway clients (Meta Quest etc. using this device as their DHCP gateway) should
 3. **A configured update host** — set `"update_url"` in `/opt/pimiproxy/.pimiproxy-config.json` to the base URL of a host serving the `releases/updates/` directory (`manifest.json` + per-arch bundles) produced by `3_build-releases.sh`. `update` then downloads, sha256-verifies, and loads both images when a newer version is offered. The download goes through the local proxy tunnel first, so it works where the update host is otherwise blocked.
 
 If none of the three exist, `update` still refreshes mihomo and the dashboard but leaves api/ui as they are — that's what the warning means. Check the running version anytime with `sudo pimiproxy status`.
+
+---
+
+## 13. Disk Filling Up with Container Logs
+
+**Symptom:** The device runs out of space; `/var/lib/docker/containers/` is large.
+
+Before v8.4.1 the generated `docker-compose.yml` set no log rotation, and Docker's default `json-file` driver keeps everything — mihomo logs a line per connection, so its log grows indefinitely. Check the per-container log sizes:
+
+```bash
+sudo sh -c 'du -h $(docker inspect --format "{{.LogPath}}" $(docker ps -aq))'
+```
+
+Since v8.4.1 every service has `max-size: 10m` / `max-file: "3"`. To apply it to an older install, reinstall from a v8.4.1+ release (`sudo ./pimiproxy install` — the configuration is preserved) or run `sudo ./pimiproxy update` from the extracted release folder. Both regenerate the compose file and recreate the containers, which also deletes the old unrotated logs.

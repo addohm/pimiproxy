@@ -14,6 +14,30 @@ _Nothing yet. Bump `VERSION` and add the entry here with every change._
 
 ---
 
+## [8.4.1] — 2026-10-25
+
+### Fixed — container logs grew without bound
+- Docker's `json-file` log driver never rotates by default, and mihomo at
+  `log-level: info` writes a line per connection, so `mihomo`'s log under
+  `/var/lib/docker/containers/` grew until the disk filled — worst on an
+  SBC's SD card. Every service in the generated `docker-compose.yml`
+  (`mihomo`, the dashboard, `pimiproxy-api`, `pimiproxy-ui`) now carries
+  `logging: {driver: json-file, options: {max-size: 10m, max-file: "3"}}`,
+  capping each container at 30 MB.
+- `update` now regenerates `docker-compose.yml` from the live config before
+  recreating containers (previously only `install` and configure's
+  port/dashboard changes rewrote it), so compose-level fixes reach existing
+  installs. A config missing a compose key keeps the existing file with a
+  warning.
+- Existing devices: `update` runs the *installed* core, so an 8.4.0 install
+  picks this up by reinstalling from the 8.4.1 release (configuration is
+  preserved), or by running `sudo ./pimiproxy update` from the extracted
+  8.4.1 folder. Recreating a container also deletes its old unrotated log.
+- Ultralite is unaffected: its mihomo logs to journald, which caps its own
+  size.
+
+---
+
 ## [8.4.0] — 2026-09-12
 
 ### Changed — upstream components refreshed after a five-month drift
